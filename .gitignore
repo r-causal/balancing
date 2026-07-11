@@ -1,0 +1,8 @@
+.Rproj.user
+.Rhistory
+.DS_Store
+.claude/
+.beads/
+scratch/
+docs
+inst/doc
