@@ -37,6 +37,20 @@ NULL
   stop(class, " cannot be modified", call. = FALSE)
 }
 
+#' Solve a discrete (binary or categorical) entropy balancing problem.
+#'
+#' @export
+`solve_entropy` <- function(`covs`, `group_idx`, `targets`, `base_weights`, `s_weights`, `tols`, `n_eff`, `options`) {
+  .Call(savvy_solve_entropy__impl, `covs`, `group_idx`, `targets`, `base_weights`, `s_weights`, `tols`, `n_eff`, `options`)
+}
+
+#' Solve a continuous-exposure entropy balancing problem over the whole sample.
+#'
+#' @export
+`solve_entropy_cont` <- function(`covs`, `targets`, `tols`, `dist_ind`, `base_weights`, `s_weights`, `n_eff`, `options`) {
+  .Call(savvy_solve_entropy_cont__impl, `covs`, `targets`, `tols`, `dist_ind`, `base_weights`, `s_weights`, `n_eff`, `options`)
+}
+
 #' Report the parallel resources the Rust core observes.
 #'
 #' @returns A list with two elements: `available`, the integer thread count, and

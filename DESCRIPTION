@@ -20,7 +20,13 @@ Depends:
     R (>= 4.2.0)
 Imports:
     cli,
-    rlang
+    generics,
+    propensity,
+    rlang,
+    S7,
+    stats,
+    tidyselect,
+    vctrs
 Suggests:
     ggplot2,
     halfmoon,

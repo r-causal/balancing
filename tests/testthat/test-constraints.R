@@ -1,0 +1,301 @@
+# balance_terms() records the constraint set; build_constraint_matrix() turns a
+# covariate selection plus a balance_terms() spec into the numeric constraint
+# matrix and a serializable recipe following the expansion rules in the design;
+# rebuild_constraint_matrix() reconstructs the matrix from the recipe alone.
+#
+# build_constraint_matrix() is an internal helper called after balance()
+# resolves the covariate names, so these specs call it with a data frame, a
+# character vector of covariate names, a balance_terms() spec, and the resolved
+# exposure type, and expect a list with `matrix` and `recipe` components.
+
+# ---- balance_terms() defaults and validation ------------------------------
+
+test_that("balance_terms() carries its documented defaults", {
+  terms <- balance_terms()
+  expect_null(terms@moments)
+  expect_false(terms@interactions)
+  expect_null(terms@quantiles)
+  expect_identical(terms@tolerance, 0)
+})
+
+test_that("balance_terms() stores supplied values", {
+  terms <- balance_terms(
+    moments = 2L,
+    interactions = TRUE,
+    quantiles = c(0.25, 0.75),
+    tolerance = 0.1
+  )
+  expect_identical(terms@moments, 2L)
+  expect_true(terms@interactions)
+  expect_identical(terms@quantiles, c(0.25, 0.75))
+  expect_identical(terms@tolerance, 0.1)
+})
+
+test_that("balance_terms() rejects negative moments", {
+  expect_identical(balance_terms(moments = 1L)@moments, 1L)
+  expect_error(balance_terms(moments = -1L))
+})
+
+test_that("balance_terms() rejects quantiles outside the unit interval", {
+  expect_identical(balance_terms(quantiles = 0.75)@quantiles, 0.75)
+  expect_error(balance_terms(quantiles = c(0.5, 1.5)))
+})
+
+test_that("balance_terms() rejects a negative tolerance", {
+  expect_identical(balance_terms(tolerance = 0.1)@tolerance, 0.1)
+  expect_error(balance_terms(tolerance = -0.1))
+})
+
+# ---- build_constraint_matrix(): base columns and factors ------------------
+
+test_that("numeric covariates become one mean-balance column each", {
+  data <- data.frame(x1 = c(-1, 0, 1, 2), x2 = c(2, 1, 0, -1))
+  built <- build_constraint_matrix(
+    data,
+    c("x1", "x2"),
+    balance_terms(),
+    exposure_type = "binary"
+  )
+
+  expect_identical(ncol(built$matrix), 2L)
+  kinds <- vapply(built$recipe, function(term) term$kind, character(1))
+  expect_true(all(kinds == "moment"))
+})
+
+test_that("factor covariates expand to a full set of level indicators", {
+  data <- data.frame(
+    x1 = c(-1, 0, 1, 2, 0.5, -0.5),
+    f = factor(c("a", "b", "c", "a", "b", "c"))
+  )
+  built <- build_constraint_matrix(
+    data,
+    c("x1", "f"),
+    balance_terms(),
+    exposure_type = "binary"
+  )
+
+  sources <- vapply(built$recipe, function(term) term$source, character(1))
+  # One column for x1 plus one indicator per level of f (full set, not
+  # reference-coded).
+  expect_identical(sum(sources == "f"), 3L)
+  expect_identical(ncol(built$matrix), 4L)
+})
+
+# ---- build_constraint_matrix(): powers and standardization ----------------
+
+test_that("moments above one add centered raw powers", {
+  data <- data.frame(x1 = c(-2, -1, 0, 1, 2, 3))
+  built <- build_constraint_matrix(
+    data,
+    "x1",
+    balance_terms(moments = 3L),
+    exposure_type = "binary"
+  )
+
+  kinds <- vapply(built$recipe, function(term) term$kind, character(1))
+  powers <- vapply(built$recipe, function(term) term$power, integer(1))
+  expect_identical(ncol(built$matrix), 3L)
+  expect_identical(sort(powers), c(1L, 2L, 3L))
+  expect_identical(kinds[powers == 1L], "moment")
+  expect_true(all(kinds[powers > 1L] == "power"))
+})
+
+test_that("the recipe records the standardization center and scale", {
+  data <- data.frame(x1 = c(-2, -1, 0, 1, 2, 3))
+  built <- build_constraint_matrix(
+    data,
+    "x1",
+    balance_terms(),
+    exposure_type = "binary"
+  )
+
+  record <- built$recipe[[1]]
+  expect_true(is.numeric(record$center))
+  expect_true(is.numeric(record$scale))
+  # Columns cross the boundary standardized to unit scale.
+  expect_equal(stats::sd(built$matrix[, 1]), 1, tolerance = 1e-8)
+})
+
+# ---- build_constraint_matrix(): interactions ------------------------------
+
+test_that("interactions add pairwise products but skip within-factor pairs", {
+  data <- data.frame(
+    x1 = c(-1, 0, 1, 2, 0.5, -0.5),
+    x2 = c(2, 1, 0, -1, 0.25, 0.75),
+    f = factor(c("a", "b", "c", "a", "b", "c"))
+  )
+  built <- build_constraint_matrix(
+    data,
+    c("x1", "x2", "f"),
+    balance_terms(interactions = TRUE),
+    exposure_type = "binary"
+  )
+
+  kinds <- vapply(built$recipe, function(term) term$kind, character(1))
+  interactions <- built$recipe[kinds == "interaction"]
+  partners <- vapply(
+    interactions,
+    function(term) paste(sort(c(term$source, term$partner)), collapse = ":"),
+    character(1)
+  )
+  # x1:x2, x1:f, x2:f cross-terms are present; no indicator of f is crossed
+  # with another indicator of f.
+  expect_true("x1:x2" %in% partners)
+  expect_false(any(vapply(
+    interactions,
+    function(term) identical(term$source, "f") && identical(term$partner, "f"),
+    logical(1)
+  )))
+})
+
+# ---- build_constraint_matrix(): quantiles ---------------------------------
+
+test_that("quantiles add indicator columns for a discrete exposure", {
+  data <- data.frame(x1 = seq(-2, 2, length.out = 20))
+  built <- build_constraint_matrix(
+    data,
+    "x1",
+    balance_terms(quantiles = c(0.25, 0.5, 0.75)),
+    exposure_type = "binary"
+  )
+
+  kinds <- vapply(built$recipe, function(term) term$kind, character(1))
+  expect_identical(sum(kinds == "quantile"), 3L)
+})
+
+test_that("quantiles with a continuous exposure error", {
+  data <- data.frame(x1 = seq(-2, 2, length.out = 20))
+  expect_error(
+    build_constraint_matrix(
+      data,
+      "x1",
+      balance_terms(quantiles = 0.5),
+      exposure_type = "continuous"
+    ),
+    class = "balancing_constraints_error"
+  )
+})
+
+# ---- build_constraint_matrix(): aliased columns ---------------------------
+
+test_that("aliased columns are dropped with an alert", {
+  withr::local_options(balancing.quiet = FALSE)
+  data <- data.frame(
+    x1 = c(-1, 0, 1, 2, 0.5, -0.5)
+  )
+  data$x2 <- data$x1
+  expect_message(
+    built <- build_constraint_matrix(
+      data,
+      c("x1", "x2"),
+      balance_terms(),
+      exposure_type = "binary"
+    )
+  )
+  expect_identical(ncol(built$matrix), 1L)
+})
+
+# ---- rebuild_constraint_matrix(): round trip ------------------------------
+
+test_that("rebuild_constraint_matrix() reproduces the built matrix", {
+  data <- data.frame(
+    x1 = c(-2, -1, 0, 1, 2, 3),
+    f = factor(c("a", "b", "c", "a", "b", "c"))
+  )
+  built <- build_constraint_matrix(
+    data,
+    c("x1", "f"),
+    balance_terms(moments = 2L),
+    exposure_type = "binary"
+  )
+  rebuilt <- rebuild_constraint_matrix(built$recipe, data)
+
+  expect_equal(rebuilt, built$matrix)
+})
+
+# ---- Per-covariate tolerance ----------------------------------------------
+
+test_that("a scalar tolerance applies to every constraint column", {
+  data <- data.frame(x1 = rnorm(20), x2 = rnorm(20))
+  built <- build_constraint_matrix(
+    data,
+    c("x1", "x2"),
+    balance_terms(tolerance = 0.1),
+    exposure_type = "binary"
+  )
+  tolerances <- vapply(built$recipe, function(r) r$tolerance, numeric(1))
+  expect_equal(tolerances, c(0.1, 0.1))
+})
+
+test_that("a named tolerance sets per-covariate values and derived columns inherit", {
+  data <- data.frame(x1 = rnorm(30), x2 = rnorm(30))
+  built <- build_constraint_matrix(
+    data,
+    c("x1", "x2"),
+    balance_terms(moments = c(x1 = 2L), tolerance = c(x1 = 0.2)),
+    exposure_type = "binary"
+  )
+  terms <- vapply(built$recipe, function(r) r$term, character(1))
+  tolerances <- stats::setNames(
+    vapply(built$recipe, function(r) r$tolerance, numeric(1)),
+    terms
+  )
+  # The x1 power column inherits x1's tolerance; the unnamed x2 defaults to exact.
+  expect_equal(tolerances[["x1"]], 0.2)
+  expect_equal(tolerances[["x1^2"]], 0.2)
+  expect_equal(tolerances[["x2"]], 0)
+})
+
+test_that("an unnamed multi-element tolerance is a classed error", {
+  data <- data.frame(x1 = rnorm(20), x2 = rnorm(20))
+  expect_error(
+    build_constraint_matrix(
+      data,
+      c("x1", "x2"),
+      balance_terms(tolerance = c(0.1, 0.2)),
+      exposure_type = "binary"
+    ),
+    class = "balancing_constraints_error"
+  )
+})
+
+test_that("a tolerance named for a non-covariate is a classed error", {
+  data <- data.frame(x1 = rnorm(20), x2 = rnorm(20))
+  expect_error(
+    build_constraint_matrix(
+      data,
+      c("x1", "x2"),
+      balance_terms(tolerance = c(nonesuch = 0.1)),
+      exposure_type = "binary"
+    ),
+    class = "balancing_constraints_error"
+  )
+})
+
+# ---- List quantiles -------------------------------------------------------
+
+test_that("a quantile list adds per-covariate quantile columns", {
+  data <- data.frame(x1 = rnorm(50), x2 = rnorm(50))
+  built <- build_constraint_matrix(
+    data,
+    c("x1", "x2"),
+    balance_terms(quantiles = list(x1 = c(0.25, 0.75), x2 = 0.5)),
+    exposure_type = "binary"
+  )
+  terms <- vapply(built$recipe, function(r) r$term, character(1))
+  quantile_terms <- terms[grepl("_q", terms)]
+  expect_setequal(quantile_terms, c("x1_q0.25", "x1_q0.75", "x2_q0.5"))
+})
+
+test_that("a covariate absent from the quantile list contributes no columns", {
+  data <- data.frame(x1 = rnorm(50), x2 = rnorm(50))
+  built <- build_constraint_matrix(
+    data,
+    c("x1", "x2"),
+    balance_terms(quantiles = list(x1 = 0.5)),
+    exposure_type = "binary"
+  )
+  terms <- vapply(built$recipe, function(r) r$term, character(1))
+  expect_true("x1_q0.5" %in% terms)
+  expect_false(any(grepl("x2_q", terms)))
+})

@@ -15,6 +15,9 @@ rayon = "1"
 osqp = "1"
 clarabel = "0.11"
 basin = "1"
+# Dense linear algebra. Only the small k x k factorizations run through faer, so
+# rayon is left off: the deterministic reductions own all data parallelism.
+faer = { version = "0.24.4", default-features = false, features = ["std", "linalg"] }
 
 # Release profile. `panic = "unwind"` is required: savvy converts a Rust panic
 # into an R error, which is only possible when panics unwind rather than abort.

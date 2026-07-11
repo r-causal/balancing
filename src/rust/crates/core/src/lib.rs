@@ -5,6 +5,11 @@
 //! work testable in isolation and leaves room for a second frontend against the
 //! same core.
 
+pub mod esteq;
+pub mod linalg;
+pub mod methods;
+pub mod threads;
+
 /// Threads available for parallel work, and the constraint that set the count.
 ///
 /// The count reflects the physical parallelism the process observes, lowered to

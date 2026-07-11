@@ -39,6 +39,16 @@ SEXP handle_result(SEXP res_) {
     return (SEXP)res;
 }
 
+SEXP savvy_solve_entropy__impl(SEXP c_arg__covs, SEXP c_arg__group_idx, SEXP c_arg__targets, SEXP c_arg__base_weights, SEXP c_arg__s_weights, SEXP c_arg__tols, SEXP c_arg__n_eff, SEXP c_arg__options) {
+    SEXP res = savvy_solve_entropy__ffi(c_arg__covs, c_arg__group_idx, c_arg__targets, c_arg__base_weights, c_arg__s_weights, c_arg__tols, c_arg__n_eff, c_arg__options);
+    return handle_result(res);
+}
+
+SEXP savvy_solve_entropy_cont__impl(SEXP c_arg__covs, SEXP c_arg__targets, SEXP c_arg__tols, SEXP c_arg__dist_ind, SEXP c_arg__base_weights, SEXP c_arg__s_weights, SEXP c_arg__n_eff, SEXP c_arg__options) {
+    SEXP res = savvy_solve_entropy_cont__ffi(c_arg__covs, c_arg__targets, c_arg__tols, c_arg__dist_ind, c_arg__base_weights, c_arg__s_weights, c_arg__n_eff, c_arg__options);
+    return handle_result(res);
+}
+
 SEXP savvy_thread_info__impl(void) {
     SEXP res = savvy_thread_info__ffi();
     return handle_result(res);
@@ -46,6 +56,8 @@ SEXP savvy_thread_info__impl(void) {
 
 
 static const R_CallMethodDef CallEntries[] = {
+    {"savvy_solve_entropy__impl", (DL_FUNC) &savvy_solve_entropy__impl, 8},
+    {"savvy_solve_entropy_cont__impl", (DL_FUNC) &savvy_solve_entropy_cont__impl, 8},
     {"savvy_thread_info__impl", (DL_FUNC) &savvy_thread_info__impl, 0},
     {NULL, NULL, 0}
 };

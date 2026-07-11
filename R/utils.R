@@ -35,3 +35,52 @@ alert_info <- function(.message, .envir = parent.frame()) {
     cli::cli_alert_info(text = .message, .envir = .envir)
   }
 }
+
+# Resolve the worker-thread count for a solver call. The resolution order is the
+# explicit `threads` argument, then the `balancing.threads` option, then an
+# automatic count. The automatic count is the physical core count, capped by
+# OMP_THREAD_LIMIT and OMP_NUM_THREADS and forced to two under R CMD check, so a
+# CRAN run never spawns more than the checker permits. The count is computed on
+# the R side and passed to the core, which re-checks OMP_THREAD_LIMIT as a
+# backstop.
+resolve_threads <- function(threads = NULL) {
+  if (!is.null(threads)) {
+    return(max(1L, as.integer(threads)))
+  }
+  option <- getOption("balancing.threads")
+  if (!is.null(option)) {
+    return(max(1L, as.integer(option)))
+  }
+  automatic_threads()
+}
+
+automatic_threads <- function() {
+  if (nzchar(Sys.getenv("_R_CHECK_LIMIT_CORES_"))) {
+    return(2L)
+  }
+  physical <- parallel::detectCores(logical = FALSE)
+  if (is.na(physical) || physical < 1L) {
+    physical <- 1L
+  }
+  caps <- c(
+    physical,
+    env_thread_cap("OMP_THREAD_LIMIT"),
+    env_thread_cap("OMP_NUM_THREADS")
+  )
+  max(1L, as.integer(min(caps)))
+}
+
+# Parse an environment-variable thread cap, returning Inf when the variable is
+# unset or not a positive whole number so it does not constrain the minimum.
+env_thread_cap <- function(name) {
+  value <- Sys.getenv(name)
+  if (!nzchar(value)) {
+    return(Inf)
+  }
+  parsed <- suppressWarnings(as.integer(value))
+  if (is.na(parsed) || parsed < 1L) {
+    Inf
+  } else {
+    parsed
+  }
+}

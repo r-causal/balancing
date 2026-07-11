@@ -1,0 +1,321 @@
+# balance() is the orchestrator. It resolves the exposure and covariate
+# selections, detects and announces the exposure type, validates the estimand and
+# focal level against the method's support, evaluates the sampling weights, builds
+# the constraint matrix, dispatches to the method's fit, and assembles the
+# balancing result together with its balance table.
+
+#' Estimate balancing weights
+#'
+#' `balance()` is the entry point to the package. It fits a balancing method to a
+#' data frame, returning weights that target covariate balance directly. The
+#' exposure and covariates are chosen with tidyselect, the method is one of the
+#' method specifications such as [entropy_balance()], and the estimand and
+#' constraints control what balance the weights achieve.
+#'
+#' @details
+#' The exposure type is detected automatically and announced through an
+#' informational message, which `options(balancing.quiet = TRUE)` suppresses. The
+#' estimand vocabulary matches propensity: `"atc"` is accepted as a synonym for
+#' the untreated target and stored as `"atu"`. `"att"` and `"atc"` reweight
+#' toward a focal exposure level, inferred for a binary exposure and required
+#' through `focal_level` for a categorical exposure. Continuous exposures permit
+#' only `"ate"`.
+#'
+#' Constraints default to first-moment balance. Pass a [balance_terms()]
+#' specification to balance higher moments, interactions, or quantiles, or to
+#' relax exact balance to a tolerance.
+#'
+#' @param .data A data frame.
+#' @param .exposure The exposure column, selected with data-masking. Exactly one
+#'   column.
+#' @param .covariates The covariate columns, selected with tidyselect. At least
+#'   one column, with no default.
+#' @param method A [balance_method] specification from one of the method
+#'   constructors, such as [entropy_balance()].
+#' @param estimand The target estimand: `"ate"`, `"att"`, `"atc"` (stored as
+#'   `"atu"`), or `"ato"`. Defaults to `"ate"`.
+#' @param ... Reserved; must be empty.
+#' @param constraints A [balance_terms()] specification, or `NULL` for the method
+#'   default.
+#' @param exposure_type One of `"auto"` (the default), `"binary"`,
+#'   `"categorical"`, or `"continuous"`.
+#' @param focal_level The focal exposure level for `"att"` and `"atc"`. Inferred
+#'   for a binary exposure; required for a categorical exposure.
+#' @param sampling_weights Sampling weights, given as a bare column name or an
+#'   external numeric vector, or `NULL`.
+#'
+#' @return A [balancing] object.
+#'
+#' @examples
+#' n <- 200
+#' x1 <- rnorm(n)
+#' x2 <- rnorm(n)
+#' df <- data.frame(
+#'   exposure = rbinom(n, 1, plogis(0.5 * x1 - 0.5 * x2)),
+#'   x1 = x1,
+#'   x2 = x2
+#' )
+#' fit <- balance(df, exposure, c(x1, x2), method = entropy_balance())
+#' fit
+#' weights(fit)
+#'
+#' @export
+balance <- function(
+  .data,
+  .exposure,
+  .covariates,
+  method = entropy_balance(),
+  estimand = c("ate", "att", "atc", "ato"),
+  ...,
+  constraints = NULL,
+  exposure_type = c("auto", "binary", "categorical", "continuous"),
+  focal_level = NULL,
+  sampling_weights = NULL
+) {
+  the_call <- match.call()
+  rlang::check_dots_empty()
+
+  validate_data_frame(.data)
+
+  if (!S7::S7_inherits(method, balance_method)) {
+    abort(
+      c(
+        "{.arg method} must be a balancing method specification.",
+        x = "You supplied {.obj_type_friendly {method}}.",
+        i = "Construct one with a method constructor, for example {.code entropy_balance()}."
+      ),
+      error_class = "balancing_method_error"
+    )
+  }
+
+  exposure_pos <- tidyselect::eval_select(rlang::enquo(.exposure), .data)
+  validate_selection(exposure_pos, ".exposure", expected = "one")
+  exposure_name <- names(exposure_pos)
+  exposure_vec <- .data[[exposure_pos]]
+
+  covariate_pos <- tidyselect::eval_select(rlang::enquo(.covariates), .data)
+  validate_selection(covariate_pos, ".covariates", expected = "some")
+  covariate_names <- names(covariate_pos)
+
+  n <- nrow(.data)
+
+  sampling_weights_value <- rlang::eval_tidy(
+    rlang::enquo(sampling_weights),
+    data = .data
+  )
+  if (!is.null(sampling_weights_value)) {
+    validate_sampling_weights(sampling_weights_value, n)
+  }
+
+  validate_no_missing(exposure_vec, .data, covariate_names)
+
+  exposure_type <- resolve_exposure_type(exposure_type, exposure_vec, method)
+
+  estimand <- rlang::arg_match0(
+    estimand[[1]],
+    c("ate", "att", "atc", "atu", "ato"),
+    arg_nm = "estimand"
+  )
+  if (identical(estimand, "atc")) {
+    estimand <- "atu"
+  }
+  supported <- supported_estimands(method, exposure_type)
+  if (!estimand %in% supported) {
+    abort(
+      c(
+        "{method_label(method)} does not support the {.val {estimand}} estimand for a {.val {exposure_type}} exposure.",
+        i = "Supported estimands are {.val {supported}}."
+      ),
+      error_class = "balancing_estimand_error"
+    )
+  }
+
+  exposure_key <- as.character(exposure_vec)
+  levels <- exposure_levels(exposure_vec, exposure_type)
+  focal_level <- resolve_focal_level(
+    estimand,
+    exposure_type,
+    levels,
+    focal_level
+  )
+
+  constraints <- constraints %||% balance_terms(moments = 1L)
+
+  built <- build_constraint_matrix(
+    .data,
+    covariate_names,
+    constraints,
+    exposure_type,
+    sampling_weights = sampling_weights_value
+  )
+
+  groups <- if (identical(exposure_type, "continuous")) {
+    NULL
+  } else {
+    stats::setNames(
+      lapply(levels, function(level) which(exposure_key == level)),
+      levels
+    )
+  }
+
+  prepared <- list(
+    matrix = built$matrix,
+    recipe = built$recipe,
+    data = .data,
+    covariates = covariate_names,
+    exposure_vec = exposure_vec,
+    exposure_key = exposure_key,
+    exposure_type = exposure_type,
+    exposure_levels = levels,
+    groups = groups,
+    estimand = estimand,
+    focal_level = focal_level,
+    sampling_weights = sampling_weights_value %||% rep(1, n),
+    n = n,
+    tolerances = column_tolerances(built$recipe)
+  )
+
+  fit <- fit_method(method, prepared)
+
+  # A user interrupt during the solve unwinds the Rust core cleanly and reports
+  # itself as a flag rather than a longjmp. Re-signal it here so a cancelled fit
+  # raises the interrupt condition instead of returning a partial result behind
+  # a convergence warning.
+  if (isTRUE(fit$interrupted)) {
+    rlang::interrupt()
+  }
+
+  if (!fit$converged) {
+    warn(
+      c(
+        "The solver did not reach its convergence tolerance.",
+        i = "Increase {.arg max_iterations} or loosen {.arg convergence_tolerance} in {.fn {class(method)[1]}}."
+      ),
+      warning_class = "balancing_convergence_warning"
+    )
+  }
+
+  weights <- new_bw(fit$weights, estimand = estimand, groups = groups)
+
+  base_measure <- prepared$sampling_weights *
+    (method@base_weights %||% rep(1, n))
+  balance_table <- compute_balance_table(
+    built$recipe,
+    .data,
+    exposure_vec,
+    exposure_type,
+    estimand,
+    focal_level,
+    groups,
+    as.numeric(weights) * prepared$sampling_weights,
+    tolerance = 0,
+    reference = base_measure
+  )
+
+  excess <- balance_table$weighted -
+    balance_table$tolerance -
+    balance_margin(balance_table$tolerance)
+  if (max(excess) > 0) {
+    worst <- max(abs(balance_table$weighted))
+    warn(
+      c(
+        "The achieved balance exceeds the requested tolerance.",
+        x = "The largest imbalance is {formatC(worst, format = 'f', digits = 4)}.",
+        i = "Raise {.arg tolerance} in {.fn balance_terms}, lower the moments, or drop interactions."
+      ),
+      warning_class = "balancing_balance_warning"
+    )
+  }
+
+  balancing(
+    weights = weights,
+    method = method,
+    estimand = estimand,
+    exposure = exposure_name,
+    exposure_type = exposure_type,
+    covariates = covariate_names,
+    focal_level = focal_level,
+    n = as.integer(n),
+    constraints = constraints,
+    recipe = built$recipe,
+    balance_table = balance_table,
+    duals = NULL,
+    coefficients = fit$coefficients,
+    converged = fit$converged,
+    iterations = fit$iterations,
+    objective = fit$objective,
+    solver_status = fit$solver_status,
+    estimating_equations = fit$estimating_equations,
+    sampling_weights = sampling_weights_value,
+    call = the_call
+  )
+}
+
+# The per-column tolerances carried by a recipe, aligned with the constraint
+# matrix columns. Empty recipes yield a zero-length vector.
+column_tolerances <- function(recipe) {
+  vapply(recipe, function(record) record$tolerance, numeric(1))
+}
+
+# The distinct exposure levels in a stable order: the factor levels when the
+# exposure is a factor, otherwise the sorted unique values as strings.
+exposure_levels <- function(exposure_vec, exposure_type) {
+  if (identical(exposure_type, "continuous")) {
+    return(character(0))
+  }
+  if (is.factor(exposure_vec)) {
+    levels(exposure_vec)
+  } else {
+    sort(unique(as.character(exposure_vec)))
+  }
+}
+
+# Resolve the focal exposure level for att and atc. A binary exposure infers the
+# treated level (the second level) for att and the control level (the first) for
+# atc; a categorical exposure requires an explicit focal_level.
+resolve_focal_level <- function(
+  estimand,
+  exposure_type,
+  levels,
+  focal_level,
+  call = rlang::caller_env()
+) {
+  if (identical(estimand, "ate")) {
+    return(NULL)
+  }
+
+  if (identical(exposure_type, "binary")) {
+    if (!is.null(focal_level)) {
+      resolved <- as.character(focal_level)
+    } else if (identical(estimand, "att")) {
+      resolved <- levels[[2]]
+    } else {
+      resolved <- levels[[1]]
+    }
+  } else {
+    if (is.null(focal_level)) {
+      abort(
+        c(
+          "{.arg focal_level} is required for the {.val {estimand}} estimand with a categorical exposure.",
+          i = "Supply the exposure level to target, one of {.val {levels}}."
+        ),
+        error_class = "balancing_estimand_error",
+        call = call
+      )
+    }
+    resolved <- as.character(focal_level)
+  }
+
+  if (!resolved %in% levels) {
+    abort(
+      c(
+        "{.arg focal_level} must be an exposure level.",
+        x = "{.val {resolved}} is not one of {.val {levels}}."
+      ),
+      error_class = "balancing_estimand_error",
+      call = call
+    )
+  }
+
+  resolved
+}
