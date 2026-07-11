@@ -1,0 +1,2 @@
+[lint]
+exclude = ["R/000-wrappers.R"]

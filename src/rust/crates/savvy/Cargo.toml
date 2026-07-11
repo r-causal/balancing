@@ -1,0 +1,15 @@
+[package]
+name = "balancing-savvy"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+publish = false
+
+[lib]
+# staticlib is linked into the R package; lib keeps the exports callable from
+# `cargo test` and from any future non-R frontend.
+crate-type = ["staticlib", "lib"]
+
+[dependencies]
+savvy = { workspace = true }
+balancing-core = { path = "../core" }

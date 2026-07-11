@@ -1,0 +1,7 @@
+# On Windows, link.exe fails when the artifact contains unresolved symbols
+# (R's API, which cannot be resolved without a real R session). This flag makes
+# the linker ignore that, which is needed only for `cargo test`, not for
+# `R CMD check`. The directory is Rbuildignored so it does not reach the built
+# package.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "link-arg=/FORCE:UNRESOLVED"]

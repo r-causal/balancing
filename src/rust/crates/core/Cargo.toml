@@ -1,0 +1,21 @@
+[package]
+name = "balancing-core"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+publish = false
+
+[features]
+# Both optional solver backends ship enabled so their runtime options work out
+# of the box. The features exist so a minimal benchmark build can drop either
+# dependency, and so a problematic backend can be removed from a release without
+# restructuring the code that calls it.
+default = ["solver-basin", "qp-clarabel"]
+solver-basin = ["dep:basin"]
+qp-clarabel = ["dep:clarabel"]
+
+[dependencies]
+rayon = { workspace = true }
+osqp = { workspace = true }
+basin = { workspace = true, optional = true }
+clarabel = { workspace = true, optional = true }

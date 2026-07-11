@@ -1,0 +1,24 @@
+[workspace]
+resolver = "3"
+members = ["crates/core", "crates/savvy"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.85"
+version = "0.0.0"
+
+# Shared dependency versions. Crates opt in with `{ workspace = true }` so a
+# single line governs the version across the whole tree.
+[workspace.dependencies]
+savvy = "0.10.2"
+rayon = "1"
+osqp = "1"
+clarabel = "0.11"
+basin = "1"
+
+# Release profile. `panic = "unwind"` is required: savvy converts a Rust panic
+# into an R error, which is only possible when panics unwind rather than abort.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "unwind"

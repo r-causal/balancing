@@ -1,0 +1,38 @@
+Package: balancing
+Title: Optimization-Based Balancing Weights for Causal Inference
+Version: 0.0.0.9000
+Authors@R:
+    person("Malcolm", "Barrett", , "malcolmbarrett@gmail.com", role = c("aut", "cre", "cph"),
+           comment = c(ORCID = "0000-0003-0299-5825"))
+Description: Calculates optimization-based balancing weights for causal
+    inference, including entropy balancing, inverse probability tilting,
+    the covariate balancing propensity score, energy balancing,
+    characteristic function distance balancing, and stable balancing
+    weights. Weights target covariate balance directly by solving a convex
+    optimization problem, with support for binary, categorical, and
+    continuous exposures across a range of causal estimands. A Rust core
+    provides the numerical solvers.
+License: MIT + file LICENSE
+URL: https://r-causal.github.io/balancing/,
+    https://github.com/r-causal/balancing
+BugReports: https://github.com/r-causal/balancing/issues
+Depends:
+    R (>= 4.2.0)
+Imports:
+    cli,
+    rlang
+Suggests:
+    ggplot2,
+    halfmoon,
+    knitr,
+    optweight,
+    rmarkdown,
+    testthat (>= 3.0.0),
+    WeightIt,
+    withr
+Config/roxygen2/version: 8.0.0
+Config/testthat/edition: 3
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+SystemRequirements: Cargo (Rust's package manager), rustc (>= 1.85), GNU
+    make, xz, cmake
