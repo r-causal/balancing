@@ -37,6 +37,25 @@
       Constraints: 2 terms (tolerance 0.1)
       Largest imbalance: 0.1751 (correlation)
 
+# balancing_ignored_argument_warning: two_step without over_identified
+
+    Code
+      expr
+    Condition <balancing_ignored_argument_warning>
+      Warning in `method(fit_method, balancing::cbps)`:
+      `two_step` applies only to the over-identified fit and is ignored.
+      i Set `over_identified = TRUE` in `cbps()` to use the two-step weighting matrix.
+    Output
+      
+      -- Covariate balancing propensity score ----------------------------------------
+      Exposure: "exposure" (binary)
+      Estimand: "ate"
+      Observations: 500
+      Effective sample size (0: 180.1 and 1: 236.0)
+      Solver: converged in 4 iterations
+      Constraints: 2 terms (tolerance 0)
+      Largest imbalance: 0.0000 (standardized mean difference)
+
 # balancing_class_downgrade_warning: mismatched estimands
 
     Code

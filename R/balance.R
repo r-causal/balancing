@@ -197,14 +197,16 @@ balance <- function(
 
   weights <- new_bw(fit$weights, estimand = estimand, groups = groups)
 
-  # Only entropy balancing carries base weights; other methods anchor to a
-  # uniform measure.
+  # The base measure the solver targets. Only entropy balancing carries base
+  # weights; other methods anchor to a uniform measure. It sets the pooled target
+  # the average-treatment-effect constraint geometry measures against.
   base_weights <- if ("base_weights" %in% S7::prop_names(method)) {
     method@base_weights %||% rep(1, n)
   } else {
     rep(1, n)
   }
   base_measure <- prepared$sampling_weights * base_weights
+
   balance_table <- compute_balance_table(
     built$recipe,
     .data,
@@ -215,13 +217,16 @@ balance <- function(
     groups,
     as.numeric(weights) * prepared$sampling_weights,
     tolerance = 0,
-    reference = base_measure
+    reference = base_measure,
+    constraint_target = fit$constraint_target %||% "pooled"
   )
 
-  excess <- balance_table$weighted -
-    balance_table$tolerance -
-    balance_margin(balance_table$tolerance)
-  if (max(excess) > 0) {
+  # A fit warns when a constraint sits outside its tolerance box, judged on the
+  # solver's arm-to-target geometry through `within_tolerance`. Methods whose
+  # balance is approximate by construction, such as the over-identified covariate
+  # balancing propensity score, never consume a tolerance, so they report their
+  # criterion rather than warning against a knob that does not reach the fit.
+  if (!isTRUE(fit$approximate) && !all(balance_table$within_tolerance)) {
     worst <- max(abs(balance_table$weighted))
     warn(
       c(
@@ -278,7 +283,9 @@ exposure_levels <- function(exposure_vec, exposure_type) {
 
 # Resolve the focal exposure level for att and atc. A binary exposure infers the
 # treated level (the second level) for att and the control level (the first) for
-# atc; a categorical exposure requires an explicit focal_level.
+# atc; a categorical exposure requires an explicit focal_level. The average
+# treatment effect and the overlap estimand reweight every group rather than hold
+# one fixed, so they carry no focal level.
 resolve_focal_level <- function(
   estimand,
   exposure_type,
@@ -286,7 +293,7 @@ resolve_focal_level <- function(
   focal_level,
   call = rlang::caller_env()
 ) {
-  if (identical(estimand, "ate")) {
+  if (estimand %in% c("ate", "ato")) {
     return(NULL)
   }
 

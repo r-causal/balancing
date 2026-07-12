@@ -7,6 +7,9 @@
 mod convert;
 mod interrupt;
 
+use balancing_core::methods::cbps::{
+    self, CbpsContInputs, CbpsInputs, CbpsMultiInputs, CbpsResult,
+};
 use balancing_core::methods::entropy::{
     EntropyInputs, EntropyResult, scale_estimating_output, solve_continuous, solve_discrete,
 };
@@ -17,8 +20,8 @@ use savvy::{
 };
 
 use convert::{
-    parse_binary_estimand, parse_entropy_options, parse_ipt_options, parse_link,
-    parse_multi_estimand, real_matrix, real_vector,
+    parse_binary_estimand, parse_cbps_estimand, parse_cbps_multi_estimand, parse_entropy_options,
+    parse_ipt_options, parse_link, parse_multi_estimand, real_matrix, real_vector,
 };
 
 /// Report the parallel resources the Rust core observes.
@@ -392,6 +395,222 @@ fn solve_ipt_multi(
     };
     let result = ipt::solve(&inputs, &interrupt::pending);
     ipt_result_list(&result, n)
+}
+
+/// Pack a covariate balancing propensity score result into its R list.
+///
+/// The list is `weights`, `ps`, `coefs`, `converged`, `iterations`,
+/// `obj_value`, then the estimating-equations matrices `psi`, `jac`, and
+/// `dw_dbeta` (each `NULL` for the over-identified and continuous forms), the
+/// `gmm_obj` criterion (`NULL` except for the over-identified form), and the
+/// interrupt flag, in that order.
+fn cbps_result_list(result: &CbpsResult, n: usize) -> savvy::Result<savvy::Sexp> {
+    let total_params = result.coefs.len();
+    let mut out = OwnedListSexp::new(11, true)?;
+    out.set_name_and_value(0, "weights", real_vector(&result.weights)?)?;
+    out.set_name_and_value(1, "ps", real_vector(&result.ps)?)?;
+    out.set_name_and_value(2, "coefs", real_vector(&result.coefs)?)?;
+    out.set_name_and_value(3, "converged", scalar_logical(result.converged)?)?;
+    out.set_name_and_value(4, "iterations", scalar_integer(result.iterations)?)?;
+    out.set_name_and_value(5, "obj_value", scalar_real(result.obj_value)?)?;
+    set_optional_matrix(&mut out, 6, "psi", &result.psi, n, total_params)?;
+    set_optional_matrix(&mut out, 7, "jac", &result.jac, total_params, total_params)?;
+    set_optional_matrix(&mut out, 8, "dw_dbeta", &result.dw_dbeta, n, total_params)?;
+    match result.gmm_obj {
+        Some(value) => out.set_name_and_value(9, "gmm_obj", scalar_real(value)?)?,
+        None => out.set_name_and_value(9, "gmm_obj", NullSexp)?,
+    }
+    out.set_name_and_value(10, "interrupted", scalar_logical(result.interrupted)?)?;
+    Ok(out.into())
+}
+
+/// Solve a binary covariate balancing propensity score problem.
+///
+/// `covs_mod` is the propensity-model design and `covs_bal` the balance design;
+/// for the just-identified form they must have the same shape. `treat` holds the
+/// zero/one treatment indicator; `estimand` is one of `ate`, `att`, `atc`, or
+/// `ato`; `link` is the propensity link. `over` selects the over-identified GMM
+/// criterion, and `twostep` its two-step weighting matrix.
+///
+/// Internal solver entry point, called from the R layer rather than by users, so
+/// it is not exported. `@noRd` keeps it out of the reference and out of
+/// NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+/// lines into the generated wrapper.
+/// @noRd
+// The argument list is the fixed savvy boundary signature; the balancing inputs
+// are irreducibly numerous.
+#[allow(clippy::too_many_arguments)]
+#[savvy]
+fn solve_cbps(
+    covs_mod: RealSexp,
+    covs_bal: RealSexp,
+    treat: IntegerSexp,
+    s_weights: RealSexp,
+    estimand: &str,
+    link: &str,
+    over: bool,
+    twostep: bool,
+    options: ListSexp,
+) -> savvy::Result<savvy::Sexp> {
+    let n = s_weights.len();
+    let p_mod = if n == 0 { 0 } else { covs_mod.len() / n };
+    let p_bal = if n == 0 { 0 } else { covs_bal.len() / n };
+    let opts = parse_ipt_options(options)?;
+    let link = parse_link(link)?;
+    let estimand = parse_cbps_estimand(estimand)?;
+
+    if n == 0 || covs_mod.len() != n * p_mod {
+        return Err(savvy::Error::new(format!(
+            "covs_mod has {} elements but is not a multiple of n = {n}",
+            covs_mod.len()
+        )));
+    }
+    if covs_bal.len() != n * p_bal {
+        return Err(savvy::Error::new(format!(
+            "covs_bal has {} elements but is not a multiple of n = {n}",
+            covs_bal.len()
+        )));
+    }
+    if treat.len() != n {
+        return Err(savvy::Error::new("treat must have length n"));
+    }
+    if !over && p_mod != p_bal {
+        return Err(savvy::Error::new(
+            "the just-identified fit requires covs_mod and covs_bal to have the same number of columns",
+        ));
+    }
+
+    let inputs = CbpsInputs {
+        covs_mod: covs_mod.as_slice(),
+        covs_bal: covs_bal.as_slice(),
+        n,
+        p_mod,
+        p_bal,
+        treat: treat.as_slice(),
+        s: s_weights.as_slice(),
+        link,
+        estimand,
+        over,
+        twostep,
+        threads: opts.threads,
+        max_iter: opts.max_iter,
+        tol: opts.tol,
+    };
+    let result = cbps::solve(&inputs, &interrupt::pending);
+    cbps_result_list(&result, n)
+}
+
+/// Solve a categorical covariate balancing propensity score problem.
+///
+/// `treat_idx` holds the zero-based level of each unit; `focal` is the focal
+/// level index used by `att` and ignored by `ate`. The categorical form is
+/// always just-identified.
+///
+/// Internal solver entry point, called from the R layer rather than by users, so
+/// it is not exported. `@noRd` keeps it out of the reference and out of
+/// NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+/// lines into the generated wrapper.
+/// @noRd
+// The argument list is the fixed savvy boundary signature; the balancing inputs
+// are irreducibly numerous.
+#[allow(clippy::too_many_arguments)]
+#[savvy]
+fn solve_cbps_multi(
+    covs: RealSexp,
+    treat_idx: IntegerSexp,
+    focal: i32,
+    s_weights: RealSexp,
+    estimand: &str,
+    link: &str,
+    options: ListSexp,
+) -> savvy::Result<savvy::Sexp> {
+    let n = s_weights.len();
+    let p = if n == 0 { 0 } else { covs.len() / n };
+    let opts = parse_ipt_options(options)?;
+    let link = parse_link(link)?;
+    let estimand = parse_cbps_multi_estimand(estimand)?;
+
+    if n == 0 || covs.len() != n * p {
+        return Err(savvy::Error::new(format!(
+            "covs has {} elements but is not a multiple of n = {n}",
+            covs.len()
+        )));
+    }
+    if treat_idx.len() != n {
+        return Err(savvy::Error::new("treat_idx must have length n"));
+    }
+    let treat = treat_idx.as_slice();
+    if treat.iter().any(|&t| t < 0) {
+        return Err(savvy::Error::new("treat_idx values must be non-negative"));
+    }
+    let n_levels = treat.iter().copied().max().map_or(0, |m| m + 1) as usize;
+    if focal < 0 || focal as usize >= n_levels {
+        return Err(savvy::Error::new(
+            "focal must be a level present in treat_idx",
+        ));
+    }
+
+    let inputs = CbpsMultiInputs {
+        covs: covs.as_slice(),
+        n,
+        p,
+        treat,
+        n_levels,
+        focal: focal as usize,
+        s: s_weights.as_slice(),
+        link,
+        estimand,
+        threads: opts.threads,
+        max_iter: opts.max_iter,
+        tol: opts.tol,
+    };
+    let result = cbps::solve_multi(&inputs, &interrupt::pending);
+    cbps_result_list(&result, n)
+}
+
+/// Solve a continuous-exposure covariate balancing propensity score problem.
+///
+/// `expo` holds the continuous exposure of each unit. The continuous form
+/// targets the average treatment effect and supplies no estimating equations.
+///
+/// Internal solver entry point, called from the R layer rather than by users, so
+/// it is not exported. `@noRd` keeps it out of the reference and out of
+/// NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+/// lines into the generated wrapper.
+/// @noRd
+#[savvy]
+fn solve_cbps_cont(
+    covs: RealSexp,
+    expo: RealSexp,
+    s_weights: RealSexp,
+    options: ListSexp,
+) -> savvy::Result<savvy::Sexp> {
+    let n = s_weights.len();
+    let p = if n == 0 { 0 } else { covs.len() / n };
+    let opts = parse_ipt_options(options)?;
+
+    if n == 0 || covs.len() != n * p {
+        return Err(savvy::Error::new(format!(
+            "covs has {} elements but is not a multiple of n = {n}",
+            covs.len()
+        )));
+    }
+    if expo.len() != n {
+        return Err(savvy::Error::new("expo must have length n"));
+    }
+
+    let inputs = CbpsContInputs {
+        covs: covs.as_slice(),
+        n,
+        p,
+        expo: expo.as_slice(),
+        s: s_weights.as_slice(),
+        threads: opts.threads,
+        max_iter: opts.max_iter,
+        tol: opts.tol,
+    };
+    let result = cbps::solve_cont(&inputs, &interrupt::pending);
+    cbps_result_list(&result, n)
 }
 
 #[cfg(test)]

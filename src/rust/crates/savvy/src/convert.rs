@@ -5,6 +5,7 @@
 //! an unrecognized option name is a contract violation and becomes an error.
 
 use balancing_core::links::Link;
+use balancing_core::methods::cbps::CbpsEstimand;
 use balancing_core::methods::entropy::EntropySolver;
 use balancing_core::methods::ipt::IptEstimand;
 use savvy::{ListSexp, OwnedRealSexp, RealSexp, Sexp};
@@ -176,6 +177,32 @@ pub fn parse_multi_estimand(estimand: &str, focal: usize) -> savvy::Result<IptEs
         "att" | "atc" => Ok(IptEstimand::Focal(focal)),
         other => Err(savvy::Error::new(format!(
             "unknown estimand `{other}`; expected ate, att, or atc"
+        ))),
+    }
+}
+
+/// Resolve a binary covariate balancing propensity score estimand. The overlap
+/// estimand is legal only for a binary exposure, so it is accepted here.
+pub fn parse_cbps_estimand(estimand: &str) -> savvy::Result<CbpsEstimand> {
+    match estimand {
+        "ate" => Ok(CbpsEstimand::Ate),
+        "att" => Ok(CbpsEstimand::Att),
+        "atc" => Ok(CbpsEstimand::Atc),
+        "ato" => Ok(CbpsEstimand::Ato),
+        other => Err(savvy::Error::new(format!(
+            "unknown estimand `{other}`; expected ate, att, atc, or ato"
+        ))),
+    }
+}
+
+/// Resolve a categorical covariate balancing propensity score estimand, which
+/// admits only the average treatment effect and the effect on the treated.
+pub fn parse_cbps_multi_estimand(estimand: &str) -> savvy::Result<CbpsEstimand> {
+    match estimand {
+        "ate" => Ok(CbpsEstimand::Ate),
+        "att" => Ok(CbpsEstimand::Att),
+        other => Err(savvy::Error::new(format!(
+            "unknown estimand `{other}`; expected ate or att"
         ))),
     }
 }

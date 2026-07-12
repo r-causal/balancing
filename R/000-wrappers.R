@@ -37,6 +37,52 @@ NULL
   stop(class, " cannot be modified", call. = FALSE)
 }
 
+#' Solve a binary covariate balancing propensity score problem.
+#'
+#' `covs_mod` is the propensity-model design and `covs_bal` the balance design;
+#' for the just-identified form they must have the same shape. `treat` holds the
+#' zero/one treatment indicator; `estimand` is one of `ate`, `att`, `atc`, or
+#' `ato`; `link` is the propensity link. `over` selects the over-identified GMM
+#' criterion, and `twostep` its two-step weighting matrix.
+#'
+#' Internal solver entry point, called from the R layer rather than by users, so
+#' it is not exported. `@noRd` keeps it out of the reference and out of
+#' NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+#' lines into the generated wrapper.
+#' @noRd
+`solve_cbps` <- function(`covs_mod`, `covs_bal`, `treat`, `s_weights`, `estimand`, `link`, `over`, `twostep`, `options`) {
+  .Call(savvy_solve_cbps__impl, `covs_mod`, `covs_bal`, `treat`, `s_weights`, `estimand`, `link`, `over`, `twostep`, `options`)
+}
+
+#' Solve a continuous-exposure covariate balancing propensity score problem.
+#'
+#' `expo` holds the continuous exposure of each unit. The continuous form
+#' targets the average treatment effect and supplies no estimating equations.
+#'
+#' Internal solver entry point, called from the R layer rather than by users, so
+#' it is not exported. `@noRd` keeps it out of the reference and out of
+#' NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+#' lines into the generated wrapper.
+#' @noRd
+`solve_cbps_cont` <- function(`covs`, `expo`, `s_weights`, `options`) {
+  .Call(savvy_solve_cbps_cont__impl, `covs`, `expo`, `s_weights`, `options`)
+}
+
+#' Solve a categorical covariate balancing propensity score problem.
+#'
+#' `treat_idx` holds the zero-based level of each unit; `focal` is the focal
+#' level index used by `att` and ignored by `ate`. The categorical form is
+#' always just-identified.
+#'
+#' Internal solver entry point, called from the R layer rather than by users, so
+#' it is not exported. `@noRd` keeps it out of the reference and out of
+#' NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+#' lines into the generated wrapper.
+#' @noRd
+`solve_cbps_multi` <- function(`covs`, `treat_idx`, `focal`, `s_weights`, `estimand`, `link`, `options`) {
+  .Call(savvy_solve_cbps_multi__impl, `covs`, `treat_idx`, `focal`, `s_weights`, `estimand`, `link`, `options`)
+}
+
 #' Solve a discrete (binary or categorical) entropy balancing problem.
 #'
 #' Internal solver entry point, called from the R layer rather than by users, so

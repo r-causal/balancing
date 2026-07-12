@@ -37,6 +37,22 @@ test_that("balancing_balance_warning: achieved balance exceeds the tolerance", {
   )
 })
 
+test_that("balancing_ignored_argument_warning: two_step without over_identified", {
+  # The two-step weighting matrix belongs to the over-identified criterion, so
+  # requesting it on a just-identified fit has no effect; the fit warns that the
+  # argument is ignored and proceeds.
+  data <- sim_binary()
+  expect_balancing_warning(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = cbps(two_step = FALSE, over_identified = FALSE),
+      estimand = "ate"
+    )
+  )
+})
+
 # ---- Class-downgrade warning ----------------------------------------------
 
 test_that("balancing_class_downgrade_warning: mismatched estimands", {

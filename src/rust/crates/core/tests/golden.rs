@@ -7,7 +7,7 @@
 //! isolation from covariate processing. When no fixtures are present the harness
 //! passes and reports that they are generated in the R API step.
 //!
-//! Fixture schema (all arrays are plain JSON numbers):
+//! Entropy fixture schema (all arrays are plain JSON numbers):
 //!
 //! ```json
 //! {
@@ -21,10 +21,19 @@
 //!   "rel_tol": <number>
 //! }
 //! ```
+//!
+//! The `ipt`, `cbps`, `cbps_multi`, and `cbps_cont` kinds carry the exposure and
+//! method options instead of targets; each solver-specific handler below
+//! documents its fields. The over-identified `cbps` fixture compares the GMM
+//! criterion against `expected_obj` rather than the weights.
 
 use std::path::{Path, PathBuf};
 
 use balancing_core::links::Link;
+use balancing_core::methods::cbps::{
+    CbpsContInputs, CbpsEstimand, CbpsInputs, CbpsMultiInputs, solve as solve_cbps,
+    solve_cont as solve_cbps_cont, solve_multi as solve_cbps_multi,
+};
 use balancing_core::methods::entropy::{
     EntropyInputs, EntropySolver, solve_continuous, solve_discrete,
 };
@@ -113,13 +122,155 @@ fn check_ipt_fixture(path: &Path, f: &Value) {
     compare_weights(path, &result.weights, &expected, rel_tol);
 }
 
+fn link_from(f: &Value) -> Link {
+    match f["link"].as_str().unwrap_or("logit") {
+        "logit" => Link::Logit,
+        "probit" => Link::Probit,
+        "cloglog" => Link::Cloglog,
+        other => panic!("unknown fixture link `{other}`"),
+    }
+}
+
+fn cbps_estimand(name: &str) -> CbpsEstimand {
+    match name {
+        "ate" => CbpsEstimand::Ate,
+        "att" => CbpsEstimand::Att,
+        "atc" => CbpsEstimand::Atc,
+        "ato" => CbpsEstimand::Ato,
+        other => panic!("unknown cbps estimand `{other}`"),
+    }
+}
+
+/// Solve a binary covariate balancing propensity score fixture.
+///
+/// The just-identified fixtures compare weights; the over-identified fixtures
+/// compare the generalized-method-of-moments criterion, which the design's
+/// tolerance policy requires to sit at or below the reference plus `1e-8`.
+/// Schema adds `treat` (zero/one), `estimand`, `link`, `over`, and `twostep` to
+/// the shared fields, with `expected_obj` for the over-identified form.
+fn check_cbps_fixture(path: &Path, f: &Value) {
+    let n = scalar(f, "n") as usize;
+    let p = scalar(f, "p") as usize;
+    let covs = nums(f, "covs");
+    let treat: Vec<i32> = nums(f, "treat").iter().map(|t| *t as i32).collect();
+    let s = nums(f, "s");
+    let over = f["over"].as_bool().unwrap_or(false);
+    let twostep = f["twostep"].as_bool().unwrap_or(true);
+    let estimand = cbps_estimand(f["estimand"].as_str().expect("cbps estimand is a string"));
+
+    let inputs = CbpsInputs {
+        covs_mod: &covs,
+        covs_bal: &covs,
+        n,
+        p_mod: p,
+        p_bal: p,
+        treat: &treat,
+        s: &s,
+        link: link_from(f),
+        estimand,
+        over,
+        twostep,
+        threads: 1,
+        max_iter: 500,
+        tol: 1e-12,
+    };
+    let result = solve_cbps(&inputs, &|| false);
+    if over {
+        let reference = scalar(f, "expected_obj");
+        let ours = result
+            .gmm_obj
+            .expect("over-identified reports the criterion");
+        assert!(
+            ours <= reference + 1e-8,
+            "{}: gmm objective {ours} exceeds reference {reference} + 1e-8",
+            path.display(),
+        );
+    } else {
+        let expected = nums(f, "expected_weights");
+        let rel_tol = scalar(f, "rel_tol");
+        compare_weights(path, &result.weights, &expected, rel_tol);
+    }
+}
+
+/// Solve a categorical covariate balancing propensity score fixture. Schema adds
+/// `treat` (zero-based level), `estimand`, `link`, and an optional `focal`.
+fn check_cbps_multi_fixture(path: &Path, f: &Value) {
+    let n = scalar(f, "n") as usize;
+    let p = scalar(f, "p") as usize;
+    let covs = nums(f, "covs");
+    let treat: Vec<i32> = nums(f, "treat").iter().map(|t| *t as i32).collect();
+    let s = nums(f, "s");
+    let expected = nums(f, "expected_weights");
+    let rel_tol = scalar(f, "rel_tol");
+    let n_levels = treat.iter().copied().max().map_or(0, |m| m + 1).max(0) as usize;
+    let focal = f["focal"].as_f64().map(|x| x as usize).unwrap_or(0);
+    let estimand = cbps_estimand(f["estimand"].as_str().expect("cbps estimand is a string"));
+
+    let inputs = CbpsMultiInputs {
+        covs: &covs,
+        n,
+        p,
+        treat: &treat,
+        n_levels,
+        focal,
+        s: &s,
+        link: link_from(f),
+        estimand,
+        threads: 1,
+        max_iter: 500,
+        tol: 1e-12,
+    };
+    let result = solve_cbps_multi(&inputs, &|| false);
+    compare_weights(path, &result.weights, &expected, rel_tol);
+}
+
+/// Solve a continuous covariate balancing propensity score fixture. Schema
+/// carries `expo` (the exposure) in place of `treat`.
+fn check_cbps_cont_fixture(path: &Path, f: &Value) {
+    let n = scalar(f, "n") as usize;
+    let p = scalar(f, "p") as usize;
+    let covs = nums(f, "covs");
+    let expo = nums(f, "expo");
+    let s = nums(f, "s");
+    let expected = nums(f, "expected_weights");
+    let rel_tol = scalar(f, "rel_tol");
+
+    let inputs = CbpsContInputs {
+        covs: &covs,
+        n,
+        p,
+        expo: &expo,
+        s: &s,
+        threads: 1,
+        max_iter: 500,
+        tol: 1e-12,
+    };
+    let result = solve_cbps_cont(&inputs, &|| false);
+    compare_weights(path, &result.weights, &expected, rel_tol);
+}
+
 fn check_fixture(path: &Path) {
     let text = std::fs::read_to_string(path).expect("read fixture");
     let f: Value = serde_json::from_str(&text).expect("parse fixture JSON");
 
-    if matches!(f["kind"].as_str(), Some("ipt")) {
-        check_ipt_fixture(path, &f);
-        return;
+    match f["kind"].as_str() {
+        Some("ipt") => {
+            check_ipt_fixture(path, &f);
+            return;
+        }
+        Some("cbps") => {
+            check_cbps_fixture(path, &f);
+            return;
+        }
+        Some("cbps_multi") => {
+            check_cbps_multi_fixture(path, &f);
+            return;
+        }
+        Some("cbps_cont") => {
+            check_cbps_cont_fixture(path, &f);
+            return;
+        }
+        _ => {}
     }
 
     let n = scalar(&f, "n") as usize;

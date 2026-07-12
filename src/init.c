@@ -39,6 +39,21 @@ SEXP handle_result(SEXP res_) {
     return (SEXP)res;
 }
 
+SEXP savvy_solve_cbps__impl(SEXP c_arg__covs_mod, SEXP c_arg__covs_bal, SEXP c_arg__treat, SEXP c_arg__s_weights, SEXP c_arg__estimand, SEXP c_arg__link, SEXP c_arg__over, SEXP c_arg__twostep, SEXP c_arg__options) {
+    SEXP res = savvy_solve_cbps__ffi(c_arg__covs_mod, c_arg__covs_bal, c_arg__treat, c_arg__s_weights, c_arg__estimand, c_arg__link, c_arg__over, c_arg__twostep, c_arg__options);
+    return handle_result(res);
+}
+
+SEXP savvy_solve_cbps_cont__impl(SEXP c_arg__covs, SEXP c_arg__expo, SEXP c_arg__s_weights, SEXP c_arg__options) {
+    SEXP res = savvy_solve_cbps_cont__ffi(c_arg__covs, c_arg__expo, c_arg__s_weights, c_arg__options);
+    return handle_result(res);
+}
+
+SEXP savvy_solve_cbps_multi__impl(SEXP c_arg__covs, SEXP c_arg__treat_idx, SEXP c_arg__focal, SEXP c_arg__s_weights, SEXP c_arg__estimand, SEXP c_arg__link, SEXP c_arg__options) {
+    SEXP res = savvy_solve_cbps_multi__ffi(c_arg__covs, c_arg__treat_idx, c_arg__focal, c_arg__s_weights, c_arg__estimand, c_arg__link, c_arg__options);
+    return handle_result(res);
+}
+
 SEXP savvy_solve_entropy__impl(SEXP c_arg__covs, SEXP c_arg__group_idx, SEXP c_arg__targets, SEXP c_arg__base_weights, SEXP c_arg__s_weights, SEXP c_arg__tols, SEXP c_arg__n_eff, SEXP c_arg__options) {
     SEXP res = savvy_solve_entropy__ffi(c_arg__covs, c_arg__group_idx, c_arg__targets, c_arg__base_weights, c_arg__s_weights, c_arg__tols, c_arg__n_eff, c_arg__options);
     return handle_result(res);
@@ -66,6 +81,9 @@ SEXP savvy_thread_info__impl(void) {
 
 
 static const R_CallMethodDef CallEntries[] = {
+    {"savvy_solve_cbps__impl", (DL_FUNC) &savvy_solve_cbps__impl, 9},
+    {"savvy_solve_cbps_cont__impl", (DL_FUNC) &savvy_solve_cbps_cont__impl, 4},
+    {"savvy_solve_cbps_multi__impl", (DL_FUNC) &savvy_solve_cbps_multi__impl, 7},
     {"savvy_solve_entropy__impl", (DL_FUNC) &savvy_solve_entropy__impl, 8},
     {"savvy_solve_entropy_cont__impl", (DL_FUNC) &savvy_solve_entropy_cont__impl, 8},
     {"savvy_solve_ipt__impl", (DL_FUNC) &savvy_solve_ipt__impl, 6},

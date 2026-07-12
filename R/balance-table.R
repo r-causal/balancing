@@ -1,8 +1,13 @@
 # Balance-table construction. The achieved balance is recomputed from the
-# rebuilt constraint matrix and the extracted weights so that the reported table
-# matches what expect_balanced() verifies independently: discrete exposures
-# report standardized mean differences against the estimand's target group, and
-# continuous exposures report weighted exposure-covariate correlations.
+# rebuilt constraint matrix and the extracted weights. Two geometries are in
+# play, and they are reported on separate columns. The headline `unweighted` and
+# `weighted` columns carry the arm-to-arm standardized mean difference, the
+# cobalt and halfmoon love-plot convention. The `within_tolerance` column and the
+# balance warning instead compare against the solver's constraint geometry, the
+# arm-to-target residual the tolerance box actually bounds, so a fit that meets
+# its documented per-constraint tolerance is never reported as violating it.
+# Continuous exposures report weighted exposure-covariate correlations, where the
+# two geometries coincide.
 
 # The margin a weighted statistic may exceed its tolerance by before the fit
 # reports it as out of balance. The absolute floor absorbs floating-point noise
@@ -47,11 +52,13 @@ compute_balance_table <- function(
   groups,
   weights,
   tolerance,
-  reference = NULL
+  reference = NULL,
+  constraint_target = c("pooled", "arms")
 ) {
   if (is.null(reference)) {
     reference <- rep(1, length(weights))
   }
+  constraint_target <- match.arg(constraint_target)
   matrix <- rebuild_constraint_matrix(recipe, data)
   z <- standardize_columns(matrix)
   p <- ncol(z)
@@ -84,54 +91,67 @@ compute_balance_table <- function(
     )
     group_label <- rep("overall", p)
     statistic <- rep("correlation", p)
+    # For a continuous exposure the reported correlation is the quantity the
+    # solver constrains, so the two geometries coincide.
+    constraint_residual <- weighted
   } else {
+    # Headline statistic: the arm-to-arm standardized mean difference. Each
+    # non-target level's weighted mean is compared to a single target level's
+    # weighted mean, standardized by the pooled unweighted standard deviation,
+    # which `z` already applies, and the largest such contrast is reported. The
+    # average treatment effect and the overlap estimand reweight every group, so
+    # the target is the first (reference) level: a binary exposure reports the
+    # treated-versus-control difference and a multi-level exposure the largest
+    # contrast against the reference level. A focal estimand holds the focal group
+    # fixed, so its target is the focal level.
     unit_weights <- rep(1, length(weights))
-    if (identical(estimand, "ate")) {
-      # For the average treatment effect every group is reweighted toward the
-      # same reference distribution, so the imbalance is how far each group's
-      # weighted mean sits from that shared reference, not from zero. The
-      # reference is the base measure the solver targets, which reduces to the
-      # unweighted pooled mean when there are no base or sampling weights.
-      level_names <- names(groups)
-      pooled_unweighted <- colMeans(z)
-      pooled_weighted <- apply(z, 2, stats::weighted.mean, w = reference)
-      unweighted <- imbalance_over_groups(
-        z,
-        groups,
-        unit_weights,
-        pooled_unweighted
-      )
-      weighted_by_group <- lapply(level_names, function(level) {
-        abs(
-          weighted_column_means(z, groups[[level]], weights) - pooled_weighted
-        )
-      })
-      weighted <- do.call(pmax, weighted_by_group)
-      argmax <- max.col(
-        t(do.call(rbind, weighted_by_group)),
-        ties.method = "first"
-      )
-      group_label <- level_names[argmax]
+    target_level <- if (estimand %in% c("att", "atu")) {
+      focal_level
     } else {
-      focal_idx <- groups[[focal_level]]
-      target_u <- colMeans(z[focal_idx, , drop = FALSE])
-      target_w <- weighted_column_means(z, focal_idx, weights)
-      others <- setdiff(names(groups), focal_level)
-      unweighted_by_group <- lapply(others, function(level) {
-        abs(colMeans(z[groups[[level]], , drop = FALSE]) - target_u)
-      })
-      weighted_by_group <- lapply(others, function(level) {
-        abs(weighted_column_means(z, groups[[level]], weights) - target_w)
-      })
-      unweighted <- do.call(pmax, unweighted_by_group)
-      weighted <- do.call(pmax, weighted_by_group)
-      argmax <- max.col(
-        t(do.call(rbind, weighted_by_group)),
-        ties.method = "first"
-      )
-      group_label <- others[argmax]
+      names(groups)[[1]]
     }
+    target_idx <- groups[[target_level]]
+    target_u <- weighted_column_means(z, target_idx, unit_weights)
+    target_w <- weighted_column_means(z, target_idx, weights)
+    other_levels <- setdiff(names(groups), target_level)
+
+    unweighted_by_group <- lapply(other_levels, function(level) {
+      abs(weighted_column_means(z, groups[[level]], unit_weights) - target_u)
+    })
+    weighted_by_group <- lapply(other_levels, function(level) {
+      abs(weighted_column_means(z, groups[[level]], weights) - target_w)
+    })
+    unweighted <- do.call(pmax, unweighted_by_group)
+    weighted <- do.call(pmax, weighted_by_group)
+    argmax <- max.col(
+      t(do.call(rbind, weighted_by_group)),
+      ties.method = "first"
+    )
+    group_label <- other_levels[argmax]
     statistic <- rep("smd", p)
+
+    # Constraint geometry for `within_tolerance` and the balance warning. The
+    # residual is each constraint's distance from the target the solver actually
+    # enforces, which the arm-to-arm headline may exceed. The geometry depends on
+    # the method, not only the estimand: the estimating-equation box family
+    # (entropy balancing, inverse probability tilting) holds each arm within
+    # tolerance of a shared pooled target for the average treatment effect, so the
+    # residual is each arm's distance to it and the headline can reach twice as
+    # much when two arms sit at opposite edges of the box. The covariate balancing
+    # propensity score instead equates the arms directly, so its residual is the
+    # arm-to-arm headline. The focal and overlap estimands always compare against a
+    # single held-fixed arm, where the two geometries coincide.
+    constraint_residual <- if (
+      identical(estimand, "ate") && identical(constraint_target, "pooled")
+    ) {
+      pooled_target <- apply(z, 2, stats::weighted.mean, w = reference)
+      per_arm <- lapply(names(groups), function(level) {
+        abs(weighted_column_means(z, groups[[level]], weights) - pooled_target)
+      })
+      do.call(pmax, per_arm)
+    } else {
+      weighted
+    }
   }
 
   new_balancing_tibble(list(
@@ -142,16 +162,7 @@ compute_balance_table <- function(
     unweighted = unweighted,
     weighted = weighted,
     tolerance = tolerances,
-    within_tolerance = weighted <= tolerances + balance_margin(tolerances)
+    within_tolerance = constraint_residual <=
+      tolerances + balance_margin(tolerances)
   ))
-}
-
-# Largest absolute weighted column mean across the exposure groups, used for the
-# unweighted (unit-weight) side of an ate table.
-imbalance_over_groups <- function(z, groups, w, target) {
-  per_group <- lapply(names(groups), function(level) {
-    means <- weighted_column_means(z, groups[[level]], w)
-    if (is.null(target)) abs(means) else abs(means - target)
-  })
-  do.call(pmax, per_group)
 }
