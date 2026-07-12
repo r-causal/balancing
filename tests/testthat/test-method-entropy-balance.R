@@ -331,6 +331,43 @@ test_that("an att fit reports estimating equations only for the control group", 
   expect_lt(max(abs(colSums(ee@psi))), 1e-6)
 })
 
+# ---- Solver option routing ------------------------------------------------
+
+test_that("the entropy solver option routes the solver and holds the solution", {
+  # The exact-problem solver is the promotion knob: it must route to the core
+  # solver named in the option and reach the same solution as the Newton
+  # default, which the quasi-Newton alternatives do to well within tolerance.
+  data <- sim_binary()
+  fit_newton <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = entropy_balance(),
+    estimand = "ate"
+  )
+  expect_identical(fit_newton@solver_status, "newton")
+  w_newton <- as.numeric(stats::weights(fit_newton))
+
+  for (solver in c("lbfgs", "lbfgs_then_newton")) {
+    fit <- withr::with_options(
+      list(balancing.entropy_solver = solver),
+      balance(
+        data,
+        exposure,
+        c(x1, x2),
+        method = entropy_balance(),
+        estimand = "ate"
+      )
+    )
+    expect_identical(fit@solver_status, solver)
+    expect_equal(
+      as.numeric(stats::weights(fit)),
+      w_newton,
+      tolerance = 1e-6
+    )
+  }
+})
+
 # ---- distribution_moments (continuous) ------------------------------------
 
 test_that("distribution_moments holds the exposure variance", {

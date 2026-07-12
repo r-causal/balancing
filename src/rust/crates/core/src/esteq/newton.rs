@@ -49,6 +49,35 @@ pub fn solve<P: EsteqProblem>(
     opts: &SolveOptions,
     interrupt: &dyn Fn() -> bool,
 ) -> SolveReport {
+    solve_with_min_iter(problem, beta, opts, 0, interrupt)
+}
+
+/// Polish an estimate that is already near the solution, guaranteeing at least
+/// one full Newton step.
+///
+/// The hybrid solver warm-starts with L-BFGS to a loose tolerance, which may
+/// leave the estimate already inside the gradient tolerance. Forcing a Newton
+/// step drives the estimating-equation output to a machine-precision solution,
+/// which is what the second-order method uniquely provides and what linearized
+/// inference relies on.
+pub fn solve_polish<P: EsteqProblem>(
+    problem: &P,
+    beta: &mut [f64],
+    opts: &SolveOptions,
+    interrupt: &dyn Fn() -> bool,
+) -> SolveReport {
+    solve_with_min_iter(problem, beta, opts, 1, interrupt)
+}
+
+/// Damped Newton that performs at least `min_iter` steps before the convergence
+/// check can stop it.
+fn solve_with_min_iter<P: EsteqProblem>(
+    problem: &P,
+    beta: &mut [f64],
+    opts: &SolveOptions,
+    min_iter: usize,
+    interrupt: &dyn Fn() -> bool,
+) -> SolveReport {
     let p = problem.n_params();
     let smooth = problem.value(beta).is_some();
 
@@ -76,7 +105,7 @@ pub fn solve<P: EsteqProblem>(
             problem.value_grad_hess(beta, &mut g, h_mat)
         };
         let grad_norm = sup_norm(&g);
-        if grad_norm <= opts.grad_tol {
+        if iter >= min_iter && grad_norm <= opts.grad_tol {
             converged = true;
             break;
         }

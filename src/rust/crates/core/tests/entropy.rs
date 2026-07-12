@@ -33,6 +33,164 @@ fn inputs<'a>(
     }
 }
 
+/// Build a standardized single-group problem with a nonzero dual, the shape the
+/// R layer produces before crossing the boundary. A small LCG keeps the data
+/// reproducible without a dependency.
+fn standardized_problem(n: usize, p: usize) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+    let mut covs = vec![0.0; n * p];
+    let mut state: u64 = 0x2545F4914F6CDD1D;
+    let mut next = || {
+        state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        ((state >> 11) as f64) / ((1u64 << 53) as f64)
+    };
+    for j in 0..p {
+        for i in 0..n {
+            covs[j * n + i] = next();
+        }
+        let col = &mut covs[j * n..(j + 1) * n];
+        let mean: f64 = col.iter().sum::<f64>() / n as f64;
+        let var: f64 = col.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / n as f64;
+        let sd = var.sqrt();
+        for x in col.iter_mut() {
+            *x = (*x - mean) / sd;
+        }
+    }
+    let targets: Vec<f64> = (0..p).map(|j| 0.05 - 0.02 * j as f64).collect();
+    let tols = vec![0.0; p];
+    (covs, targets, tols)
+}
+
+/// The L-BFGS-then-Newton hybrid must reach a machine-precision solution: the
+/// mandatory Newton polish drives the gradient far below what the L-BFGS warm
+/// start alone reaches, so the estimating-equation output is evaluated at the
+/// same accuracy Newton provides.
+#[test]
+fn hybrid_polish_reaches_machine_precision() {
+    let n = 8_000;
+    let p = 3;
+    let (covs, targets, tols) = standardized_problem(n, p);
+    let base = vec![1.0; n];
+    let s = vec![1.0; n];
+    let group_idx = vec![0_i32; n];
+
+    let solve = |solver: EntropySolver| {
+        let mut inp = inputs(&covs, n, p, &targets, &tols, &base, &s, n as f64, 1);
+        inp.solver = solver;
+        solve_discrete(&inp, &group_idx, &no_interrupt())
+    };
+
+    let lbfgs = solve(EntropySolver::Lbfgs);
+    let hybrid = solve(EntropySolver::LbfgsThenNewton);
+
+    assert_eq!(hybrid.solver, "lbfgs_then_newton");
+    assert!(hybrid.converged);
+    assert!(hybrid.psi.is_some());
+    // The polish tightens the gradient well below the warm start's residual.
+    assert!(
+        hybrid.grad_norm <= 1e-10,
+        "hybrid grad_norm {} not machine precision",
+        hybrid.grad_norm
+    );
+    assert!(
+        hybrid.grad_norm <= lbfgs.grad_norm,
+        "polish did not improve on the warm start: hybrid {} vs lbfgs {}",
+        hybrid.grad_norm,
+        lbfgs.grad_norm
+    );
+}
+
+/// An interrupt that becomes pending exactly at the hybrid handoff, after the
+/// L-BFGS warm start's own interrupt check has passed, must still be surfaced:
+/// the Newton polish never runs, so the estimate is only at the loose warm
+/// tolerance and the solve must report `interrupted` and not `converged` rather
+/// than inheriting the warm start's converged status.
+#[test]
+fn hybrid_handoff_interrupt_is_surfaced() {
+    let n = 4_000;
+    let p = 2;
+    let (covs, targets, tols) = standardized_problem(n, p);
+    let base = vec![1.0; n];
+    let s = vec![1.0; n];
+    let group_idx = vec![0_i32; n];
+
+    // The basin warm start polls the interrupt once, at its end; the handoff
+    // check polls it again. Returning `false` on the first probe and `true`
+    // thereafter leaves the warm start not interrupted but makes the interrupt
+    // pending precisely at the handoff.
+    let calls = std::cell::Cell::new(0usize);
+    let interrupt = || {
+        let c = calls.get() + 1;
+        calls.set(c);
+        c >= 2
+    };
+
+    let mut inp = inputs(&covs, n, p, &targets, &tols, &base, &s, n as f64, 1);
+    inp.solver = EntropySolver::LbfgsThenNewton;
+    let result = solve_discrete(&inp, &group_idx, &interrupt);
+
+    assert_eq!(result.solver, "lbfgs_then_newton");
+    assert!(result.interrupted, "handoff interrupt was not surfaced");
+    assert!(
+        !result.converged,
+        "solve claimed convergence at the loose warm-start point"
+    );
+}
+
+/// The estimating-equation output, not only the weights, is bit-identical across
+/// thread counts: the parallel psi and weight-derivative fill and the
+/// deterministic Jacobian reduction all preserve the determinism contract.
+#[test]
+fn estimating_output_is_deterministic_across_thread_counts() {
+    let n = 12_000;
+    let p = 3;
+    let (covs, targets, tols) = standardized_problem(n, p);
+    let base = vec![1.0; n];
+    let s = vec![1.0; n];
+    let group_idx = vec![0_i32; n];
+
+    let solve_with = |threads: usize| {
+        let inp = inputs(&covs, n, p, &targets, &tols, &base, &s, n as f64, threads);
+        solve_discrete(&inp, &group_idx, &no_interrupt())
+    };
+
+    let reference = solve_with(1);
+    assert!(reference.converged);
+    let ref_psi = reference.psi.as_ref().expect("exact problem returns psi");
+    let ref_jac = reference.jac.as_ref().expect("exact problem returns jac");
+    let ref_dw = reference
+        .dw_dbeta
+        .as_ref()
+        .expect("exact problem returns dw_dbeta");
+
+    for threads in [2, 4, 8] {
+        let other = solve_with(threads);
+        let psi = other.psi.as_ref().unwrap();
+        let jac = other.jac.as_ref().unwrap();
+        let dw = other.dw_dbeta.as_ref().unwrap();
+        for i in 0..ref_psi.len() {
+            assert_eq!(
+                psi[i].to_bits(),
+                ref_psi[i].to_bits(),
+                "psi[{i}] differs at {threads} threads"
+            );
+            assert_eq!(
+                dw[i].to_bits(),
+                ref_dw[i].to_bits(),
+                "dw_dbeta[{i}] differs at {threads} threads"
+            );
+        }
+        for i in 0..ref_jac.len() {
+            assert_eq!(
+                jac[i].to_bits(),
+                ref_jac[i].to_bits(),
+                "jac[{i}] differs at {threads} threads"
+            );
+        }
+    }
+}
+
 /// A pending interrupt stops the solve and is surfaced: the result reports
 /// `interrupted` and is not marked converged, so the R layer can re-signal the
 /// interrupt rather than warn about non-convergence.

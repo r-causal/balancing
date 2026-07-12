@@ -8,7 +8,7 @@ mod convert;
 mod interrupt;
 
 use balancing_core::methods::entropy::{
-    EntropyInputs, EntropyResult, solve_continuous, solve_discrete,
+    EntropyInputs, EntropyResult, scale_estimating_output, solve_continuous, solve_discrete,
 };
 use savvy::{
     IntegerSexp, ListSexp, NullSexp, OwnedIntegerSexp, OwnedListSexp, OwnedLogicalSexp,
@@ -143,7 +143,10 @@ fn solve_entropy(
         solver: opts.solver,
     };
 
-    let result = solve_discrete(&inputs, group_idx.as_slice(), &interrupt::pending);
+    let mut result = solve_discrete(&inputs, group_idx.as_slice(), &interrupt::pending);
+    if let Some(scale) = &opts.esteq_scale {
+        scale_estimating_output(&mut result, p, scale).map_err(savvy::Error::new)?;
+    }
     let total_params = result.duals.len();
 
     let mut out = OwnedListSexp::new(10, true)?;
@@ -206,7 +209,10 @@ fn solve_entropy_cont(
         solver: opts.solver,
     };
 
-    let result = solve_continuous(&inputs, dist_ind.as_slice(), &interrupt::pending);
+    let mut result = solve_continuous(&inputs, dist_ind.as_slice(), &interrupt::pending);
+    if let Some(scale) = &opts.esteq_scale {
+        scale_estimating_output(&mut result, p, scale).map_err(savvy::Error::new)?;
+    }
     let total_params = result.duals.len();
 
     // The continuous list carries dw_dbeta alongside psi and jac for the

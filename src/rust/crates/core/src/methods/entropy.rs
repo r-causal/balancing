@@ -26,6 +26,8 @@ use std::sync::Arc;
 use faer::MatMut;
 use faer::prelude::ReborrowMut;
 use rayon::ThreadPool;
+use rayon::iter::{IndexedParallelIterator, ParallelIterator};
+use rayon::slice::ParallelSliceMut;
 
 use crate::esteq::fista;
 use crate::esteq::{self, EsteqProblem, SolveOptions, Solver};
@@ -53,6 +55,10 @@ struct Accum {
     z: f64,
     m: Vec<f64>,
     smat: Vec<f64>,
+    /// Scratch for one unit's covariate row, reused across the fold so the
+    /// column-major matrix is read down a unit only once per unit rather than
+    /// once per Hessian entry.
+    crow: Vec<f64>,
 }
 
 impl Accum {
@@ -65,6 +71,7 @@ impl Accum {
             } else {
                 Vec::new()
             },
+            crow: vec![0.0; p],
         }
     }
 }
@@ -89,15 +96,22 @@ impl EntropyProblem<'_> {
             || Accum::zeros(p, want_smat),
             |acc, local| {
                 let gi = self.idx[local];
-                let e = self.s[gi] * self.base[gi] * (-self.lin(gi, beta)).exp();
+                // Gather this unit's covariate row once. The constraint matrix
+                // is column-major, so reading down a unit strides by n; doing it
+                // a single time turns the inner p-by-p Hessian accumulation into
+                // unit-stride reads from the scratch row.
+                for j in 0..p {
+                    acc.crow[j] = self.covs[j * self.n + gi];
+                }
+                let lin: f64 = acc.crow.iter().zip(beta).map(|(c, b)| c * b).sum();
+                let e = self.s[gi] * self.base[gi] * (-lin).exp();
                 acc.z += e;
                 for j in 0..p {
-                    let cj = self.covs[j * self.n + gi];
-                    acc.m[j] += e * cj;
+                    let ecj = e * acc.crow[j];
+                    acc.m[j] += ecj;
                     if want_smat {
                         for k in 0..p {
-                            let ck = self.covs[k * self.n + gi];
-                            acc.smat[j * p + k] += e * cj * ck;
+                            acc.smat[j * p + k] += ecj * acc.crow[k];
                         }
                     }
                 }
@@ -410,10 +424,10 @@ fn solve_groups(
 
         if let (Some(psi), Some(jac), Some(dw)) = (psi.as_mut(), jac.as_mut(), dw.as_mut()) {
             fill_estimating_output(
+                &pool,
                 inputs,
                 idx,
                 g,
-                &beta,
                 &group_weights,
                 &mbar,
                 total_params,
@@ -438,17 +452,37 @@ fn solve_groups(
     }
 }
 
+/// Scratch and partial for the Jacobian block reduction.
+struct JacAccum {
+    mat: Vec<f64>,
+    dev: Vec<f64>,
+}
+
+impl JacAccum {
+    fn zeros(p: usize) -> Self {
+        Self {
+            mat: vec![0.0; p * p],
+            dev: vec![0.0; p],
+        }
+    }
+}
+
 /// Fill the estimating-equation blocks for one group into the global arrays.
 ///
 /// For unit `i` in group `g`, with parameter block starting at column `g * p`:
 /// `psi_ij = s_i w_i (C_ij - target_j)`, `dw_ik = w_i (mbar_k - C_ik)`, and the
 /// Jacobian block is `-sum_i s_i w_i (C_i - target)(C_i - target)'`.
+///
+/// The per-unit `psi` and weight-derivative entries are elementwise, so they
+/// fill in parallel over the block's columns with no reduction. The Jacobian
+/// block is a sum over units of a rank-one outer product and goes through
+/// [`deterministic_map_reduce`] so it is bit-identical across thread counts.
 #[allow(clippy::too_many_arguments)]
 fn fill_estimating_output(
+    pool: &ThreadPool,
     inputs: &EntropyInputs<'_>,
     idx: &[usize],
     g: usize,
-    _beta: &[f64],
     group_weights: &[f64],
     mbar: &[f64],
     total_params: usize,
@@ -459,23 +493,119 @@ fn fill_estimating_output(
     let n = inputs.n;
     let p = inputs.p;
     let offset = g * p;
-    for (local, &gi) in idx.iter().enumerate() {
-        let w = group_weights[local];
-        let sw = inputs.s[gi] * w;
-        for (j, &mbar_j) in mbar.iter().enumerate() {
-            let dev = inputs.covs[j * n + gi] - inputs.targets[j];
-            let col = offset + j;
-            // psi and dw are n by P, column-major.
-            psi[col * n + gi] = sw * dev;
-            dw[col * n + gi] = w * (mbar_j - inputs.covs[j * n + gi]);
-            for k in 0..p {
-                let dev_k = inputs.covs[k * n + gi] - inputs.targets[k];
-                let row = offset + j;
-                let jcol = offset + k;
-                jac[jcol * total_params + row] -= sw * dev * dev_k;
+
+    // psi and dw are n by P, column-major; the block for this group occupies the
+    // contiguous columns `offset .. offset + p`. Each output entry is written
+    // exactly once and its value is independent of the order columns are filled,
+    // so the block fills in parallel over columns without a reduction.
+    let psi_block = &mut psi[offset * n..(offset + p) * n];
+    let dw_block = &mut dw[offset * n..(offset + p) * n];
+    pool.install(|| {
+        psi_block
+            .par_chunks_mut(n)
+            .zip(dw_block.par_chunks_mut(n))
+            .enumerate()
+            .for_each(|(j, (psi_col, dw_col))| {
+                let target_j = inputs.targets[j];
+                let mbar_j = mbar[j];
+                let covs_col = &inputs.covs[j * n..(j + 1) * n];
+                for (local, &gi) in idx.iter().enumerate() {
+                    let w = group_weights[local];
+                    let c = covs_col[gi];
+                    psi_col[gi] = inputs.s[gi] * w * (c - target_j);
+                    dw_col[gi] = w * (mbar_j - c);
+                }
+            });
+    });
+
+    let block = deterministic_map_reduce(
+        pool,
+        idx.len(),
+        || JacAccum::zeros(p),
+        |acc, local| {
+            let gi = idx[local];
+            let sw = inputs.s[gi] * group_weights[local];
+            for j in 0..p {
+                acc.dev[j] = inputs.covs[j * n + gi] - inputs.targets[j];
+            }
+            for j in 0..p {
+                let sdev = sw * acc.dev[j];
+                for k in 0..p {
+                    acc.mat[j * p + k] += sdev * acc.dev[k];
+                }
+            }
+        },
+        |acc, other| {
+            for i in 0..p * p {
+                acc.mat[i] += other.mat[i];
+            }
+        },
+    );
+    for j in 0..p {
+        let row = offset + j;
+        for k in 0..p {
+            let col = offset + k;
+            jac[col * total_params + row] -= block.mat[j * p + k];
+        }
+    }
+}
+
+/// Apply a per-group scalar to the estimating-equation output in place.
+///
+/// The R layer renormalizes each solved group's weights to the estimand's
+/// target sum after the solve. That scalar multiplies the group's `psi`
+/// columns, weight-derivative columns, and Jacobian block, which the core
+/// computed at its own within-group normalization. Performing the multiply here,
+/// before the matrices cross the FFI boundary, keeps the large `n` by `P`
+/// matrices from being copied a second time on the R side. `scales` holds one
+/// value per parameter block; a block scaled by exactly one is left untouched.
+///
+/// The inexact problem carries no estimating equations, so the call is a no-op.
+/// Otherwise the length of `scales` must match the number of parameter blocks,
+/// `duals.len() / p`; a mismatch would silently mis-scale the output and is
+/// returned as an error for the boundary layer to surface.
+pub fn scale_estimating_output(
+    result: &mut EntropyResult,
+    p: usize,
+    scales: &[f64],
+) -> Result<(), String> {
+    if result.psi.is_none() {
+        return Ok(());
+    }
+    let total_params = result.duals.len();
+    if p == 0 || scales.len() * p != total_params {
+        return Err(format!(
+            "estimating-equation scale has length {} but the solve has {} parameter block(s) of size {p}",
+            scales.len(),
+            total_params / p.max(1)
+        ));
+    }
+    let (Some(psi), Some(jac), Some(dw)) = (
+        result.psi.as_mut(),
+        result.jac.as_mut(),
+        result.dw_dbeta.as_mut(),
+    ) else {
+        return Ok(());
+    };
+    let n = psi.len() / total_params;
+    for (g, &scale) in scales.iter().enumerate() {
+        if scale == 1.0 {
+            continue;
+        }
+        let cols = (g * p)..(g * p + p);
+        for col in cols.clone() {
+            for row in 0..n {
+                psi[col * n + row] *= scale;
+                dw[col * n + row] *= scale;
+            }
+        }
+        for row in cols.clone() {
+            for col in cols.clone() {
+                jac[col * total_params + row] *= scale;
             }
         }
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -538,5 +668,98 @@ mod tests {
                 beta_fista[j]
             );
         }
+    }
+
+    // The in-place rescale multiplies each block's psi columns, weight-derivative
+    // columns, and Jacobian block by that block's scalar, leaving other blocks
+    // and a unit scalar untouched.
+    fn sample_result(n: usize, p: usize, n_groups: usize) -> EntropyResult {
+        let total = n_groups * p;
+        let psi: Vec<f64> = (0..n * total).map(|i| i as f64 + 1.0).collect();
+        let dw: Vec<f64> = (0..n * total).map(|i| (i as f64 + 1.0) * 0.5).collect();
+        let jac: Vec<f64> = (0..total * total).map(|i| i as f64 + 1.0).collect();
+        EntropyResult {
+            weights: vec![0.0; n],
+            duals: vec![0.0; total],
+            converged: true,
+            interrupted: false,
+            iterations: 0,
+            grad_norm: 0.0,
+            solver: "newton",
+            psi: Some(psi),
+            jac: Some(jac),
+            dw_dbeta: Some(dw),
+        }
+    }
+
+    #[test]
+    fn scale_estimating_output_scales_each_block() {
+        let (n, p, n_groups) = (4, 2, 2);
+        let total = n_groups * p;
+        let base = sample_result(n, p, n_groups);
+        let mut scaled = sample_result(n, p, n_groups);
+        let scales = [3.0, 5.0];
+        scale_estimating_output(&mut scaled, p, &scales).unwrap();
+
+        let (bp, sp) = (base.psi.unwrap(), scaled.psi.unwrap());
+        let (bd, sd) = (base.dw_dbeta.unwrap(), scaled.dw_dbeta.unwrap());
+        for g in 0..n_groups {
+            for col in (g * p)..(g * p + p) {
+                for row in 0..n {
+                    let k = col * n + row;
+                    assert_eq!(sp[k], bp[k] * scales[g]);
+                    assert_eq!(sd[k], bd[k] * scales[g]);
+                }
+            }
+        }
+
+        let (bj, sj) = (base.jac.unwrap(), scaled.jac.unwrap());
+        for g in 0..n_groups {
+            for row in (g * p)..(g * p + p) {
+                for col in (g * p)..(g * p + p) {
+                    let k = col * total + row;
+                    assert_eq!(sj[k], bj[k] * scales[g]);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn scale_estimating_output_leaves_unit_blocks_untouched() {
+        let (n, p, n_groups) = (3, 2, 2);
+        let base = sample_result(n, p, n_groups);
+        let mut scaled = sample_result(n, p, n_groups);
+        // The first block is scaled; the second is left exactly as computed.
+        scale_estimating_output(&mut scaled, p, &[2.0, 1.0]).unwrap();
+
+        let (bp, sp) = (base.psi.unwrap(), scaled.psi.unwrap());
+        for col in p..(2 * p) {
+            for row in 0..n {
+                let k = col * n + row;
+                assert_eq!(sp[k].to_bits(), bp[k].to_bits());
+            }
+        }
+    }
+
+    #[test]
+    fn scale_estimating_output_errors_on_length_mismatch() {
+        // Two parameter blocks of size p, but only one scale supplied.
+        let mut result = sample_result(4, 2, 2);
+        let err = scale_estimating_output(&mut result, 2, &[3.0]).unwrap_err();
+        assert!(err.contains("length 1"), "unexpected message: {err}");
+        // The output is left untouched when the scale is rejected.
+        let base = sample_result(4, 2, 2);
+        assert_eq!(result.psi.unwrap(), base.psi.unwrap());
+    }
+
+    #[test]
+    fn scale_estimating_output_ignores_scale_without_estimating_equations() {
+        // The inexact problem carries no psi/jac/dw; a scale of any length is a
+        // no-op rather than an error.
+        let mut result = sample_result(3, 2, 1);
+        result.psi = None;
+        result.jac = None;
+        result.dw_dbeta = None;
+        scale_estimating_output(&mut result, 2, &[1.0, 2.0, 3.0]).unwrap();
     }
 }

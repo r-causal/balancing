@@ -74,6 +74,11 @@ pub enum Solver {
     LbfgsThenNewton,
 }
 
+/// Loosest gradient sup norm the hybrid's L-BFGS warm start is asked to reach.
+/// The warm start hands off to the Newton polish here rather than pursuing the
+/// full tolerance itself, where the Hessian-based step is far more efficient.
+const HYBRID_WARM_GRAD_TOL: f64 = 1e-6;
+
 /// Tuning shared across the estimating-equation solvers.
 #[derive(Debug, Clone, Copy)]
 pub struct SolveOptions {
@@ -130,14 +135,32 @@ pub fn solve<P: EsteqProblem>(
         Solver::Newton => newton::solve(problem, beta, opts, interrupt),
         Solver::Lbfgs => lbfgs_solve(problem, beta, opts, interrupt),
         Solver::LbfgsThenNewton => {
-            let warm = lbfgs_solve(problem, beta, opts, interrupt);
+            // Warm-start with L-BFGS to a loose tolerance. Its gradient-only
+            // iterations avoid the O(n p^2) Hessian, so a coarse solution is
+            // cheap; the square root of the target tolerance, floored so the
+            // warm start never chases machine precision itself, hands a good
+            // point to the polish.
+            let warm_opts = SolveOptions {
+                grad_tol: opts.grad_tol.sqrt().max(HYBRID_WARM_GRAD_TOL),
+                ..*opts
+            };
+            let warm = lbfgs_solve(problem, beta, &warm_opts, interrupt);
             if warm.interrupted || interrupt() {
+                // The polish never runs, so the estimate sits at the loose warm
+                // tolerance. Report the interrupt so the caller re-signals it and
+                // do not claim convergence at that point, regardless of what the
+                // warm start recorded before the interrupt was observed.
                 return SolveReport {
                     solver_used: Solver::LbfgsThenNewton,
+                    interrupted: true,
+                    converged: false,
                     ..warm
                 };
             }
-            let polished = newton::solve(problem, beta, opts, interrupt);
+            // Polish with Newton to the full tolerance, taking at least one
+            // Newton step so the estimating-equation output is evaluated at a
+            // machine-precision solution rather than the loose warm-start point.
+            let polished = newton::solve_polish(problem, beta, opts, interrupt);
             SolveReport {
                 solver_used: Solver::LbfgsThenNewton,
                 iterations: warm.iterations + polished.iterations,

@@ -102,6 +102,15 @@
       ! `base_weights` must have one value per observation.
       x It has length 3, but the data have 100 rows.
 
+# balancing_range_error: an invalid entropy solver option
+
+    Code
+      expr
+    Condition <balancing_range_error>
+      Error in `resolve_entropy_solver()`:
+      ! The `balancing.entropy_solver` option must be one of "newton", "lbfgs", and "lbfgs_then_newton".
+      x It is "nope".
+
 # balancing_ipw_unsupported_error: estimating_equations() when absent
 
     Code

@@ -122,6 +122,14 @@ test_that("balancing_range_error: base weights of the wrong length", {
   )
 })
 
+test_that("balancing_range_error: an invalid entropy solver option", {
+  data <- sim_binary(n = 100)
+  withr::local_options(balancing.entropy_solver = "nope")
+  expect_balancing_error(
+    balance(data, exposure, c(x1, x2), method = entropy_balance())
+  )
+})
+
 test_that("balancing_ipw_unsupported_error: estimating_equations() when absent", {
   data <- sim_binary(n = 150)
   fit <- balance(

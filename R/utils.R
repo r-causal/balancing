@@ -70,6 +70,27 @@ automatic_threads <- function() {
   max(1L, as.integer(min(caps)))
 }
 
+# Resolve the solver for the exact entropy problem. The shipped default is
+# Newton, the only solver that drives the estimating equations to machine
+# precision. The default is read from an option so the benchmark promotion
+# process can change it in one place without touching the fit path; the
+# alternatives are the basin L-BFGS adapter and the L-BFGS-then-Newton hybrid,
+# whose Newton polish restores machine-precision estimating equations.
+resolve_entropy_solver <- function() {
+  choices <- c("newton", "lbfgs", "lbfgs_then_newton")
+  solver <- getOption("balancing.entropy_solver", default = "newton")
+  if (!is.character(solver) || length(solver) != 1L || !(solver %in% choices)) {
+    abort(
+      c(
+        "The {.code balancing.entropy_solver} option must be one of {.val {choices}}.",
+        x = "It is {.val {solver}}."
+      ),
+      error_class = "balancing_range_error"
+    )
+  }
+  solver
+}
+
 # Parse an environment-variable thread cap, returning Inf when the variable is
 # unset or not a positive whole number so it does not constrain the minimum.
 env_thread_cap <- function(name) {

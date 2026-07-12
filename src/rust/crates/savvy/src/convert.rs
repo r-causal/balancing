@@ -5,7 +5,7 @@
 //! an unrecognized option name is a contract violation and becomes an error.
 
 use balancing_core::methods::entropy::EntropySolver;
-use savvy::{ListSexp, OwnedRealSexp, Sexp};
+use savvy::{ListSexp, OwnedRealSexp, RealSexp, Sexp};
 
 /// Resolved solver options shared by the entropy entrypoints.
 pub struct EntropyOptions {
@@ -13,6 +13,10 @@ pub struct EntropyOptions {
     pub solver: EntropySolver,
     pub max_iter: usize,
     pub tol: f64,
+    /// Per-parameter-block scalar applied to the estimating-equation output
+    /// before it crosses back to R, one value per solved group. Absent when the
+    /// caller does no renormalization.
+    pub esteq_scale: Option<Vec<f64>>,
 }
 
 /// Read a scalar option as an `f64`, accepting either an integer or a double.
@@ -41,11 +45,12 @@ fn option_usize(value: Sexp, name: &str) -> savvy::Result<usize> {
 
 /// Parse the option list for an entropy solve, rejecting unknown names.
 pub fn parse_entropy_options(options: ListSexp) -> savvy::Result<EntropyOptions> {
-    const ALLOWED: [&str; 4] = [
+    const ALLOWED: [&str; 5] = [
         "threads",
         "solver",
         "max_iterations",
         "convergence_tolerance",
+        "esteq_scale",
     ];
 
     for name in options.names_iter() {
@@ -62,6 +67,7 @@ pub fn parse_entropy_options(options: ListSexp) -> savvy::Result<EntropyOptions>
         solver: EntropySolver::Newton,
         max_iter: 200,
         tol: 1e-10,
+        esteq_scale: None,
     };
 
     if let Some(value) = options.get("threads") {
@@ -86,6 +92,11 @@ pub fn parse_entropy_options(options: ListSexp) -> savvy::Result<EntropyOptions>
                 )));
             }
         };
+    }
+    if let Some(value) = options.get("esteq_scale") {
+        let scale = RealSexp::try_from(value)
+            .map_err(|_| savvy::Error::new("option `esteq_scale` must be a numeric vector"))?;
+        resolved.esteq_scale = Some(scale.as_slice().to_vec());
     }
 
     Ok(resolved)

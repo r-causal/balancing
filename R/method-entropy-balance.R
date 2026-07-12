@@ -144,6 +144,11 @@ entropy_options <- function(method, inexact = FALSE) {
   tolerance <- method@convergence_tolerance
   if (inexact) {
     tolerance <- min(tolerance %||% 1e-10, 1e-14)
+  } else {
+    # The exact problem chooses among Newton and the quasi-Newton solvers; the
+    # inexact problem is always FISTA, so the solver choice is only passed down
+    # for the exact path.
+    options$solver <- resolve_entropy_solver()
   }
   if (!is.null(tolerance)) {
     options$convergence_tolerance <- tolerance
@@ -182,7 +187,6 @@ method(fit_method, entropy_balance) <- function(method, prepared) {
 fit_entropy_discrete <- function(method, prepared) {
   z <- prepared$matrix
   n <- prepared$n
-  p <- ncol(z)
   s <- prepared$sampling_weights
   base <- method@base_weights %||% rep(1, n)
   if (length(base) != n) {
@@ -223,6 +227,28 @@ fit_entropy_discrete <- function(method, prepared) {
     n_eff <- sum(s[focal_idx])
   }
 
+  # The reported weights renormalize each solved group to its estimand target
+  # sum, while the core normalizes each group to n_eff. The ratio scales the
+  # group's estimating-equation output, which the core applies before the
+  # matrices cross back so the large n by p blocks are never copied on the R
+  # side. The ate targets each group to its own sampling-weight total; the att
+  # and atc leave the solved groups at n_eff, a unit scale.
+  esteq_scale <- vapply(
+    solved_levels,
+    function(level) {
+      target_sum <- if (identical(estimand, "ate")) {
+        sum(s[groups[[level]]])
+      } else {
+        n_eff
+      }
+      target_sum / n_eff
+    },
+    numeric(1)
+  )
+
+  options <- entropy_options(method, inexact = inexact)
+  options$esteq_scale <- esteq_scale
+
   result <- solve_entropy(
     z,
     as.integer(group_idx),
@@ -231,11 +257,10 @@ fit_entropy_discrete <- function(method, prepared) {
     s,
     tols,
     n_eff,
-    entropy_options(method, inexact = inexact)
+    options
   )
 
-  weights_rust <- result$weights
-  w <- weights_rust
+  w <- result$weights
   if (!identical(estimand, "ate")) {
     w[focal_idx] <- base[focal_idx]
   }
@@ -249,9 +274,6 @@ fit_entropy_discrete <- function(method, prepared) {
     }
   }
 
-  solved_groups <- lapply(solved_levels, function(level) groups[[level]])
-  block_scales <- group_scale_factors(solved_groups, s, w, weights_rust)
-
   list(
     weights = w,
     coefficients = as.numeric(result$duals),
@@ -260,11 +282,7 @@ fit_entropy_discrete <- function(method, prepared) {
     iterations = as.integer(result$iterations),
     objective = entropy_objective(s, w, base),
     solver_status = result$solver,
-    estimating_equations = rescale_estimating_equations(
-      result,
-      ncol(z),
-      block_scales
-    ),
+    estimating_equations = estimating_equations_from_result(result),
     groups = groups
   )
 }
@@ -323,6 +341,11 @@ fit_entropy_continuous <- function(method, prepared) {
   inexact <- any(tolerances > 0)
   n_eff <- sum(s)
 
+  # A continuous fit is a single group normalized to n_eff and reported at the
+  # same total, so its estimating-equation scale is unity.
+  options <- entropy_options(method, inexact = inexact)
+  options$esteq_scale <- 1
+
   result <- solve_entropy_cont(
     covs,
     targets,
@@ -331,17 +354,14 @@ fit_entropy_continuous <- function(method, prepared) {
     base,
     s,
     n_eff,
-    entropy_options(method, inexact = inexact)
+    options
   )
 
-  weights_rust <- result$weights
-  w <- weights_rust
+  w <- result$weights
   current <- sum(s * w)
   if (current > 0) {
     w <- w * (n_eff / current)
   }
-
-  block_scales <- group_scale_factors(list(seq_len(n)), s, w, weights_rust)
 
   list(
     weights = w,
@@ -351,11 +371,7 @@ fit_entropy_continuous <- function(method, prepared) {
     iterations = as.integer(result$iterations),
     objective = entropy_objective(s, w, base),
     solver_status = result$solver,
-    estimating_equations = rescale_estimating_equations(
-      result,
-      ncol(covs),
-      block_scales
-    ),
+    estimating_equations = estimating_equations_from_result(result),
     groups = NULL
   )
 }
@@ -367,47 +383,18 @@ entropy_objective <- function(s, w, base) {
   sum(s[positive] * w[positive] * log(w[positive] / base[positive]))
 }
 
-# The per-group scalar relating the reported weights to the weights the solver
-# returned. The R layer renormalizes each group's weights to the estimand's
-# target sum after the solve; that scalar multiplies the estimating-equation
-# rows and Jacobian blocks the core computed at its own normalization.
-group_scale_factors <- function(solved_groups, s, w, weights_rust) {
-  vapply(
-    solved_groups,
-    function(idx) {
-      denominator <- sum(s[idx] * weights_rust[idx])
-      if (denominator == 0) {
-        1
-      } else {
-        sum(s[idx] * w[idx]) / denominator
-      }
-    },
-    numeric(1)
-  )
-}
-
-# Build the estimating-equations container from the matrices the core returned,
-# applying the per-group rescaling. The core computes the per-unit estimating
-# functions, the Jacobian, and the weight derivatives at the solution; the R
-# layer performs only the generic per-block scalar multiply and never
-# re-derives the method's moment conditions. Returns `NULL` for the inexact
-# problem, whose core fields are absent.
-rescale_estimating_equations <- function(result, p, block_scales) {
+# Build the estimating-equations container from the matrices the core returned.
+# The core computes the per-unit estimating functions, the Jacobian, and the
+# weight derivatives at the solution and applies the per-group renormalization
+# scale before the matrices cross the boundary, so the R layer only assembles
+# the container and never touches the large blocks. Returns `NULL` for the
+# inexact problem, whose core fields are absent.
+estimating_equations_from_result <- function(result) {
   psi <- result$psi
   jacobian <- result$jac
   weight_jacobian <- result$dw_dbeta
   if (is.null(psi) || is.null(jacobian) || is.null(weight_jacobian)) {
     return(NULL)
-  }
-  for (block in seq_along(block_scales)) {
-    scale <- block_scales[[block]]
-    if (scale == 1) {
-      next
-    }
-    columns <- (block - 1L) * p + seq_len(p)
-    psi[, columns] <- psi[, columns] * scale
-    weight_jacobian[, columns] <- weight_jacobian[, columns] * scale
-    jacobian[columns, columns] <- jacobian[columns, columns] * scale
   }
   balancing_estimating_equations(
     parameters = as.numeric(result$duals),
