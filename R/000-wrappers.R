@@ -39,24 +39,37 @@ NULL
 
 #' Solve a discrete (binary or categorical) entropy balancing problem.
 #'
-#' @export
+#' Internal solver entry point, called from the R layer rather than by users, so
+#' it is not exported. `@noRd` keeps it out of the reference and out of
+#' NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+#' lines into the generated wrapper.
+#' @noRd
 `solve_entropy` <- function(`covs`, `group_idx`, `targets`, `base_weights`, `s_weights`, `tols`, `n_eff`, `options`) {
   .Call(savvy_solve_entropy__impl, `covs`, `group_idx`, `targets`, `base_weights`, `s_weights`, `tols`, `n_eff`, `options`)
 }
 
 #' Solve a continuous-exposure entropy balancing problem over the whole sample.
 #'
-#' @export
+#' Internal solver entry point, called from the R layer rather than by users, so
+#' it is not exported. `@noRd` keeps it out of the reference and out of
+#' NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+#' lines into the generated wrapper.
+#' @noRd
 `solve_entropy_cont` <- function(`covs`, `targets`, `tols`, `dist_ind`, `base_weights`, `s_weights`, `n_eff`, `options`) {
   .Call(savvy_solve_entropy_cont__impl, `covs`, `targets`, `tols`, `dist_ind`, `base_weights`, `s_weights`, `n_eff`, `options`)
 }
 
 #' Report the parallel resources the Rust core observes.
 #'
-#' @returns A list with two elements: `available`, the integer thread count, and
-#'   `cap_source`, a string naming the constraint that set it (`"system"` or
-#'   `"OMP_THREAD_LIMIT"`).
-#' @export
+#' A list with two elements: `available`, the integer thread count, and
+#' `cap_source`, a string naming the constraint that set it (`"system"` or
+#' `"OMP_THREAD_LIMIT"`).
+#'
+#' This is an internal solver entry point, called from the R layer rather than
+#' by users, so it is not exported. `@noRd` keeps it out of the reference and
+#' out of NAMESPACE; savvy copies these doc lines into the generated wrapper, so
+#' the tag survives wrapper regeneration.
+#' @noRd
 `thread_info` <- function() {
   .Call(savvy_thread_info__impl)
 }

@@ -272,6 +272,7 @@ balancing_estimating_equations <- new_class(
 #' balance table, and the solver diagnostics. The raw data are not stored; the
 #' recipe carries what is needed to rebuild the constraint matrix.
 #'
+#' @usage NULL
 #' @param weights The balancing weights, a [bw] vector.
 #' @param method The fitted [balance_method] specification.
 #' @param estimand The resolved estimand string.

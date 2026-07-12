@@ -3,49 +3,6 @@
 \name{balancing}
 \alias{balancing}
 \title{A fitted balancing result}
-\usage{
-balancing(
-  weights = (function (.data) 
- {
-    
-    stop(sprintf("S3 class <\%s> doesn't have a constructor", class[[1]]), call. =
-    FALSE)
- })(),
-  method = balance_method(),
-  estimand = character(0),
-  exposure = character(0),
-  exposure_type = character(0),
-  covariates = character(0),
-  focal_level = NULL,
-  n = integer(0),
-  constraints = NULL,
-  recipe = list(),
-  balance_table = (function (.data = list(), row.names = NULL) 
- {
-     if
-    (is.null(row.names)) {
-         list2DF(.data)
-     }
-     else {
-         out <-
-    list2DF(.data, length(row.names))
-         attr(out, "row.names") <- row.names
-      
-      out
-     }
- })(),
-  duals = NULL,
-  coefficients = NULL,
-  converged = logical(0),
-  iterations = integer(0),
-  objective = numeric(0),
-  solver_status = character(0),
-  estimating_equations = NULL,
-  sampling_weights = NULL,
-  call = quote({
- })
-)
-}
 \arguments{
 \item{weights}{The balancing weights, a \link{bw} vector.}
 

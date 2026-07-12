@@ -71,3 +71,45 @@ test_that("alert_info() stays silent when balancing.quiet is TRUE", {
 
   expect_silent(alert_info("A helpful note."))
 })
+
+# ---- Thread resolution ----------------------------------------------------
+
+test_that("resolve_threads() honors an explicit thread count", {
+  expect_identical(resolve_threads(4), 4L)
+  # A count below one is floored to a single thread.
+  expect_identical(resolve_threads(0), 1L)
+})
+
+test_that("resolve_threads() falls back to the balancing.threads option", {
+  withr::local_options(balancing.threads = 3)
+  expect_identical(resolve_threads(), 3L)
+})
+
+test_that("automatic_threads() returns two under R CMD check", {
+  withr::local_envvar(`_R_CHECK_LIMIT_CORES_` = "TRUE")
+  expect_identical(automatic_threads(), 2L)
+})
+
+test_that("automatic_threads() treats an unknown core count as one", {
+  withr::local_envvar(
+    `_R_CHECK_LIMIT_CORES_` = NA,
+    OMP_THREAD_LIMIT = NA,
+    OMP_NUM_THREADS = NA
+  )
+  testthat::local_mocked_bindings(
+    detectCores = function(...) NA_integer_,
+    .package = "parallel"
+  )
+  expect_identical(automatic_threads(), 1L)
+})
+
+test_that("env_thread_cap() parses a positive integer and rejects the rest", {
+  withr::local_envvar(OMP_THREAD_LIMIT = "4")
+  expect_identical(env_thread_cap("OMP_THREAD_LIMIT"), 4L)
+
+  withr::local_envvar(OMP_THREAD_LIMIT = "not-a-number")
+  expect_identical(env_thread_cap("OMP_THREAD_LIMIT"), Inf)
+
+  withr::local_envvar(OMP_THREAD_LIMIT = NA)
+  expect_identical(env_thread_cap("OMP_THREAD_LIMIT"), Inf)
+})

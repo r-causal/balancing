@@ -55,7 +55,8 @@ norm_groups <- function(w, tr) {
   out
 }
 
-fit_ours <- function(df, covs, estimand) {
+fit_ours <- function(df, covs, estimand, solver = "newton") {
+  options(balancing.entropy_solver = solver)
   as.numeric(weights(balance(
     df,
     exposure,
@@ -90,32 +91,47 @@ run <- function(n = 50000L, p = 200L, iterations = 5L) {
     # Single-threaded, like-for-like: WeightIt is single-threaded, so cap our
     # core to one worker through the documented thread option.
     options(balancing.threads = 1L)
-    w_ours <- fit_ours(df, covs, estimand)
+    w_ours <- fit_ours(df, covs, estimand, solver = "newton")
+    w_hybrid <- fit_ours(df, covs, estimand, solver = "lbfgs_then_newton")
     w_wi <- fit_weightit(df, covs, estimand)
 
     prec_ours <- balance_precision(w_ours, X, tr, estimand)
+    prec_hybrid <- balance_precision(w_hybrid, X, tr, estimand)
     prec_wi <- balance_precision(w_wi, X, tr, estimand)
     a <- norm_groups(w_ours, tr)
     b <- norm_groups(w_wi, tr)
     rel <- max(abs(a - b) / pmax(abs(b), 1e-8))
+    # The hybrid must reach the same weights as Newton (both machine precision).
+    rel_hybrid <- max(abs(w_ours - w_hybrid) / pmax(abs(w_ours), 1e-8))
     parity[[estimand]] <- list(
       prec_ours = prec_ours,
+      prec_hybrid = prec_hybrid,
       prec_weightit = prec_wi,
       max_rel_weight_diff = rel,
+      hybrid_vs_newton_rel = rel_hybrid,
       correlation = stats::cor(w_ours, w_wi)
     )
     cat(sprintf(
-      "[%s] balance precision ours=%.3e weightit=%.3e | max rel weight diff=%.3e\n",
+      "[%s] prec ours=%.3e hybrid=%.3e weightit=%.3e | wi rel=%.3e | hybrid-vs-newton rel=%.3e\n",
       estimand,
       prec_ours,
+      prec_hybrid,
       prec_wi,
-      rel
+      rel,
+      rel_hybrid
     ))
 
-    stopifnot(prec_ours < 1e-6, prec_wi < 1e-6, rel < 1e-6)
+    stopifnot(
+      prec_ours < 1e-6,
+      prec_hybrid < 1e-6,
+      prec_wi < 1e-6,
+      rel < 1e-6,
+      rel_hybrid < 1e-6
+    )
 
     single <- bench::mark(
-      ours = fit_ours(df, covs, estimand),
+      ours = fit_ours(df, covs, estimand, solver = "newton"),
+      ours_hybrid = fit_ours(df, covs, estimand, solver = "lbfgs_then_newton"),
       weightit = fit_weightit(df, covs, estimand),
       check = FALSE,
       min_iterations = iterations,
@@ -124,11 +140,17 @@ run <- function(n = 50000L, p = 200L, iterations = 5L) {
     )
     results[[paste0(estimand, "_single")]] <- single
 
-    # Threaded row for our method only, reported separately, at 8 workers to
-    # match the 8-thread criterion points.
+    # Threaded rows for our method (Newton and hybrid), reported separately, at 8
+    # workers to match the 8-thread criterion points.
     options(balancing.threads = 8L)
     threaded <- bench::mark(
-      ours_threaded = fit_ours(df, covs, estimand),
+      ours_threaded = fit_ours(df, covs, estimand, solver = "newton"),
+      ours_hybrid_threaded = fit_ours(
+        df,
+        covs,
+        estimand,
+        solver = "lbfgs_then_newton"
+      ),
       check = FALSE,
       min_iterations = iterations,
       max_iterations = iterations,

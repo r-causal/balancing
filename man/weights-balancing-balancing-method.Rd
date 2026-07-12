@@ -3,10 +3,6 @@
 \name{weights,balancing::balancing-method}
 \alias{weights,balancing::balancing-method}
 \title{Extract balancing weights}
-\usage{
-## S7 method for class <balancing::balancing>
-weights(object, ..., include_sampling_weights = TRUE)
-}
 \arguments{
 \item{object}{A \link{balancing} result.}
 

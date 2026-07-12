@@ -316,6 +316,7 @@ max.bw <- function(..., na.rm = FALSE) {
 #' Returns the [bw] weight vector stored on a [balancing] result. When sampling
 #' weights are present they are composed onto the balancing weights by default.
 #'
+#' @usage NULL
 #' @param object A [balancing] result.
 #' @param include_sampling_weights Whether to multiply the balancing weights by
 #'   the sampling weights. Defaults to `TRUE`.

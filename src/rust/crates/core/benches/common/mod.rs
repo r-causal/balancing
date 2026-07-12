@@ -1,12 +1,14 @@
 //! Shared synthetic problem generator for the criterion benchmarks.
 //!
-//! The generator builds an exact entropy balancing problem with a known
-//! solution: covariates are drawn from a fixed seed, a small target dual vector
-//! `beta_star` is chosen, and the constraint targets are set to the covariate
-//! means under the exponential tilt at `beta_star`. Solving from a zero start
-//! therefore has to recover `beta_star`, so every solver does genuine work and
-//! the achieved gradient can be checked against a common tolerance before any
-//! timing counts.
+//! The continuous generators build an exact entropy balancing problem with a
+//! known solution: covariates are drawn from a fixed seed, a small target dual
+//! vector `beta_star` is chosen, and the constraint targets are set to the
+//! covariate means under the exponential tilt at `beta_star`. Solving from a
+//! zero start therefore has to recover `beta_star`, so every solver does genuine
+//! work and the achieved gradient can be checked against a common tolerance
+//! before any timing counts. A correlation knob makes the covariance (and so the
+//! Hessian) ill conditioned. A separate multi-group generator builds a discrete
+//! problem whose groups are covariate dependent.
 //!
 //! This module lives under `benches/common/` so cargo does not treat it as a
 //! benchmark target of its own.
@@ -15,11 +17,11 @@
 
 use balancing_core::methods::entropy::{EntropyInputs, EntropySolver};
 
-/// A generated exact entropy problem and its known dual solution.
+/// A generated entropy problem and, for the continuous case, its known dual.
 pub struct Problem {
     /// Column-major `n` by `p` constraint matrix.
     pub covs: Vec<f64>,
-    /// Constraint targets: the tilted covariate means at `beta_star`.
+    /// Constraint targets.
     pub targets: Vec<f64>,
     /// Base weights, all one.
     pub base: Vec<f64>,
@@ -31,11 +33,14 @@ pub struct Problem {
     /// held-exact marginal, so the continuous entrypoint's L1 penalty logic is a
     /// no-op and the exact-problem hot path is measured.
     pub dist_ind: Vec<i32>,
+    /// Group index per unit for the discrete entrypoint, empty for a continuous
+    /// problem.
+    pub group_idx: Vec<i32>,
     /// Number of units.
     pub n: usize,
     /// Number of constraints.
     pub p: usize,
-    /// The dual vector the solver must recover.
+    /// The dual vector the continuous solver must recover, empty for discrete.
     pub beta_star: Vec<f64>,
 }
 
@@ -67,38 +72,98 @@ impl SplitMix64 {
     }
 }
 
-/// Build an exact entropy problem of `n` units and `p` constraints from `seed`.
-pub fn make_problem(n: usize, p: usize, seed: u64) -> Problem {
+/// Build an exact continuous entropy problem of `n` units and `p` constraints.
+///
+/// `rho` in [0, 1) is the pairwise correlation induced across covariate columns
+/// through a shared factor. `rho = 0` gives independent columns; a high `rho`
+/// makes the columns near collinear, so the weighted covariance that forms the
+/// Newton Hessian is ill conditioned.
+pub fn make_problem_corr(n: usize, p: usize, seed: u64, rho: f64) -> Problem {
     let mut rng = SplitMix64(seed);
     let mut covs = vec![0.0; n * p];
-    // Column-major fill.
-    for value in covs.iter_mut() {
-        *value = rng.normal();
+    let a = rho.max(0.0).sqrt();
+    let b = (1.0 - rho.max(0.0)).sqrt();
+    // A shared factor per unit couples the columns; each column adds its own
+    // independent part.
+    let mut factor = vec![0.0; n];
+    for f in factor.iter_mut() {
+        *f = rng.normal();
+    }
+    for j in 0..p {
+        for i in 0..n {
+            covs[j * n + i] = a * factor[i] + b * rng.normal();
+        }
     }
 
     // A small, structured dual so the tilt stays well conditioned even at large
     // p: |C . beta_star| has standard deviation near sqrt(p) * 0.03, moderate.
     let beta_star: Vec<f64> = (0..p).map(|j| 0.03 * (((j % 7) as f64) - 3.0)).collect();
 
-    // Tilted weights e_i = exp(-C_i . beta_star), then targets_j = weighted mean.
-    let mut e = vec![0.0; n];
-    let mut z = 0.0;
-    for i in 0..n {
-        let mut lin = 0.0;
-        for (j, &b) in beta_star.iter().enumerate() {
-            lin += covs[j * n + i] * b;
-        }
-        let ei = (-lin).exp();
-        e[i] = ei;
-        z += ei;
+    let (targets, _z) = tilted_means(&covs, n, p, &beta_star);
+
+    Problem {
+        covs,
+        targets,
+        base: vec![1.0; n],
+        s: vec![1.0; n],
+        tols: vec![0.0; p],
+        dist_ind: vec![0; p],
+        group_idx: Vec::new(),
+        n,
+        p,
+        beta_star,
     }
+}
+
+/// Build a well-conditioned continuous problem (independent columns).
+pub fn make_problem(n: usize, p: usize, seed: u64) -> Problem {
+    make_problem_corr(n, p, seed, 0.0)
+}
+
+/// Build a discrete (multi-group) entropy problem with `n_groups` covariate
+/// dependent groups over `n` units and `p` constraints.
+///
+/// Each unit is assigned to the group whose random loading best matches its
+/// covariates, so the groups start imbalanced. Every group is reweighted to the
+/// overall covariate means, the average-treatment-effect target.
+pub fn make_discrete(n: usize, p: usize, n_groups: usize, seed: u64) -> Problem {
+    let mut rng = SplitMix64(seed);
+    let mut covs = vec![0.0; n * p];
+    for value in covs.iter_mut() {
+        *value = rng.normal();
+    }
+
+    // Random group loadings; a unit joins the group with the largest score. The
+    // loadings are modest so the groups are imbalanced but not near-separable,
+    // which keeps the per-group duals finite and the problem realistic.
+    let loadings: Vec<f64> = (0..n_groups * p).map(|_| 0.2 * rng.normal()).collect();
+    let mut group_idx = vec![0i32; n];
+    for i in 0..n {
+        let mut best_g = 0usize;
+        let mut best_score = f64::NEG_INFINITY;
+        for g in 0..n_groups {
+            let mut score = 0.0;
+            for j in 0..p {
+                score += covs[j * n + i] * loadings[g * p + j];
+            }
+            // A small Gumbel-like perturbation keeps groups from degenerating.
+            score += 0.3 * (-(-rng.unit().ln()).ln());
+            if score > best_score {
+                best_score = score;
+                best_g = g;
+            }
+        }
+        group_idx[i] = best_g as i32;
+    }
+
+    // Overall covariate means are the shared targets.
     let mut targets = vec![0.0; p];
     for (j, target) in targets.iter_mut().enumerate() {
         let mut acc = 0.0;
         for i in 0..n {
-            acc += e[i] * covs[j * n + i];
+            acc += covs[j * n + i];
         }
-        *target = acc / z;
+        *target = acc / n as f64;
     }
 
     Problem {
@@ -108,10 +173,36 @@ pub fn make_problem(n: usize, p: usize, seed: u64) -> Problem {
         s: vec![1.0; n],
         tols: vec![0.0; p],
         dist_ind: vec![0; p],
+        group_idx,
         n,
         p,
-        beta_star,
+        beta_star: Vec::new(),
     }
+}
+
+/// Weighted covariate means under the exponential tilt at `beta`, with the
+/// normalizing constant.
+fn tilted_means(covs: &[f64], n: usize, p: usize, beta: &[f64]) -> (Vec<f64>, f64) {
+    let mut e = vec![0.0; n];
+    let mut z = 0.0;
+    for i in 0..n {
+        let mut lin = 0.0;
+        for (j, &b) in beta.iter().enumerate() {
+            lin += covs[j * n + i] * b;
+        }
+        let ei = (-lin).exp();
+        e[i] = ei;
+        z += ei;
+    }
+    let mut means = vec![0.0; p];
+    for (j, m) in means.iter_mut().enumerate() {
+        let mut acc = 0.0;
+        for i in 0..n {
+            acc += e[i] * covs[j * n + i];
+        }
+        *m = acc / z;
+    }
+    (means, z)
 }
 
 /// Borrow a [`Problem`] as [`EntropyInputs`] for the given solver and threading.

@@ -19,10 +19,15 @@ use convert::{parse_entropy_options, real_matrix, real_vector};
 
 /// Report the parallel resources the Rust core observes.
 ///
-/// @returns A list with two elements: `available`, the integer thread count, and
-///   `cap_source`, a string naming the constraint that set it (`"system"` or
-///   `"OMP_THREAD_LIMIT"`).
-/// @export
+/// A list with two elements: `available`, the integer thread count, and
+/// `cap_source`, a string naming the constraint that set it (`"system"` or
+/// `"OMP_THREAD_LIMIT"`).
+///
+/// This is an internal solver entry point, called from the R layer rather than
+/// by users, so it is not exported. `@noRd` keeps it out of the reference and
+/// out of NAMESPACE; savvy copies these doc lines into the generated wrapper, so
+/// the tag survives wrapper regeneration.
+/// @noRd
 #[savvy]
 fn thread_info() -> savvy::Result<savvy::Sexp> {
     let (available, cap_source) = balancing_core::available_threads();
@@ -93,7 +98,11 @@ fn set_optional_matrix(
 
 /// Solve a discrete (binary or categorical) entropy balancing problem.
 ///
-/// @export
+/// Internal solver entry point, called from the R layer rather than by users, so
+/// it is not exported. `@noRd` keeps it out of the reference and out of
+/// NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+/// lines into the generated wrapper.
+/// @noRd
 // The argument list is the fixed savvy boundary signature; the balancing inputs
 // are irreducibly numerous.
 #[allow(clippy::too_many_arguments)]
@@ -161,7 +170,11 @@ fn solve_entropy(
 
 /// Solve a continuous-exposure entropy balancing problem over the whole sample.
 ///
-/// @export
+/// Internal solver entry point, called from the R layer rather than by users, so
+/// it is not exported. `@noRd` keeps it out of the reference and out of
+/// NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+/// lines into the generated wrapper.
+/// @noRd
 // The argument list is the fixed savvy boundary signature; the balancing inputs
 // are irreducibly numerous.
 #[allow(clippy::too_many_arguments)]
