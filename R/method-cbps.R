@@ -247,7 +247,38 @@ fit_cbps_binary <- function(method, prepared) {
     cbps_options(method)
   )
 
-  assemble_cbps(result, method, prepared)
+  # Only the just-identified fit produces a smooth estimating-equations
+  # container, so the re-evaluation hook is built for that path alone. The
+  # over-identified generalized-method-of-moments fit has no container.
+  psi_fn <- if (isTRUE(method@over_identified)) {
+    NULL
+  } else {
+    make_cbps_psi_fn(covs, treat, s, core_estimand, method@link)
+  }
+
+  assemble_cbps(result, method, prepared, psi_fn)
+}
+
+# A closure re-evaluating the binary just-identified estimating functions at new
+# coefficients, over the Rust eval entrypoint and the solve inputs captured
+# here. The captured design matrix is the memory cost the optional container
+# accepts.
+make_cbps_psi_fn <- function(covs, treat, s, estimand, link) {
+  force(covs)
+  force(treat)
+  force(s)
+  force(estimand)
+  force(link)
+  function(theta) {
+    eval_psi_cbps(
+      as.numeric(theta),
+      covs,
+      as.integer(treat),
+      s,
+      estimand,
+      link
+    )
+  }
 }
 
 fit_cbps_categorical <- function(method, prepared) {
@@ -280,7 +311,19 @@ fit_cbps_categorical <- function(method, prepared) {
     cbps_options(method)
   )
 
-  assemble_cbps(result, method, prepared)
+  # The categorical just-identified fit coincides with per-level covariate
+  # balancing, so its estimating functions share the tilting form; the hook
+  # re-evaluates them through the shared tilting entrypoint.
+  psi_fn <- make_ipt_psi_fn(
+    covs,
+    treat_idx,
+    focal_idx,
+    s,
+    core_estimand,
+    method@link
+  )
+
+  assemble_cbps(result, method, prepared, psi_fn)
 }
 
 fit_cbps_continuous <- function(method, prepared) {
@@ -300,7 +343,9 @@ fit_cbps_continuous <- function(method, prepared) {
     cbps_options(method)
   )
 
-  assemble_cbps(result, method, prepared)
+  # The continuous form supplies no smooth estimating equations, so it carries no
+  # container and no re-evaluation hook.
+  assemble_cbps(result, method, prepared, NULL)
 }
 
 # Normalize each exposure group to its estimand target sum and pack the fit
@@ -313,7 +358,7 @@ fit_cbps_continuous <- function(method, prepared) {
 # estimating-equations container is stored separately at the raw solution (see
 # `cbps_estimating_equations`), so downstream inference reads the container, not
 # these renormalized weights.
-assemble_cbps <- function(result, method, prepared) {
+assemble_cbps <- function(result, method, prepared, psi_fn = NULL) {
   s <- prepared$sampling_weights
   estimand <- prepared$estimand
   focal <- prepared$focal_level
@@ -358,7 +403,7 @@ assemble_cbps <- function(result, method, prepared) {
     iterations = as.integer(result$iterations),
     objective = objective,
     solver_status = solver_status,
-    estimating_equations = cbps_estimating_equations(result),
+    estimating_equations = cbps_estimating_equations(result, psi_fn),
     # The over-identified criterion targets no per-constraint tolerance, so its
     # approximate balance must not raise the tolerance warning.
     approximate = over_identified,
@@ -374,7 +419,7 @@ assemble_cbps <- function(result, method, prepared) {
 # the Jacobian, and the weight derivatives at the raw M-estimator solution, where
 # the per-unit functions sum to zero column by column. The over-identified and
 # continuous forms return `NULL` for these fields, so the container is absent.
-cbps_estimating_equations <- function(result) {
+cbps_estimating_equations <- function(result, psi_fn = NULL) {
   psi <- result$psi
   jacobian <- result$jac
   weight_jacobian <- result$dw_dbeta
@@ -386,6 +431,7 @@ cbps_estimating_equations <- function(result) {
     psi = psi,
     jacobian = jacobian,
     weight_jacobian = weight_jacobian,
-    psi_fn = NULL
+    weights_raw = as.numeric(result$weights),
+    psi_fn = psi_fn
   )
 }

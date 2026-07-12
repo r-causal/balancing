@@ -608,6 +608,72 @@ pub fn scale_estimating_output(
     Ok(())
 }
 
+/// Re-evaluate the discrete estimating functions at a supplied set of duals.
+///
+/// The estimating-equations container stores `psi` at the solution; a sandwich
+/// variance that needs a finite difference must re-evaluate it at perturbed
+/// parameters. This recomputes the `n` by `P` matrix from `coefs` (`p` duals per
+/// group, stacked in group order) without solving, so the link math is never
+/// reimplemented in R. `group_idx` partitions the units exactly as
+/// [`solve_discrete`] does, and `scales` applies the same per-group
+/// renormalization the solve output carried, one value per group. Units with a
+/// negative group index contribute a zero row, matching the block structure of
+/// the stored matrix.
+pub fn eval_psi_discrete(
+    inputs: &EntropyInputs<'_>,
+    group_idx: &[i32],
+    coefs: &[f64],
+    scales: &[f64],
+) -> Result<Vec<f64>, String> {
+    let n = inputs.n;
+    let p = inputs.p;
+    let n_groups = group_idx.iter().copied().max().map_or(0, |g| g + 1).max(0) as usize;
+    let total_params = n_groups * p;
+    if coefs.len() != total_params || scales.len() < n_groups {
+        return Err(format!(
+            "group_idx implies {n_groups} group(s) of size {p}, so coefs must have length {total_params} (got {}) and scales at least {n_groups} (got {})",
+            coefs.len(),
+            scales.len()
+        ));
+    }
+    let mut groups: Vec<Vec<usize>> = vec![Vec::new(); n_groups];
+    for (i, &g) in group_idx.iter().enumerate() {
+        if g >= 0 {
+            groups[g as usize].push(i);
+        }
+    }
+
+    let pool = get_pool(inputs.threads);
+    let mut psi = vec![0.0; n * total_params];
+    for (g, idx) in groups.iter().enumerate() {
+        if idx.is_empty() {
+            continue;
+        }
+        let beta = &coefs[g * p..g * p + p];
+        let problem = EntropyProblem {
+            covs: inputs.covs,
+            n,
+            p,
+            idx,
+            targets: inputs.targets,
+            base: inputs.base,
+            s: inputs.s,
+            n_eff: inputs.n_eff,
+            pool: Arc::clone(&pool),
+        };
+        let (weights, _mbar) = problem.solution_parts(beta);
+        let scale = scales.get(g).copied().unwrap_or(1.0);
+        let offset = g * p;
+        for (local, &gi) in idx.iter().enumerate() {
+            let sw = inputs.s[gi] * weights[local] * scale;
+            for j in 0..p {
+                psi[(offset + j) * n + gi] = sw * (inputs.covs[j * n + gi] - inputs.targets[j]);
+            }
+        }
+    }
+    Ok(psi)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -761,5 +827,117 @@ mod tests {
         result.jac = None;
         result.dw_dbeta = None;
         scale_estimating_output(&mut result, 2, &[1.0, 2.0, 3.0]).unwrap();
+    }
+
+    // A two-group discrete design over two covariates, balanced to the pooled
+    // mean. Entropy balancing carries no intercept column; both group hulls
+    // contain the target, so the solve converges to exact balance.
+    fn two_group_design() -> (Vec<f64>, Vec<i32>, Vec<f64>, usize, usize) {
+        let n = 12;
+        let p = 2;
+        // Column-major n by p covariate matrix.
+        let x1 = [
+            0.3, 1.1, -0.4, 0.8, -1.0, 0.5, 1.3, -0.7, 0.2, -0.9, 0.6, -0.2,
+        ];
+        let x2 = [
+            -0.5, 0.7, 1.2, -0.8, 0.4, -1.1, 0.9, 0.1, -0.6, 1.0, -0.3, 0.5,
+        ];
+        let mut covs = Vec::with_capacity(n * p);
+        covs.extend_from_slice(&x1);
+        covs.extend_from_slice(&x2);
+        let group_idx = vec![0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1];
+        // Pooled (unweighted) target of each column.
+        let mut targets = vec![0.0; p];
+        for j in 0..p {
+            targets[j] = (0..n).map(|i| covs[j * n + i]).sum::<f64>() / n as f64;
+        }
+        (covs, group_idx, targets, n, p)
+    }
+
+    fn eval_inputs<'a>(
+        covs: &'a [f64],
+        targets: &'a [f64],
+        base: &'a [f64],
+        s: &'a [f64],
+        n: usize,
+        p: usize,
+        tols: &'a [f64],
+    ) -> EntropyInputs<'a> {
+        EntropyInputs {
+            covs,
+            n,
+            p,
+            targets,
+            tols,
+            base,
+            s,
+            n_eff: 1.0,
+            threads: 1,
+            max_iter: 200,
+            tol: 1e-12,
+            solver: EntropySolver::Newton,
+        }
+    }
+
+    // Re-evaluating psi at the solved duals reproduces the solve's own psi to
+    // floating-point tolerance, and a central finite difference of the column
+    // sums reproduces the analytic Jacobian.
+    #[test]
+    fn eval_psi_discrete_matches_solve_and_jacobian() {
+        let (covs, group_idx, targets, n, p) = two_group_design();
+        let base = vec![1.0; n];
+        let s = vec![1.0; n];
+        let tols = vec![0.0; p];
+        let inputs = eval_inputs(&covs, &targets, &base, &s, n, p, &tols);
+        let result = solve_discrete(&inputs, &group_idx, &no_interrupt());
+        assert!(result.converged);
+
+        let duals = &result.duals;
+        let total_params = duals.len();
+        let scales = vec![1.0; total_params / p];
+        let stored = result.psi.as_ref().expect("exact problem has psi");
+        let recomputed = eval_psi_discrete(&inputs, &group_idx, duals, &scales).unwrap();
+        for (a, b) in stored.iter().zip(&recomputed) {
+            assert!((a - b).abs() < 1e-10, "psi mismatch: {a} vs {b}");
+        }
+
+        let jac = result.jac.as_ref().expect("exact problem has jac");
+        let eps = 1e-6;
+        for col in 0..total_params {
+            let mut up = duals.clone();
+            let mut down = duals.clone();
+            up[col] += eps;
+            down[col] -= eps;
+            let psi_up = eval_psi_discrete(&inputs, &group_idx, &up, &scales).unwrap();
+            let psi_down = eval_psi_discrete(&inputs, &group_idx, &down, &scales).unwrap();
+            for row in 0..total_params {
+                let colsum_up: f64 = (0..n).map(|i| psi_up[row * n + i]).sum();
+                let colsum_down: f64 = (0..n).map(|i| psi_down[row * n + i]).sum();
+                let fd = (colsum_up - colsum_down) / (2.0 * eps);
+                let analytic = jac[col * total_params + row];
+                assert!(
+                    (fd - analytic).abs() < 1e-4,
+                    "jac[{row},{col}]: fd {fd} analytic {analytic}"
+                );
+            }
+        }
+    }
+
+    // group_idx that implies more groups than coefs and scales cover is reported
+    // rather than panicking on the block slice, so the R hook surfaces a
+    // condition instead of a crash.
+    #[test]
+    fn eval_psi_discrete_rejects_inconsistent_group_count() {
+        let (covs, group_idx, targets, n, p) = two_group_design();
+        let base = vec![1.0; n];
+        let s = vec![1.0; n];
+        let tols = vec![0.0; p];
+        let inputs = eval_inputs(&covs, &targets, &base, &s, n, p, &tols);
+        // two_group_design implies two groups, so 2 * p coefficients and two
+        // scales are required; a single group's worth must be rejected.
+        let coefs = vec![0.0; p];
+        let scales = vec![1.0];
+        let err = eval_psi_discrete(&inputs, &group_idx, &coefs, &scales).unwrap_err();
+        assert!(err.contains("group(s)"), "message was: {err}");
     }
 }

@@ -274,6 +274,22 @@ fit_entropy_discrete <- function(method, prepared) {
     }
   }
 
+  # The estimating-equations container carries an optional psi re-evaluation
+  # hook so a sandwich variance can finite-difference the Jacobian. Building it
+  # captures the constraint matrix and the solve inputs in the closure, a memory
+  # cost the design accepts by making the hook optional. The raw M-estimator
+  # duals feed the hook, so the reported weights' renormalization is applied
+  # through the same per-group scale the solver output carried.
+  psi_fn <- make_entropy_psi_fn(
+    z,
+    group_idx,
+    targets,
+    base,
+    s,
+    n_eff,
+    esteq_scale
+  )
+
   list(
     weights = w,
     coefficients = as.numeric(result$duals),
@@ -282,9 +298,42 @@ fit_entropy_discrete <- function(method, prepared) {
     iterations = as.integer(result$iterations),
     objective = entropy_objective(s, w, base),
     solver_status = result$solver,
-    estimating_equations = estimating_equations_from_result(result),
+    estimating_equations = estimating_equations_from_result(result, w, psi_fn),
     groups = groups
   )
+}
+
+# A closure re-evaluating the discrete estimating functions at new duals, over
+# the Rust eval entrypoint and the solve inputs captured here. The captured
+# constraint matrix is the memory cost the optional container accepts.
+make_entropy_psi_fn <- function(
+  z,
+  group_idx,
+  targets,
+  base,
+  s,
+  n_eff,
+  esteq_scale
+) {
+  force(z)
+  force(group_idx)
+  force(targets)
+  force(base)
+  force(s)
+  force(n_eff)
+  force(esteq_scale)
+  function(theta) {
+    eval_psi_entropy(
+      as.numeric(theta),
+      z,
+      as.integer(group_idx),
+      targets,
+      base,
+      s,
+      n_eff,
+      esteq_scale
+    )
+  }
 }
 
 fit_entropy_continuous <- function(method, prepared) {
@@ -371,7 +420,7 @@ fit_entropy_continuous <- function(method, prepared) {
     iterations = as.integer(result$iterations),
     objective = entropy_objective(s, w, base),
     solver_status = result$solver,
-    estimating_equations = estimating_equations_from_result(result),
+    estimating_equations = estimating_equations_from_result(result, w),
     groups = NULL
   )
 }
@@ -389,7 +438,11 @@ entropy_objective <- function(s, w, base) {
 # scale before the matrices cross the boundary, so the R layer only assembles
 # the container and never touches the large blocks. Returns `NULL` for the
 # inexact problem, whose core fields are absent.
-estimating_equations_from_result <- function(result) {
+estimating_equations_from_result <- function(
+  result,
+  weights_raw = NULL,
+  psi_fn = NULL
+) {
   psi <- result$psi
   jacobian <- result$jac
   weight_jacobian <- result$dw_dbeta
@@ -401,7 +454,8 @@ estimating_equations_from_result <- function(result) {
     psi = psi,
     jacobian = jacobian,
     weight_jacobian = weight_jacobian,
-    psi_fn = NULL
+    weights_raw = weights_raw,
+    psi_fn = psi_fn
   )
 }
 

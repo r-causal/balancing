@@ -9,6 +9,7 @@ balancing_estimating_equations(
   psi = numeric(0),
   jacobian = numeric(0),
   weight_jacobian = numeric(0),
+  weights_raw = NULL,
   psi_fn = NULL
 )
 }
@@ -20,6 +21,12 @@ balancing_estimating_equations(
 \item{jacobian}{The \code{p} by \code{p} analytic Jacobian at the solution.}
 
 \item{weight_jacobian}{The \code{n} by \code{p} weight derivatives.}
+
+\item{weights_raw}{The balancing weights whose derivative is
+\code{weight_jacobian}, a length-\code{n} numeric vector. The weight derivatives are
+stored at whatever per-group reporting scale a method uses internally, so a
+consumer that needs the derivative of the reported weights rescales
+\code{weight_jacobian} by the ratio of the reported weights to \code{weights_raw}.}
 
 \item{psi_fn}{An optional function re-evaluating \code{psi} at new parameters.}
 }

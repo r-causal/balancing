@@ -499,6 +499,60 @@ fn fill_block_output(
     }
 }
 
+/// Re-evaluate the per-unit estimating functions at a supplied set of
+/// coefficients.
+///
+/// The estimating-equations container stores `psi` at the solution; a sandwich
+/// variance that needs a finite difference must re-evaluate it at perturbed
+/// parameters. This recomputes the `n` by `P` matrix from `coefs` (`p` per
+/// block, stacked in block order) without solving, matching the block structure
+/// [`solve`] fills: column `j` of block `b` is `s_i tau_i x_ij` for every unit,
+/// less the level's own weighted term `s_i w_i(beta_b) x_ij`.
+pub fn eval_psi(inputs: &IptInputs<'_>, coefs: &[f64]) -> Result<Vec<f64>, String> {
+    let n = inputs.n;
+    let p = inputs.p;
+    let (blocks, tau) = plan(inputs);
+    let total_params = blocks.len() * p;
+    if p == 0 || coefs.len() != total_params {
+        return Err(format!(
+            "coefs has length {} but the tilt has {} block(s) of size {p}",
+            coefs.len(),
+            blocks.len()
+        ));
+    }
+    let mut psi = vec![0.0; n * total_params];
+
+    for (b, &(level, form)) in blocks.iter().enumerate() {
+        let offset = b * p;
+        let beta = &coefs[offset..offset + p];
+        let idx: Vec<usize> = inputs
+            .treat
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &t)| (t as usize == level).then_some(i))
+            .collect();
+
+        // The level's per-unit weight at these coefficients, computed once.
+        let mut wvec = vec![0.0; idx.len()];
+        for (local, &gi) in idx.iter().enumerate() {
+            let eta: f64 = (0..p).map(|j| inputs.covs[j * n + gi] * beta[j]).sum();
+            wvec[local] = form.weight(inputs.link.linkinv(eta));
+        }
+
+        for j in 0..p {
+            let covs_col = &inputs.covs[j * n..(j + 1) * n];
+            let psi_col = &mut psi[(offset + j) * n..(offset + j + 1) * n];
+            for i in 0..n {
+                psi_col[i] = inputs.s[i] * tau[i] * covs_col[i];
+            }
+            for (local, &gi) in idx.iter().enumerate() {
+                psi_col[gi] -= inputs.s[gi] * wvec[local] * covs_col[gi];
+            }
+        }
+    }
+    Ok(psi)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -648,6 +702,86 @@ mod tests {
                 assert_eq!(one.coefs[i].to_bits(), many.coefs[i].to_bits());
             }
         }
+    }
+
+    // Re-evaluating psi at the solved coefficients reproduces the solve's own
+    // psi, and a central finite difference of the column sums reproduces the
+    // analytic Jacobian, for both the average-treatment-effect and focal forms.
+    #[test]
+    fn eval_psi_matches_solve_and_jacobian() {
+        let (covs, treat, n) = saturated_design();
+        let s = vec![1.0; n];
+        let p = 2;
+        for estimand in [IptEstimand::Ate, IptEstimand::Focal(1)] {
+            let inputs = IptInputs {
+                covs: &covs,
+                n,
+                p,
+                treat: &treat,
+                n_levels: 2,
+                s: &s,
+                link: Link::Logit,
+                estimand,
+                threads: 1,
+                max_iter: 200,
+                tol: 1e-12,
+            };
+            let result = solve(&inputs, &no_interrupt());
+            let total_params = result.coefs.len();
+
+            let recomputed = eval_psi(&inputs, &result.coefs).unwrap();
+            for (a, b) in result.psi.iter().zip(&recomputed) {
+                assert!((a - b).abs() < 1e-10, "psi mismatch: {a} vs {b}");
+            }
+
+            let eps = 1e-6;
+            for col in 0..total_params {
+                let mut up = result.coefs.clone();
+                let mut down = result.coefs.clone();
+                up[col] += eps;
+                down[col] -= eps;
+                let psi_up = eval_psi(&inputs, &up).unwrap();
+                let psi_down = eval_psi(&inputs, &down).unwrap();
+                for row in 0..total_params {
+                    let cs_up: f64 = (0..n).map(|i| psi_up[row * n + i]).sum();
+                    let cs_down: f64 = (0..n).map(|i| psi_down[row * n + i]).sum();
+                    let fd = (cs_up - cs_down) / (2.0 * eps);
+                    // The column sums are the summed estimating function and the
+                    // stored Jacobian is its derivative, so the finite difference
+                    // reproduces the Jacobian directly.
+                    let analytic = result.jac[col * total_params + row];
+                    assert!(
+                        (fd - analytic).abs() < 1e-4,
+                        "estimand {estimand:?} jac[{row},{col}]: fd {fd} analytic {analytic}"
+                    );
+                }
+            }
+        }
+    }
+
+    // Wrong-length coefficients are reported rather than panicking on the block
+    // slice, so the R re-evaluation hook surfaces a condition instead of a crash.
+    #[test]
+    fn eval_psi_rejects_wrong_length_coefs() {
+        let (covs, treat, n) = saturated_design();
+        let s = vec![1.0; n];
+        let inputs = IptInputs {
+            covs: &covs,
+            n,
+            p: 2,
+            treat: &treat,
+            n_levels: 2,
+            s: &s,
+            link: Link::Logit,
+            estimand: IptEstimand::Ate,
+            threads: 1,
+            max_iter: 0,
+            tol: 0.0,
+        };
+        // The average treatment effect has two blocks of size two, so four
+        // coefficients are required; two must be rejected.
+        let err = eval_psi(&inputs, &[0.0, 0.0]).unwrap_err();
+        assert!(err.contains("coefs has length 2"), "message was: {err}");
     }
 
     // A pending interrupt stops the solve and is reported rather than swallowed.

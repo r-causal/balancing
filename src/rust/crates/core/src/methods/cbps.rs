@@ -428,6 +428,30 @@ fn solve_binary_just(inputs: &CbpsInputs<'_>, interrupt: &dyn Fn() -> bool) -> C
     }
 }
 
+/// Re-evaluate the binary just-identified estimating functions at a supplied set
+/// of coefficients.
+///
+/// The estimating-equations container stores `psi` at the solution; a sandwich
+/// variance that needs a finite difference must re-evaluate it at perturbed
+/// parameters. This recomputes the `n` by `p` matrix from `beta` without
+/// solving, matching [`solve_binary_just`]: column `j` is
+/// `s_i c_i(beta) x_ij`, the balancing factor times the model covariate.
+pub fn eval_psi_binary_just(inputs: &CbpsInputs<'_>, beta: &[f64]) -> Vec<f64> {
+    let n = inputs.n;
+    let p = inputs.p_mod;
+    let mut psi = vec![0.0; n * p];
+    for i in 0..n {
+        let eta: f64 = (0..p).map(|j| inputs.covs_mod[j * n + i] * beta[j]).sum();
+        let prob = inputs.link.linkinv(eta);
+        let t = f64::from(inputs.treat[i]);
+        let sc = inputs.s[i] * inputs.estimand.bal_factor(prob, t);
+        for j in 0..p {
+            psi[j * n + i] = sc * inputs.covs_mod[j * n + i];
+        }
+    }
+    psi
+}
+
 // ---- Binary over-identified GMM --------------------------------------------
 
 /// Weighting-matrix policy for the over-identified criterion.
@@ -1365,6 +1389,67 @@ mod tests {
                 (fd - analytic).abs() < 1e-5,
                 "col {j}: fd {fd} analytic {analytic}"
             );
+        }
+    }
+
+    // Re-evaluating psi at the solved coefficients reproduces the solve's own
+    // psi, and a central finite difference of the column sums reproduces the
+    // analytic Jacobian, across every binary estimand.
+    #[test]
+    fn eval_psi_matches_solve_and_jacobian() {
+        let (covs, treat, n) = saturated_design();
+        let s = vec![1.0; n];
+        let p = 2;
+        for estimand in [
+            CbpsEstimand::Ate,
+            CbpsEstimand::Att,
+            CbpsEstimand::Atc,
+            CbpsEstimand::Ato,
+        ] {
+            let inputs = CbpsInputs {
+                covs_mod: &covs,
+                covs_bal: &covs,
+                n,
+                p_mod: p,
+                p_bal: p,
+                treat: &treat,
+                s: &s,
+                link: Link::Logit,
+                estimand,
+                over: false,
+                twostep: true,
+                threads: 1,
+                max_iter: 200,
+                tol: 1e-12,
+            };
+            let result = solve(&inputs, &no_interrupt());
+            let stored = result.psi.as_ref().expect("just-identified has psi");
+            let jac = result.jac.as_ref().expect("just-identified has jac");
+
+            let recomputed = eval_psi_binary_just(&inputs, &result.coefs);
+            for (a, b) in stored.iter().zip(&recomputed) {
+                assert!((a - b).abs() < 1e-10, "psi mismatch: {a} vs {b}");
+            }
+
+            let eps = 1e-6;
+            for col in 0..p {
+                let mut up = result.coefs.clone();
+                let mut down = result.coefs.clone();
+                up[col] += eps;
+                down[col] -= eps;
+                let psi_up = eval_psi_binary_just(&inputs, &up);
+                let psi_down = eval_psi_binary_just(&inputs, &down);
+                for row in 0..p {
+                    let cs_up: f64 = (0..n).map(|i| psi_up[row * n + i]).sum();
+                    let cs_down: f64 = (0..n).map(|i| psi_down[row * n + i]).sum();
+                    let fd = (cs_up - cs_down) / (2.0 * eps);
+                    let analytic = jac[col * p + row];
+                    assert!(
+                        (fd - analytic).abs() < 1e-4,
+                        "estimand {estimand:?} jac[{row},{col}]: fd {fd} analytic {analytic}"
+                    );
+                }
+            }
         }
     }
 

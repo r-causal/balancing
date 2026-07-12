@@ -37,6 +37,61 @@ NULL
   stop(class, " cannot be modified", call. = FALSE)
 }
 
+#' Re-evaluate the binary just-identified covariate balancing propensity score
+#' estimating functions at a set of coefficients.
+#'
+#' Given the solved coefficients in `coefs` and the original solve inputs,
+#' returns the `n` by `p` per-unit estimating functions at those parameters:
+#' column `j` is `s_i c_i(beta) x_ij`, the balancing factor times the model
+#' covariate. It supports a finite-difference check of the stored Jacobian
+#' without reimplementing the balancing-factor math in R.
+#'
+#' Internal solver entry point, called from the R layer rather than by users, so
+#' it is not exported. `@noRd` keeps it out of the reference and out of
+#' NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+#' lines into the generated wrapper.
+#' @noRd
+`eval_psi_cbps` <- function(`coefs`, `covs`, `treat`, `s_weights`, `estimand`, `link`) {
+  .Call(savvy_eval_psi_cbps__impl, `coefs`, `covs`, `treat`, `s_weights`, `estimand`, `link`)
+}
+
+#' Re-evaluate the discrete entropy estimating functions at a set of duals.
+#'
+#' Given the solved duals in `coefs` (`p` per group, stacked in group order) and
+#' the original solve inputs, returns the `n` by `P` per-unit estimating
+#' functions at those parameters, with the same per-group renormalization
+#' `esteq_scale` the solve output carried. It supports a finite-difference check
+#' of the stored Jacobian without reimplementing the tilt math in R.
+#'
+#' Internal solver entry point, called from the R layer rather than by users, so
+#' it is not exported. `@noRd` keeps it out of the reference and out of
+#' NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+#' lines into the generated wrapper.
+#' @noRd
+`eval_psi_entropy` <- function(`coefs`, `covs`, `group_idx`, `targets`, `base_weights`, `s_weights`, `n_eff`, `esteq_scale`) {
+  .Call(savvy_eval_psi_entropy__impl, `coefs`, `covs`, `group_idx`, `targets`, `base_weights`, `s_weights`, `n_eff`, `esteq_scale`)
+}
+
+#' Re-evaluate the inverse probability tilting estimating functions at a set of
+#' coefficients.
+#'
+#' Given the solved coefficients in `coefs` (`p` per block, stacked in block
+#' order) and the original solve inputs, returns the `n` by `P` per-unit
+#' estimating functions at those parameters. `treat_idx` holds the zero-based
+#' level of each unit and `focal` the focal level index the focal estimands use.
+#' The binary and categorical fits share this entrypoint. It supports a
+#' finite-difference check of the stored Jacobian without reimplementing the
+#' tilt math in R.
+#'
+#' Internal solver entry point, called from the R layer rather than by users, so
+#' it is not exported. `@noRd` keeps it out of the reference and out of
+#' NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+#' lines into the generated wrapper.
+#' @noRd
+`eval_psi_ipt` <- function(`coefs`, `covs`, `treat_idx`, `focal`, `s_weights`, `estimand`, `link`) {
+  .Call(savvy_eval_psi_ipt__impl, `coefs`, `covs`, `treat_idx`, `focal`, `s_weights`, `estimand`, `link`)
+}
+
 #' Solve a binary covariate balancing propensity score problem.
 #'
 #' `covs_mod` is the propensity-model design and `covs_bal` the balance design;

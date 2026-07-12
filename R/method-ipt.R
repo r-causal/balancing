@@ -168,7 +168,20 @@ fit_ipt_binary <- function(method, prepared) {
     ipt_options(method)
   )
 
-  assemble_ipt(result, prepared)
+  # The focal path encodes the focal level as one and solves the treated-focal
+  # problem, so the re-evaluation hook tilts to that level; the average treatment
+  # effect ignores the focal index.
+  focal_idx <- if (identical(estimand, "ate")) 0L else 1L
+  psi_fn <- make_ipt_psi_fn(
+    covs,
+    treat,
+    focal_idx,
+    s,
+    core_estimand,
+    method@link
+  )
+
+  assemble_ipt(result, prepared, psi_fn)
 }
 
 fit_ipt_categorical <- function(method, prepared) {
@@ -201,7 +214,39 @@ fit_ipt_categorical <- function(method, prepared) {
     ipt_options(method)
   )
 
-  assemble_ipt(result, prepared)
+  psi_fn <- make_ipt_psi_fn(
+    covs,
+    treat_idx,
+    focal_idx,
+    s,
+    core_estimand,
+    method@link
+  )
+
+  assemble_ipt(result, prepared, psi_fn)
+}
+
+# A closure re-evaluating the tilting estimating functions at new coefficients,
+# over the Rust eval entrypoint and the solve inputs captured here. The captured
+# design matrix is the memory cost the optional container accepts.
+make_ipt_psi_fn <- function(covs, treat_idx, focal, s, estimand, link) {
+  force(covs)
+  force(treat_idx)
+  force(focal)
+  force(s)
+  force(estimand)
+  force(link)
+  function(theta) {
+    eval_psi_ipt(
+      as.numeric(theta),
+      covs,
+      as.integer(treat_idx),
+      as.integer(focal),
+      s,
+      estimand,
+      link
+    )
+  }
 }
 
 # Normalize each exposure group to its estimand target sum and pack the fit
@@ -215,7 +260,7 @@ fit_ipt_categorical <- function(method, prepared) {
 # container is stored separately at the raw solution (see
 # `ipt_estimating_equations`), and downstream inference reads the container, not
 # these weights.
-assemble_ipt <- function(result, prepared) {
+assemble_ipt <- function(result, prepared, psi_fn = NULL) {
   s <- prepared$sampling_weights
   estimand <- prepared$estimand
   focal <- prepared$focal_level
@@ -244,7 +289,7 @@ assemble_ipt <- function(result, prepared) {
     iterations = as.integer(result$iterations),
     objective = result$grad_norm,
     solver_status = "newton",
-    estimating_equations = ipt_estimating_equations(result),
+    estimating_equations = ipt_estimating_equations(result, psi_fn),
     groups = groups
   )
 }
@@ -256,13 +301,15 @@ assemble_ipt <- function(result, prepared) {
 # per-group normalization applied for output is not a linear scaling of the
 # estimating functions, so scaling them would break the M-estimation
 # representation. The stored functions therefore sum to zero column by column at
-# the fitted parameters.
-ipt_estimating_equations <- function(result) {
+# the fitted parameters. `weight_jacobian` is the derivative of the raw weights,
+# recorded on `weights_raw` so a consumer can rescale to the reported convention.
+ipt_estimating_equations <- function(result, psi_fn = NULL) {
   balancing_estimating_equations(
     parameters = as.numeric(result$coefs),
     psi = result$psi,
     jacobian = result$jac,
     weight_jacobian = result$dw_dbeta,
-    psi_fn = NULL
+    weights_raw = as.numeric(result$weights),
+    psi_fn = psi_fn
   )
 }

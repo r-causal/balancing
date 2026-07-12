@@ -247,6 +247,11 @@ balance_terms <- new_class(
 #' @param psi The `n` by `p` estimating functions at the solution.
 #' @param jacobian The `p` by `p` analytic Jacobian at the solution.
 #' @param weight_jacobian The `n` by `p` weight derivatives.
+#' @param weights_raw The balancing weights whose derivative is
+#'   `weight_jacobian`, a length-`n` numeric vector. The weight derivatives are
+#'   stored at whatever per-group reporting scale a method uses internally, so a
+#'   consumer that needs the derivative of the reported weights rescales
+#'   `weight_jacobian` by the ratio of the reported weights to `weights_raw`.
 #' @param psi_fn An optional function re-evaluating `psi` at new parameters.
 #'
 #' @return A `balancing_estimating_equations` object.
@@ -259,6 +264,7 @@ balancing_estimating_equations <- new_class(
     psi = class_double,
     jacobian = class_double,
     weight_jacobian = class_double,
+    weights_raw = NULL | class_double,
     psi_fn = NULL | class_function
   )
 )
