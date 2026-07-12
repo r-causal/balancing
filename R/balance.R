@@ -197,8 +197,14 @@ balance <- function(
 
   weights <- new_bw(fit$weights, estimand = estimand, groups = groups)
 
-  base_measure <- prepared$sampling_weights *
-    (method@base_weights %||% rep(1, n))
+  # Only entropy balancing carries base weights; other methods anchor to a
+  # uniform measure.
+  base_weights <- if ("base_weights" %in% S7::prop_names(method)) {
+    method@base_weights %||% rep(1, n)
+  } else {
+    rep(1, n)
+  }
+  base_measure <- prepared$sampling_weights * base_weights
   balance_table <- compute_balance_table(
     built$recipe,
     .data,

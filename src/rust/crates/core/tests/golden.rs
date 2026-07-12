@@ -24,9 +24,11 @@
 
 use std::path::{Path, PathBuf};
 
+use balancing_core::links::Link;
 use balancing_core::methods::entropy::{
     EntropyInputs, EntropySolver, solve_continuous, solve_discrete,
 };
+use balancing_core::methods::ipt::{IptEstimand, IptInputs, solve as solve_ipt};
 use serde_json::Value;
 
 fn golden_dir() -> PathBuf {
@@ -48,9 +50,77 @@ fn scalar(value: &Value, key: &str) -> f64 {
         .unwrap_or_else(|| panic!("fixture field `{key}` is not a number"))
 }
 
+fn compare_weights(path: &Path, actual: &[f64], expected: &[f64], rel_tol: f64) {
+    let scale = expected
+        .iter()
+        .fold(0.0_f64, |m, w| m.max(w.abs()))
+        .max(1.0);
+    for (i, &want) in expected.iter().enumerate() {
+        let diff = (actual[i] - want).abs();
+        assert!(
+            diff <= rel_tol * scale,
+            "{}: weight[{i}] = {} expected {want} (diff {diff})",
+            path.display(),
+            actual[i],
+        );
+    }
+}
+
+/// Solve an inverse probability tilting fixture and compare weights.
+///
+/// Schema adds `treat` (the zero-based level per unit), `link`, `estimand`, and
+/// an optional `focal` (defaulting to the treated level `1`) to the shared
+/// fields; `targets`, `tols`, `base`, and `n_eff` are absent.
+fn check_ipt_fixture(path: &Path, f: &Value) {
+    let n = scalar(f, "n") as usize;
+    let p = scalar(f, "p") as usize;
+    let covs = nums(f, "covs");
+    let treat: Vec<i32> = nums(f, "treat").iter().map(|t| *t as i32).collect();
+    let s = nums(f, "s");
+    let expected = nums(f, "expected_weights");
+    let rel_tol = scalar(f, "rel_tol");
+    let link = match f["link"].as_str().expect("fixture link is a string") {
+        "logit" => Link::Logit,
+        "probit" => Link::Probit,
+        "cloglog" => Link::Cloglog,
+        other => panic!("unknown fixture link `{other}`"),
+    };
+    let n_levels = treat.iter().copied().max().map_or(0, |m| m + 1).max(0) as usize;
+    let focal = f["focal"].as_f64().map(|x| x as usize).unwrap_or(1);
+    let estimand = match f["estimand"]
+        .as_str()
+        .expect("fixture estimand is a string")
+    {
+        "ate" => IptEstimand::Ate,
+        "att" | "atc" => IptEstimand::Focal(focal),
+        other => panic!("unknown fixture estimand `{other}`"),
+    };
+
+    let inputs = IptInputs {
+        covs: &covs,
+        n,
+        p,
+        treat: &treat,
+        n_levels,
+        s: &s,
+        link,
+        estimand,
+        threads: 1,
+        max_iter: 500,
+        tol: 1e-12,
+    };
+    let result = solve_ipt(&inputs, &|| false);
+    compare_weights(path, &result.weights, &expected, rel_tol);
+}
+
 fn check_fixture(path: &Path) {
     let text = std::fs::read_to_string(path).expect("read fixture");
     let f: Value = serde_json::from_str(&text).expect("parse fixture JSON");
+
+    if matches!(f["kind"].as_str(), Some("ipt")) {
+        check_ipt_fixture(path, &f);
+        return;
+    }
 
     let n = scalar(&f, "n") as usize;
     let p = scalar(&f, "p") as usize;
@@ -96,20 +166,7 @@ fn check_fixture(path: &Path) {
         other => panic!("unknown fixture kind `{other}`"),
     };
 
-    let scale = expected
-        .iter()
-        .fold(0.0_f64, |m, w| m.max(w.abs()))
-        .max(1.0);
-    for i in 0..n {
-        let diff = (result.weights[i] - expected[i]).abs();
-        assert!(
-            diff <= rel_tol * scale,
-            "{}: weight[{i}] = {} expected {} (diff {diff})",
-            path.display(),
-            result.weights[i],
-            expected[i]
-        );
-    }
+    compare_weights(path, &result.weights, &expected, rel_tol);
 }
 
 #[test]

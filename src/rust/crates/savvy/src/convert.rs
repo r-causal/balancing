@@ -4,7 +4,9 @@
 //! once as owned SEXPs and filled directly. Option lists are parsed strictly:
 //! an unrecognized option name is a contract violation and becomes an error.
 
+use balancing_core::links::Link;
 use balancing_core::methods::entropy::EntropySolver;
+use balancing_core::methods::ipt::IptEstimand;
 use savvy::{ListSexp, OwnedRealSexp, RealSexp, Sexp};
 
 /// Resolved solver options shared by the entropy entrypoints.
@@ -100,6 +102,82 @@ pub fn parse_entropy_options(options: ListSexp) -> savvy::Result<EntropyOptions>
     }
 
     Ok(resolved)
+}
+
+/// Resolved solver options for the inverse probability tilting entrypoints.
+pub struct IptOptions {
+    pub threads: usize,
+    pub max_iter: usize,
+    pub tol: f64,
+}
+
+/// Parse the option list for an inverse probability tilting solve, rejecting
+/// unknown names. The link and estimand cross the boundary as their own
+/// arguments, so the option list carries only the solver tuning.
+pub fn parse_ipt_options(options: ListSexp) -> savvy::Result<IptOptions> {
+    const ALLOWED: [&str; 3] = ["threads", "max_iterations", "convergence_tolerance"];
+
+    for name in options.names_iter() {
+        if !ALLOWED.contains(&name) {
+            return Err(savvy::Error::new(format!(
+                "unknown option `{name}`; allowed options are {}",
+                ALLOWED.join(", ")
+            )));
+        }
+    }
+
+    let mut resolved = IptOptions {
+        threads: balancing_core::available_threads().0,
+        max_iter: 200,
+        tol: 1e-10,
+    };
+
+    if let Some(value) = options.get("threads") {
+        resolved.threads = option_usize(value, "threads")?.max(1);
+    }
+    if let Some(value) = options.get("max_iterations") {
+        resolved.max_iter = option_usize(value, "max_iterations")?.max(1);
+    }
+    if let Some(value) = options.get("convergence_tolerance") {
+        resolved.tol = option_f64(value, "convergence_tolerance")?;
+    }
+
+    Ok(resolved)
+}
+
+/// Resolve the propensity link named by the R layer.
+pub fn parse_link(link: &str) -> savvy::Result<Link> {
+    Link::from_name(link).ok_or_else(|| {
+        savvy::Error::new(format!(
+            "unknown link `{link}`; expected logit, probit, or cloglog"
+        ))
+    })
+}
+
+/// Resolve a binary-exposure estimand to its tilting target. The treated level
+/// is `1` and the control level is `0`, so `att` tilts toward the treated and
+/// `atc` toward the controls.
+pub fn parse_binary_estimand(estimand: &str) -> savvy::Result<IptEstimand> {
+    match estimand {
+        "ate" => Ok(IptEstimand::Ate),
+        "att" => Ok(IptEstimand::Focal(1)),
+        "atc" => Ok(IptEstimand::Focal(0)),
+        other => Err(savvy::Error::new(format!(
+            "unknown estimand `{other}`; expected ate, att, or atc"
+        ))),
+    }
+}
+
+/// Resolve a categorical-exposure estimand to its tilting target, given the
+/// focal level index the R layer passes for the focal estimands.
+pub fn parse_multi_estimand(estimand: &str, focal: usize) -> savvy::Result<IptEstimand> {
+    match estimand {
+        "ate" => Ok(IptEstimand::Ate),
+        "att" | "atc" => Ok(IptEstimand::Focal(focal)),
+        other => Err(savvy::Error::new(format!(
+            "unknown estimand `{other}`; expected ate, att, or atc"
+        ))),
+    }
 }
 
 /// Build an R matrix SEXP from column-major data.

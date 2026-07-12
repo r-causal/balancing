@@ -308,6 +308,81 @@ continuous_ate_fixture <- function(name, data, seed) {
   )
 }
 
+# Build an inverse probability tilting fixture. The design matrix carries the
+# intercept the propensity model needs, so `covs` is the intercept column
+# followed by the standardized covariates and `p` counts the intercept. The Rust
+# solver returns raw tilt weights, so the reference weights are rescaled to the
+# raw convention the solver produces: for the average treatment effect each
+# group's sampling-weighted sum matches the whole-sample total, and for a focal
+# estimand the focal units carry weight one while the other groups match the
+# focal total.
+ipt_fixture <- function(name, data, estimand, link, focal = NULL, s = NULL) {
+  covariate_matrix <- standardize(model.matrix(~ x1 + x2 - 1, data))
+  n <- nrow(covariate_matrix)
+  design <- cbind(1, covariate_matrix)
+  p <- ncol(design)
+  exposure <- as.character(data$exposure)
+  levels_all <- if (is.factor(data$exposure)) {
+    levels(data$exposure)
+  } else {
+    sort(unique(exposure))
+  }
+  treat <- match(exposure, levels_all) - 1L
+  if (is.null(s)) {
+    s <- rep(1, n)
+  }
+
+  args <- list(
+    exposure ~ x1 + x2,
+    data = data,
+    method = "ipt",
+    estimand = toupper(estimand),
+    link = link
+  )
+  if (!is.null(focal)) {
+    args$focal <- focal
+  }
+  if (any(s != 1)) {
+    args$s.weights <- s
+  }
+  reference <- do.call(weightit, args)
+  wt <- reference$weights
+
+  expected <- numeric(n)
+  fixture <- list(
+    kind = "ipt",
+    n = n,
+    p = p,
+    covs = as.numeric(design),
+    treat = as.integer(treat),
+    s = as.numeric(s),
+    link = link,
+    estimand = if (identical(estimand, "ate")) "ate" else "att",
+    rel_tol = 1e-6
+  )
+
+  if (identical(estimand, "ate")) {
+    total <- sum(s)
+    for (g in unique(treat)) {
+      idx <- treat == g
+      expected[idx] <- wt[idx] / sum(s[idx] * wt[idx]) * total
+    }
+  } else {
+    focal_idx <- match(as.character(focal), levels_all) - 1L
+    is_focal <- treat == focal_idx
+    n_eff <- sum(s[is_focal])
+    expected[is_focal] <- 1
+    for (g in setdiff(unique(treat), focal_idx)) {
+      idx <- treat == g
+      expected[idx] <- wt[idx] / sum(s[idx] * wt[idx]) * n_eff
+    }
+    fixture$focal <- focal_idx
+  }
+
+  fixture$expected_weights <- as.numeric(expected)
+  write_fixture(name, fixture)
+}
+
 for (n in c(500L, 5000L)) {
   binary <- sim_binary(n, seed = 2024)
   categorical <- sim_categorical(n, seed = 2024)
@@ -355,6 +430,37 @@ for (n in c(500L, 5000L)) {
     sprintf("entropy_binary_ate_bweights_n%d", n),
     binary,
     base_weights
+  )
+
+  # Inverse probability tilting: binary and categorical, the average treatment
+  # effect and a focal estimand, plus sampling-weight coverage.
+  ipt_fixture(sprintf("ipt_binary_ate_n%d", n), binary, "ate", "logit")
+  ipt_fixture(
+    sprintf("ipt_binary_att_n%d", n),
+    binary,
+    "att",
+    "logit",
+    focal = 1
+  )
+  ipt_fixture(
+    sprintf("ipt_categorical_ate_n%d", n),
+    categorical,
+    "ate",
+    "logit"
+  )
+  ipt_fixture(
+    sprintf("ipt_categorical_att_n%d", n),
+    categorical,
+    "att",
+    "logit",
+    focal = "b"
+  )
+  ipt_fixture(
+    sprintf("ipt_binary_ate_sweights_n%d", n),
+    binary,
+    "ate",
+    "logit",
+    s = sampling_weights
   )
 }
 

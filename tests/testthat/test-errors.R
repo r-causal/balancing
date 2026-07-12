@@ -44,6 +44,19 @@ test_that("balancing_estimand_error: an unsupported estimand", {
   )
 })
 
+test_that("balancing_exposure_type_error: a method rejects an exposure type", {
+  data <- sim_continuous(n = 150)
+  expect_balancing_error(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = ipt(),
+      estimand = "ate"
+    )
+  )
+})
+
 test_that("balancing_estimand_error: a categorical att without focal_level", {
   data <- sim_categorical(n = 150)
   expect_balancing_error(

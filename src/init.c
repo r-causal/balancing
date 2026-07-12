@@ -49,6 +49,16 @@ SEXP savvy_solve_entropy_cont__impl(SEXP c_arg__covs, SEXP c_arg__targets, SEXP 
     return handle_result(res);
 }
 
+SEXP savvy_solve_ipt__impl(SEXP c_arg__covs, SEXP c_arg__treat, SEXP c_arg__s_weights, SEXP c_arg__estimand, SEXP c_arg__link, SEXP c_arg__options) {
+    SEXP res = savvy_solve_ipt__ffi(c_arg__covs, c_arg__treat, c_arg__s_weights, c_arg__estimand, c_arg__link, c_arg__options);
+    return handle_result(res);
+}
+
+SEXP savvy_solve_ipt_multi__impl(SEXP c_arg__covs, SEXP c_arg__treat_idx, SEXP c_arg__focal, SEXP c_arg__s_weights, SEXP c_arg__estimand, SEXP c_arg__link, SEXP c_arg__options) {
+    SEXP res = savvy_solve_ipt_multi__ffi(c_arg__covs, c_arg__treat_idx, c_arg__focal, c_arg__s_weights, c_arg__estimand, c_arg__link, c_arg__options);
+    return handle_result(res);
+}
+
 SEXP savvy_thread_info__impl(void) {
     SEXP res = savvy_thread_info__ffi();
     return handle_result(res);
@@ -58,6 +68,8 @@ SEXP savvy_thread_info__impl(void) {
 static const R_CallMethodDef CallEntries[] = {
     {"savvy_solve_entropy__impl", (DL_FUNC) &savvy_solve_entropy__impl, 8},
     {"savvy_solve_entropy_cont__impl", (DL_FUNC) &savvy_solve_entropy_cont__impl, 8},
+    {"savvy_solve_ipt__impl", (DL_FUNC) &savvy_solve_ipt__impl, 6},
+    {"savvy_solve_ipt_multi__impl", (DL_FUNC) &savvy_solve_ipt_multi__impl, 7},
     {"savvy_thread_info__impl", (DL_FUNC) &savvy_thread_info__impl, 0},
     {NULL, NULL, 0}
 };

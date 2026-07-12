@@ -15,6 +15,9 @@
 ^README\.Rmd$
 ^codecov\.yml$
 
+^tests/testthat/_problems$
+^tests/testthat/testthat-problems\.rds$
+
 ^src/rust/\.cargo$
 ^src/rust/target$
 ^src/Makevars$

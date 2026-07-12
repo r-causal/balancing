@@ -59,6 +59,34 @@ NULL
   .Call(savvy_solve_entropy_cont__impl, `covs`, `targets`, `tols`, `dist_ind`, `base_weights`, `s_weights`, `n_eff`, `options`)
 }
 
+#' Solve a binary inverse probability tilting problem.
+#'
+#' `treat` holds the zero/one treatment indicator; `estimand` is one of `ate`,
+#' `att`, or `atc`, and `link` is the propensity link.
+#'
+#' Internal solver entry point, called from the R layer rather than by users, so
+#' it is not exported. `@noRd` keeps it out of the reference and out of
+#' NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+#' lines into the generated wrapper.
+#' @noRd
+`solve_ipt` <- function(`covs`, `treat`, `s_weights`, `estimand`, `link`, `options`) {
+  .Call(savvy_solve_ipt__impl, `covs`, `treat`, `s_weights`, `estimand`, `link`, `options`)
+}
+
+#' Solve a categorical inverse probability tilting problem.
+#'
+#' `treat_idx` holds the zero-based level of each unit; `focal` is the focal
+#' level index used by `att` and `atc` and ignored by `ate`.
+#'
+#' Internal solver entry point, called from the R layer rather than by users, so
+#' it is not exported. `@noRd` keeps it out of the reference and out of
+#' NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+#' lines into the generated wrapper.
+#' @noRd
+`solve_ipt_multi` <- function(`covs`, `treat_idx`, `focal`, `s_weights`, `estimand`, `link`, `options`) {
+  .Call(savvy_solve_ipt_multi__impl, `covs`, `treat_idx`, `focal`, `s_weights`, `estimand`, `link`, `options`)
+}
+
 #' Report the parallel resources the Rust core observes.
 #'
 #' A list with two elements: `available`, the integer thread count, and

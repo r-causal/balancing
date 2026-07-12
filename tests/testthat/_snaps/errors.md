@@ -44,6 +44,15 @@
       ! Entropy balancing does not support the "ato" estimand for a "binary" exposure.
       i Supported estimands are "ate", "att", and "atu".
 
+# balancing_exposure_type_error: a method rejects an exposure type
+
+    Code
+      expr
+    Condition <balancing_exposure_type_error>
+      Error in `balance()`:
+      ! Inverse probability tilting does not support a "continuous" exposure.
+      i Supported exposure types are "binary" and "categorical".
+
 # balancing_estimand_error: a categorical att without focal_level
 
     Code

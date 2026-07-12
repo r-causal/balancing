@@ -6,9 +6,12 @@
 //! same core.
 
 pub mod esteq;
+pub mod glm;
 pub mod linalg;
+pub mod links;
 pub mod methods;
 pub mod threads;
+pub mod weights;
 
 /// Threads available for parallel work, and the constraint that set the count.
 ///

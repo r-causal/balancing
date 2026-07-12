@@ -1,6 +1,8 @@
 .Rproj.user
 .Rhistory
 .DS_Store
+tests/testthat/_problems/
+tests/testthat/testthat-problems.rds
 .claude/
 .beads/
 scratch/
