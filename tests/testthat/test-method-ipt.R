@@ -50,7 +50,7 @@ test_that("bw_ipt() matches the link argument", {
 
 test_that("bw_ipt() rejects unnamed extra arguments", {
   expect_true(S7::S7_inherits(bw_ipt(), balance_method))
-  expect_error(bw_ipt(bogus = 1))
+  expect_error(bw_ipt(bogus = 1), class = "balancing_method_error")
 })
 
 # ---- Validators -----------------------------------------------------------
@@ -173,6 +173,23 @@ test_that("bw_ipt balances a categorical att", {
   )
   expect_balanced(fit, data)
   expect_true(all(stats::weights(fit) >= 0))
+})
+
+test_that("a capped iteration count warns about convergence", {
+  # Three Newton steps drive the balance essentially to zero but do not meet the
+  # gradient tolerance, so the fit returns a usable iterate and warns about
+  # convergence alone rather than erroring.
+  data <- sim_binary()
+  expect_warning(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_ipt(max_iterations = 3L),
+      estimand = "ate"
+    ),
+    class = "balancing_convergence_warning"
+  )
 })
 
 # ---- Group sums -----------------------------------------------------------

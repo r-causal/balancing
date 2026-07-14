@@ -31,6 +31,19 @@ test_that("balancing_method_error: a bare-string method", {
   )
 })
 
+test_that("balancing_method_error: an unknown tuning argument", {
+  expect_balancing_error(
+    bw_entropy(bogus = 1)
+  )
+})
+
+test_that("balancing_empty_error: a zero-row data frame", {
+  data <- sim_binary(n = 0)
+  expect_balancing_error(
+    balance(data, exposure, c(x1, x2), method = bw_entropy())
+  )
+})
+
 test_that("balancing_estimand_error: an unsupported estimand", {
   data <- sim_binary(n = 100)
   expect_balancing_error(

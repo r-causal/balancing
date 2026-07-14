@@ -769,22 +769,22 @@ mod tests {
 
         let (bp, sp) = (base.psi.unwrap(), scaled.psi.unwrap());
         let (bd, sd) = (base.dw_dbeta.unwrap(), scaled.dw_dbeta.unwrap());
-        for g in 0..n_groups {
+        for (g, &scale) in scales.iter().enumerate().take(n_groups) {
             for col in (g * p)..(g * p + p) {
                 for row in 0..n {
                     let k = col * n + row;
-                    assert_eq!(sp[k], bp[k] * scales[g]);
-                    assert_eq!(sd[k], bd[k] * scales[g]);
+                    assert_eq!(sp[k], bp[k] * scale);
+                    assert_eq!(sd[k], bd[k] * scale);
                 }
             }
         }
 
         let (bj, sj) = (base.jac.unwrap(), scaled.jac.unwrap());
-        for g in 0..n_groups {
+        for (g, &scale) in scales.iter().enumerate().take(n_groups) {
             for row in (g * p)..(g * p + p) {
                 for col in (g * p)..(g * p + p) {
                     let k = col * total + row;
-                    assert_eq!(sj[k], bj[k] * scales[g]);
+                    assert_eq!(sj[k], bj[k] * scale);
                 }
             }
         }

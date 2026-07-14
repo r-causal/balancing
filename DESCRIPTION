@@ -1,9 +1,12 @@
 Package: balancing
 Title: Optimization-Based Balancing Weights for Causal Inference
 Version: 0.0.0.9000
-Authors@R:
+Authors@R: c(
     person("Malcolm", "Barrett", , "malcolmbarrett@gmail.com", role = c("aut", "cre", "cph"),
-           comment = c(ORCID = "0000-0003-0299-5825"))
+           comment = c(ORCID = "0000-0003-0299-5825")),
+    person("The authors of the vendored Rust crates", role = "cph",
+           comment = "see src/rust/Cargo.lock and the bundled crate sources for the full list")
+  )
 Description: Calculates optimization-based balancing weights for causal
     inference, including entropy balancing, inverse probability tilting,
     the covariate balancing propensity score, energy balancing,

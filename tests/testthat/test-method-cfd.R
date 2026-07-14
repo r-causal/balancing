@@ -87,7 +87,7 @@ test_that("bw_cfd() matches the kernel argument", {
 test_that("bw_cfd() rejects unnamed and unknown extra arguments", {
   expect_true(S7::S7_inherits(bw_cfd(), balance_method))
   expect_error(bw_cfd(1e-4))
-  expect_error(bw_cfd(bogus = 1))
+  expect_error(bw_cfd(bogus = 1), class = "balancing_method_error")
 })
 
 # ---- Validators -----------------------------------------------------------
@@ -251,6 +251,10 @@ test_that("a binary ate normalizes each group to its size", {
   expect_equal(sum(w[treated]), sum(treated), tolerance = 1e-4)
   expect_equal(sum(w[!treated]), sum(!treated), tolerance = 1e-4)
   expect_true(fit@converged)
+  # Characteristic-function-distance balancing drives balance through its
+  # objective rather than exact moment constraints, so the achieved first-moment
+  # imbalance is verified against the conventional good-balance ceiling.
+  expect_balanced(fit, data, tolerance = 0.1)
 })
 
 test_that("a binary att targets the treated total in both groups", {
@@ -268,6 +272,7 @@ test_that("a binary att targets the treated total in both groups", {
   expect_equal(sum(w[treated]), n_treated, tolerance = 1e-4)
   expect_equal(sum(w[!treated]), n_treated, tolerance = 1e-4)
   expect_true(all(w >= 0))
+  expect_balanced(fit, data, tolerance = 0.1)
 })
 
 test_that("a binary atc fit produces non-negative floored weights", {
@@ -282,6 +287,7 @@ test_that("a binary atc fit produces non-negative floored weights", {
   w <- as.numeric(stats::weights(fit))
   expect_true(all(w >= 0))
   expect_true(all(w >= 1e-8))
+  expect_balanced(fit, data, tolerance = 0.1)
 })
 
 # ---- ESS ------------------------------------------------------------------
@@ -317,6 +323,7 @@ test_that("categorical ate kernel balancing produces valid weights", {
     idx <- data$exposure == level
     expect_equal(sum(w[idx]), sum(idx), tolerance = 1e-4)
   }
+  expect_balanced(fit, data, tolerance = 0.1)
 })
 
 test_that("categorical att kernel balancing produces valid weights", {
@@ -331,6 +338,7 @@ test_that("categorical att kernel balancing produces valid weights", {
   )
   w <- as.numeric(stats::weights(fit))
   expect_true(all(w >= 0))
+  expect_balanced(fit, data, tolerance = 0.1)
 })
 
 # ---- Kernels --------------------------------------------------------------

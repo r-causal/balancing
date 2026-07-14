@@ -12,6 +12,26 @@
 //!
 //! This module lives under `benches/common/` so cargo does not treat it as a
 //! benchmark target of its own.
+//!
+//! # Seed contract
+//!
+//! Regression comparisons are only meaningful when successive runs solve the
+//! byte-identical problem, so the generated data is pinned in three ways and none
+//! of them may change without re-baselining:
+//!
+//! - The pseudo-random source is [`SplitMix64`], reproduced inline so no external
+//!   crate version can shift the stream. Its constants and the Box-Muller normal
+//!   transform are fixed.
+//! - The draw order is fixed: the shared factor is drawn before the columns, each
+//!   column fills unit-major, and the group loadings and assignments follow in the
+//!   order written here. Reordering any draw changes every downstream value.
+//! - Every caller passes an explicit `seed`; a generator is never seeded from the
+//!   clock or the environment. The seeds the benches use are literals in the
+//!   benchmark files, so a given benchmark id always maps to one workload.
+//!
+//! A change to any of these produces a different problem at the same size, which
+//! silently invalidates the criterion baselines. Bump the seeds or the baselines
+//! deliberately rather than as a side effect of editing this module.
 
 #![allow(dead_code)]
 

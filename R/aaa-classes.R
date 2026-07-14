@@ -416,6 +416,57 @@ method(summary, balancing) <- function(object, ...) {
   invisible(object)
 }
 
+#' Tidy and glance methods for a balancing fit
+#'
+#' @description
+#' [generics::tidy()] returns the fit's balance table, one row per constraint
+#' term, and [generics::glance()] returns a one-row fit summary. Both are
+#' re-exported so they work with `library(balancing)` alone.
+#'
+#' @details
+#' `tidy()` returns a tibble with one row per balance constraint and the
+#' columns:
+#'
+#' - `term`: the covariate or expansion the constraint acts on.
+#' - `kind`: the constraint kind, such as `"moment"` or `"quantile"`.
+#' - `statistic`: the balance statistic, `"smd"` for a discrete exposure or
+#'   `"correlation"` for a continuous exposure.
+#' - `group`: the exposure level the contrast is measured against.
+#' - `unweighted`: the statistic before weighting.
+#' - `weighted`: the statistic after weighting.
+#' - `tolerance`: the requested tolerance for the term.
+#' - `within_tolerance`: whether the weighted statistic sits within tolerance.
+#'
+#' `glance()` returns a one-row tibble with the columns:
+#'
+#' - `method`: the balancing method label.
+#' - `estimand`: the target estimand.
+#' - `exposure_type`: the resolved exposure type.
+#' - `n`: the number of observations.
+#' - `ess`: the overall effective sample size.
+#' - `n_constraints`: the number of balance constraints.
+#' - `max_absolute_smd` or `max_absolute_correlation`: the largest absolute
+#'   weighted statistic, named for the exposure type.
+#' - `converged`: whether the solver converged.
+#' - `iterations`: the iteration count the solver reported.
+#' - `objective`: the solver's objective value.
+#'
+#' @param x A [balancing] result.
+#' @param ... Ignored.
+#'
+#' @return A tibble, as described in the details.
+#'
+#' @examples
+#' n <- 200
+#' x1 <- rnorm(n)
+#' df <- data.frame(exposure = rbinom(n, 1, plogis(0.5 * x1)), x1 = x1)
+#' fit <- balance(df, exposure, x1, method = bw_entropy())
+#' tidy(fit)
+#' glance(fit)
+#'
+#' @name tidy.balancing
+NULL
+
 method(tidy, balancing) <- function(x, ...) {
   x@balance_table
 }

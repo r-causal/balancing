@@ -664,6 +664,37 @@ test_that("the entropy psi_fn rejects a wrong-length parameter vector", {
   expect_error(psi_fn(c(1, 2)))
 })
 
+# The categorical covariate balancing propensity score reuses the tilt's
+# estimating-function entrypoint, so pin that the container's psi_fn reproduces
+# the stored psi at the fitted parameters for a categorical fit and a focal
+# estimand, guarding the reuse against drift.
+test_that("the categorical cbps psi_fn reproduces the stored psi", {
+  data <- sim_categorical(200)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_cbps(),
+    estimand = "ate"
+  )
+  ee <- estimating_equations(fit)
+  expect_equal(ee@psi_fn(ee@parameters), ee@psi, tolerance = 1e-10)
+})
+
+test_that("the categorical att cbps psi_fn reproduces the stored psi", {
+  data <- sim_categorical(200)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_cbps(),
+    estimand = "att",
+    focal_level = "b"
+  )
+  ee <- estimating_equations(fit)
+  expect_equal(ee@psi_fn(ee@parameters), ee@psi, tolerance = 1e-10)
+})
+
 # ---- Unsupported configurations -------------------------------------------
 
 # Fits whose weights do not solve smooth estimating equations cannot supply the
@@ -755,6 +786,26 @@ test_that("ipw() rejects a categorical-exposure fit that has a container", {
     classes = "balancing_ipw_unsupported_error"
   )
   expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
+})
+
+test_that("ipw() rejects a categorical-exposure bw_ipt fit", {
+  data <- sim_categorical(200)
+  data$y <- stats::rbinom(nrow(data), 1L, 0.5)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate"
+  )
+  expect_false(is.null(fit@estimating_equations))
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  expect_error(
+    propensity::ipw(fit, outcome_mod),
+    class = "balancing_ipw_unsupported_error"
+  )
 })
 
 test_that("ipw() rejects a continuous-exposure fit that has a container", {

@@ -68,7 +68,7 @@ bw_ipt <- new_class(
     max_iterations = NULL,
     ...
   ) {
-    rlang::check_dots_empty()
+    check_method_dots(...)
     link <- rlang::arg_match(link)
     if (!is.null(max_iterations)) {
       max_iterations <- vctrs::vec_cast(
@@ -254,7 +254,7 @@ make_ipt_psi_fn <- function(covs, treat_idx, focal, s, estimand, link) {
 # each group's sampling-weighted total at the whole-sample total, so rescaling
 # to the group's own total is a deliberate change of reporting convention, a
 # real per-group factor of roughly n_k / n, not drift removal. A focal estimand
-# already lands each group at the focal total, with the focal group at weight
+# already places each group at the focal total, with the focal group at weight
 # one, so there its rescaling only removes numerical drift. Either way the
 # reported weights are not the raw M-estimator weights: the estimating-equations
 # container is stored separately at the raw solution (see

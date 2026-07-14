@@ -45,6 +45,12 @@
 #' covariate-adjusted outcome model raises `balancing_ipw_input_error`; use the
 #' bootstrap workflow in the inference vignette for those models.
 #'
+#' The outcome-model score block uses the expected (Fisher) information, which
+#' equals the observed information for a canonical link, including the
+#' logit link for a binary outcome and the identity link for a continuous
+#' outcome. For a non-canonical link, such as a probit outcome model, it is an
+#' approximation.
+#'
 #' @references
 #' Kostouraki A, Hajage D, Rachet B, et al. On variance estimation of the
 #' inverse probability-of-treatment weighting estimator: A tutorial for
@@ -120,6 +126,15 @@ method(causalgenerics_ipw, balancing) <- function(
   validate_ipw_outcome_model(outcome_mod, exposure_name)
 
   frame <- if (is.null(.data)) stats::model.frame(outcome_mod) else .data
+  if (!is.null(.data) && nrow(frame) != ps_mod@n) {
+    abort(
+      c(
+        "{.arg .data} must have one row per observation in the fit.",
+        x = "It has {nrow(frame)} row{?s}, but the fit used {ps_mod@n}."
+      ),
+      error_class = "balancing_ipw_input_error"
+    )
+  }
   if (!exposure_name %in% names(frame)) {
     abort(
       c(

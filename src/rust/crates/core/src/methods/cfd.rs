@@ -444,14 +444,14 @@ fn degenerate(spec: &QpSpec) -> QpSolution {
 mod tests {
     use super::*;
     use crate::dist::Distance;
-    use crate::dist::kernels::Kernel;
+    use crate::dist::kernels::{Kernel, MaternNu};
     use crate::methods::energy::{EnergyDiscreteInputs, EnergyEstimand, solve_discrete as energy};
 
     fn kernel_params(kernel: Kernel) -> KernelParams<'static> {
         KernelParams {
             kernel,
             bw_scale: 1.0,
-            smoothness: 1.5,
+            matern_nu: MaternNu::ThreeHalves,
             t_proj: &[],
             n_draws: 0,
         }
@@ -536,8 +536,11 @@ mod tests {
         };
         let en = energy(&energy_inputs, &|| false);
         assert!(en.converged, "energy status {}", en.status);
+        // The energy kernel is an exact IEEE negation of the same pairwise matrix
+        // energy balancing builds, so both assemble an identical quadratic program
+        // and the backend returns bit-identical weights.
         for (a, b) in cfd.weights.iter().zip(&en.weights) {
-            assert!((a - b).abs() < 1e-6, "cfd {a} != energy {b}");
+            assert_eq!(a.to_bits(), b.to_bits(), "cfd {a} != energy {b}");
         }
     }
 
@@ -584,13 +587,9 @@ mod tests {
         )
         .unwrap();
         assert!(result.converged, "status {}", result.status);
-        for i in 0..8 {
-            if levels[i] == 1 {
-                assert!(
-                    (result.weights[i] - 1.0).abs() < 1e-9,
-                    "focal weight {}",
-                    result.weights[i]
-                );
+        for (level, weight) in levels.iter().zip(&result.weights) {
+            if *level == 1 {
+                assert!((weight - 1.0).abs() < 1e-9, "focal weight {weight}");
             }
         }
         let sum_c: f64 = (0..8)

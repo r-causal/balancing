@@ -78,6 +78,8 @@ fn confounded(n: usize, p: usize, n_levels: usize) -> (Vec<f64>, Vec<i32>) {
 
 /// Borrow a confounded problem as discrete energy inputs under an estimand, with
 /// optional first-moment constraints on the covariates themselves.
+// The argument list mirrors the wide EnergyDiscreteInputs struct this helper fills.
+#[allow(clippy::too_many_arguments)]
 fn discrete_inputs<'a>(
     covs: &'a [f64],
     levels: &'a [i32],
@@ -260,7 +262,8 @@ fn bench_backends(c: &mut Criterion) {
     }
 
     // Continuous average treatment effect: the distance-covariance form.
-    for &n in &[500usize] {
+    {
+        let n = 500usize;
         let (covs, _levels) = confounded(n, p, 2);
         let treat: Vec<f64> = (0..n)
             .map(|i| covs[i] + 0.3 * covs[n + i] + 0.1 * (i as f64 * 0.05).cos())

@@ -251,6 +251,17 @@ test_that("Summary, min, and max operate on the underlying data", {
   expect_false(is_bw(min(w)))
 })
 
+test_that("median() and quantile() operate on the underlying data", {
+  w <- bw(c(3, 1, 2, 4), estimand = "ate")
+  expect_equal(median(w), median(c(3, 1, 2, 4)))
+  expect_false(is_bw(median(w)))
+  expect_equal(
+    quantile(w, probs = c(0.25, 0.75)),
+    quantile(c(3, 1, 2, 4), probs = c(0.25, 0.75))
+  )
+  expect_false(is_bw(quantile(w)))
+})
+
 # ---- Subsetting -----------------------------------------------------------
 
 test_that("subsetting a bw preserves the class and metadata", {

@@ -105,7 +105,7 @@ bw_energy <- new_class(
     max_iterations = NULL,
     ...
   ) {
-    rlang::check_dots_empty()
+    check_method_dots(...)
     distance <- rlang::arg_match(distance)
     weight_penalty <- vctrs::vec_cast(
       weight_penalty,

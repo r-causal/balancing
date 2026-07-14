@@ -126,7 +126,7 @@ test_that("bw_sbw() matches the norm argument", {
 test_that("bw_sbw() rejects unnamed and unknown extra arguments", {
   expect_true(S7::S7_inherits(bw_sbw(), balance_method))
   expect_error(bw_sbw(1e-8))
-  expect_error(bw_sbw(bogus = 1))
+  expect_error(bw_sbw(bogus = 1), class = "balancing_method_error")
 })
 
 # ---- Validators -----------------------------------------------------------

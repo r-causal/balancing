@@ -27,6 +27,34 @@ validate_data_frame <- function(
   invisible(.data)
 }
 
+#' Validate that a data frame has at least one row
+#'
+#' @param .data The data frame to validate.
+#' @param arg_name The argument name used in error messages.
+#' @param call The calling environment, used to build the error's call.
+#'
+#' @return `.data`, invisibly, when it has at least one row.
+#' @keywords internal
+#' @noRd
+validate_nonempty <- function(
+  .data,
+  arg_name = ".data",
+  call = rlang::caller_env()
+) {
+  if (nrow(.data) == 0L) {
+    abort(
+      c(
+        "{.arg {arg_name}} must have at least one row.",
+        x = "It has no rows.",
+        i = "Balancing weights require observations to reweight."
+      ),
+      error_class = "balancing_empty_error",
+      call = call
+    )
+  }
+  invisible(.data)
+}
+
 #' Validate a resolved column selection
 #'
 #' @param selection A named integer vector of resolved column positions.

@@ -576,8 +576,8 @@ mod tests {
         let result = solve_discrete(&inputs, &|| false).unwrap();
         assert!(result.converged, "status {}", result.status);
         let w = &result.weights;
-        for i in 0..3 {
-            assert!((w[i] - 1.0).abs() < 1e-9, "focal weight {}", w[i]);
+        for wi in w.iter().take(3) {
+            assert!((wi - 1.0).abs() < 1e-9, "focal weight {wi}");
         }
         let n_focal = 3.0;
         let sum_focal: f64 = (0..6).filter(|&i| levels[i] == 1).map(|i| w[i]).sum();
@@ -687,7 +687,7 @@ mod tests {
         assert!(result.converged, "status {}", result.status);
         for level in 0..3 {
             let sum: f64 = (0..9)
-                .filter(|&i| levels[i] == level as i32)
+                .filter(|&i| levels[i] == level)
                 .map(|i| result.weights[i])
                 .sum();
             assert!((sum - 3.0).abs() < 1e-4, "level {level} sum {sum}");

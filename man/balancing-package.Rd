@@ -24,5 +24,10 @@ Authors:
   \item Malcolm Barrett \email{malcolmbarrett@gmail.com} (\href{https://orcid.org/0000-0003-0299-5825}{ORCID}) [copyright holder]
 }
 
+Other contributors:
+\itemize{
+  \item The authors of the vendored Rust crates (see src/rust/Cargo.lock and the bundled crate sources for the full list) [copyright holder]
+}
+
 }
 \keyword{internal}

@@ -134,7 +134,7 @@ test_that("bw_cbps() matches the link argument", {
 
 test_that("bw_cbps() rejects unnamed extra arguments", {
   expect_true(S7::S7_inherits(bw_cbps(), balance_method))
-  expect_error(bw_cbps(bogus = 1))
+  expect_error(bw_cbps(bogus = 1), class = "balancing_method_error")
 })
 
 # ---- Validators -----------------------------------------------------------

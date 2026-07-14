@@ -891,15 +891,11 @@ mod tests {
             .sum();
         assert!((sum_t - n_treated).abs() < 1e-6, "treated sum {sum_t}");
         assert!((sum_c - n_treated).abs() < 1e-3, "control sum {sum_c}");
-        for i in 0..n {
-            if levels[i] == 1 {
-                assert!(
-                    (result.weights[i] - 1.0).abs() < 1e-12,
-                    "treated weight {}",
-                    result.weights[i]
-                );
+        for (level, weight) in levels.iter().zip(&result.weights) {
+            if *level == 1 {
+                assert!((weight - 1.0).abs() < 1e-12, "treated weight {weight}");
             }
-            assert!(result.weights[i] >= 1e-8 - 1e-12);
+            assert!(*weight >= 1e-8 - 1e-12);
         }
     }
 
@@ -994,6 +990,52 @@ mod tests {
         assert!(result.interrupted);
         assert_eq!(result.status, "interrupted");
         assert!(!result.converged);
+    }
+
+    #[test]
+    fn a_low_iteration_cap_exercises_the_non_solved_status_path() {
+        // A tight tolerance under a small iteration cap makes the backend stop at a
+        // chunk boundary before a full solve, exercising the warm-started
+        // SolvedInaccurate / MaxIter path on the energy slice. The solve must
+        // return a non-solved terminal status with finite weights rather than
+        // corrupting the iterate across the warm-start chunks.
+        let n = 8;
+        let covs = vec![
+            1.5, 1.2, 0.9, 1.1, -1.0, -1.3, -0.7, -1.1, // covariate 1
+            0.5, 0.2, -0.1, 0.3, -0.6, -0.2, 0.1, -0.4, // covariate 2
+        ];
+        let levels = [1, 1, 1, 1, 0, 0, 0, 0];
+        let s = vec![1.0; n];
+        let mut inputs = discrete_inputs(
+            &covs,
+            &levels,
+            2,
+            &s,
+            EnergyEstimand::Ate { improved: true },
+        );
+        inputs.qp = QpOptions {
+            eps_abs: 1e-12,
+            eps_rel: 1e-12,
+            max_iter: 2,
+            chunk_iters: 1,
+            polish: false,
+            ..QpOptions::default()
+        };
+        let result = solve_discrete(&inputs, &|| false);
+        eprintln!(
+            "[energy low-cap] status={} converged={} iterations recorded via status",
+            result.status, result.converged
+        );
+        assert!(
+            matches!(result.status, "max_iter" | "solved_inaccurate"),
+            "expected a chunk-boundary status, got {}",
+            result.status
+        );
+        assert_eq!(result.converged, result.status == "solved_inaccurate");
+        assert!(
+            result.weights.iter().all(|w| w.is_finite()),
+            "capped solve returned non-finite weights"
+        );
     }
 
     #[test]

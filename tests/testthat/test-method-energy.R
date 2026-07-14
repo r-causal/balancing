@@ -136,7 +136,7 @@ test_that("bw_energy() matches the distance argument", {
 test_that("bw_energy() rejects unnamed and unknown extra arguments", {
   expect_true(S7::S7_inherits(bw_energy(), balance_method))
   expect_error(bw_energy(1e-4))
-  expect_error(bw_energy(bogus = 1))
+  expect_error(bw_energy(bogus = 1), class = "balancing_method_error")
 })
 
 # ---- Validators -----------------------------------------------------------
@@ -227,6 +227,11 @@ test_that("energy balancing reduces the binary ate energy distance", {
   expect_true(all(w >= 0))
   expect_true(all(w >= 1e-8))
 
+  # Energy balancing drives balance through its objective rather than exact
+  # moment constraints, so the achieved first-moment imbalance is verified
+  # against the conventional good-balance ceiling rather than an exact oracle.
+  expect_balanced(fit, data, tolerance = 0.1)
+
   dmat <- scaled_distance_matrix(as.matrix(data[c("x1", "x2")]))
   treated <- data$exposure == 1
   weighted <- energy_ate_objective(dmat, treated, w)
@@ -264,6 +269,7 @@ test_that("a binary att targets the treated total in both groups", {
   expect_equal(sum(w[treated]), n_treated, tolerance = 1e-4)
   expect_equal(sum(w[!treated]), n_treated, tolerance = 1e-4)
   expect_true(all(w >= 0))
+  expect_balanced(fit, data, tolerance = 0.1)
 })
 
 test_that("a binary atc fit produces non-negative weights", {
@@ -278,6 +284,7 @@ test_that("a binary atc fit produces non-negative weights", {
   w <- as.numeric(stats::weights(fit))
   expect_true(all(w >= 0))
   expect_true(all(w >= 1e-8))
+  expect_balanced(fit, data, tolerance = 0.1)
 })
 
 # ---- ESS ------------------------------------------------------------------
@@ -313,6 +320,7 @@ test_that("categorical ate energy balancing produces valid weights", {
     idx <- data$exposure == level
     expect_equal(sum(w[idx]), sum(idx), tolerance = 1e-4)
   }
+  expect_balanced(fit, data, tolerance = 0.1)
 })
 
 test_that("categorical att energy balancing produces valid weights", {
@@ -327,6 +335,7 @@ test_that("categorical att energy balancing produces valid weights", {
   )
   w <- as.numeric(stats::weights(fit))
   expect_true(all(w >= 0))
+  expect_balanced(fit, data, tolerance = 0.1)
 })
 
 # ---- Moment constraints ---------------------------------------------------

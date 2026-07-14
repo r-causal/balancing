@@ -105,7 +105,7 @@ bw_sbw <- new_class(
     max_iterations = NULL,
     ...
   ) {
-    rlang::check_dots_empty()
+    check_method_dots(...)
     norm <- rlang::arg_match(norm)
     min_weight <- vctrs::vec_cast(min_weight, double(), x_arg = "min_weight")
     if (!is.null(convergence_tolerance)) {

@@ -9,7 +9,8 @@ build_constraint_matrix(
   .covariates,
   constraints,
   exposure_type,
-  sampling_weights = NULL
+  sampling_weights = NULL,
+  call = rlang::caller_env()
 )
 }
 \arguments{
@@ -24,6 +25,9 @@ first-moment constraints.}
 
 \item{sampling_weights}{Optional sampling weights, reserved for weighted
 standardization.}
+
+\item{call}{The calling environment, used to build the error's call so a
+constraint error names the user-facing function.}
 }
 \value{
 A list with \code{matrix} and \code{recipe}.

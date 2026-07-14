@@ -6,6 +6,8 @@ fn no_interrupt() -> impl Fn() -> bool {
     || false
 }
 
+// The argument list mirrors the wide EntropyInputs struct this helper fills.
+#[allow(clippy::too_many_arguments)]
 fn inputs<'a>(
     covs: &'a [f64],
     n: usize,
@@ -294,12 +296,10 @@ fn weights_equal_base_weights_when_constraints_already_hold() {
     let result = solve_discrete(&inp, &group_idx, &no_interrupt());
 
     assert!(result.converged);
-    for i in 0..n {
+    for (i, (&weight, &b)) in result.weights.iter().zip(&base).enumerate() {
         assert!(
-            (result.weights[i] - base[i]).abs() < 1e-9,
-            "weight[{i}] = {} expected {}",
-            result.weights[i],
-            base[i]
+            (weight - b).abs() < 1e-9,
+            "weight[{i}] = {weight} expected {b}"
         );
     }
     // The dual variable is zero.

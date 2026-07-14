@@ -60,6 +60,12 @@ exposure, such as \code{y ~ exposure}. The stacked variance is derived for that
 form, where the g-computation means reduce to the weighted group means. A
 covariate-adjusted outcome model raises \code{balancing_ipw_input_error}; use the
 bootstrap workflow in the inference vignette for those models.
+
+The outcome-model score block uses the expected (Fisher) information, which
+equals the observed information for a canonical link, including the
+logit link for a binary outcome and the identity link for a continuous
+outcome. For a non-canonical link, such as a probit outcome model, it is an
+approximation.
 }
 \examples{
 n <- 200

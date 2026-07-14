@@ -34,7 +34,8 @@ test_that("bw_entropy() stores supplied tuning parameters", {
 
 test_that("bw_entropy() rejects unnamed extra arguments", {
   expect_true(S7::S7_inherits(bw_entropy(), balance_method))
-  expect_error(bw_entropy(1e-8))
+  expect_error(bw_entropy(1e-8), class = "balancing_method_error")
+  expect_error(bw_entropy(bogus = 1), class = "balancing_method_error")
 })
 
 # ---- Capability methods ---------------------------------------------------

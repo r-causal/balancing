@@ -1,7 +1,8 @@
 # the ignored-tolerance warning records its class and message
 
     Code
-      expr
+      balance(data, exposure, c(x1, x2), method = bw_energy(), estimand = "ate",
+      constraints = balance_terms(tolerance = 0.1))
     Condition <balancing_ignored_argument_warning>
       Warning in `method(fit_method, balancing::bw_energy)`:
       `tolerance` relaxes added moment constraints, but this fit has none to relax.
@@ -20,7 +21,8 @@
 # a continuous tolerance warns and is ignored
 
     Code
-      expr
+      balance(data, exposure, c(x1, x2), method = bw_energy(), estimand = "ate",
+      constraints = balance_terms(tolerance = 0.1))
     Condition <balancing_ignored_argument_warning>
       Warning in `method(fit_method, balancing::bw_energy)`:
       `tolerance` relaxes added moment constraints, but this fit has none to relax.
@@ -39,7 +41,8 @@
 # an infeasible constraint set raises balancing_infeasible_error
 
     Code
-      expr
+      balance(data, exposure, c(x1, x2), method = bw_energy(), estimand = "ate",
+      constraints = balance_terms(moments = 1L))
     Condition <balancing_infeasible_error>
       Error in `balance()`:
       ! The balancing problem is infeasible.

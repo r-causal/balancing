@@ -1,0 +1,101 @@
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'src/rust/**'
+      - 'tools/msrv.txt'
+      - '.github/workflows/rust.yaml'
+  pull_request:
+    paths:
+      - 'src/rust/**'
+      - 'tools/msrv.txt'
+      - '.github/workflows/rust.yaml'
+
+name: rust.yaml
+
+permissions: read-all
+
+defaults:
+  run:
+    working-directory: src/rust
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Clippy with all features
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: Clippy without default features
+        run: cargo clippy --workspace --all-targets --no-default-features -- -D warnings
+
+  test:
+    runs-on: ${{ matrix.config.os }}
+
+    name: test (${{ matrix.config.os }})
+
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - {os: ubuntu-latest,  toolchain: stable}
+          - {os: macos-latest,   toolchain: stable}
+          - {os: windows-latest, toolchain: stable-x86_64-pc-windows-gnu}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.config.toolchain }}
+
+      - name: Test with default features
+        run: cargo test --workspace
+
+      - name: Test without default features
+        run: cargo test --workspace --no-default-features
+
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Compile benchmarks
+        run: cargo bench --workspace --no-run
+
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Read the minimum supported Rust version
+        id: msrv
+        working-directory: ${{ github.workspace }}
+        run: echo "version=$(cat tools/msrv.txt)" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+
+      - name: Build with the pinned toolchain
+        run: cargo build --workspace --all-features

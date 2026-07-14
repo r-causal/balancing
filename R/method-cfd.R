@@ -115,7 +115,7 @@ bw_cfd <- new_class(
     max_iterations = NULL,
     ...
   ) {
-    rlang::check_dots_empty()
+    check_method_dots(...)
     kernel <- rlang::arg_match(kernel)
     smoothness <- vctrs::vec_cast(smoothness, double(), x_arg = "smoothness")
     degrees_of_freedom <- vctrs::vec_cast(

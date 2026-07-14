@@ -105,7 +105,7 @@ bw_cbps <- new_class(
     max_iterations = NULL,
     ...
   ) {
-    rlang::check_dots_empty()
+    check_method_dots(...)
     link <- rlang::arg_match(link)
     if (!is.null(max_iterations)) {
       max_iterations <- vctrs::vec_cast(

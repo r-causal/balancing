@@ -31,7 +31,7 @@ use convert::{
     parse_binary_estimand, parse_cbps_estimand, parse_cbps_multi_estimand, parse_cfd_options,
     parse_distance, parse_entropy_options, parse_ipt_options, parse_kernel, parse_kernel_options,
     parse_link, parse_multi_estimand, parse_qp_options, parse_sbw_norm, parse_sbw_options,
-    real_matrix, real_vector,
+    parse_smoothness, real_matrix, real_vector,
 };
 
 /// Report the parallel resources the Rust core observes.
@@ -1454,6 +1454,7 @@ fn solve_cfd(
     }
     let opts = parse_cfd_options(options)?;
     let kernel = parse_kernel(kernel)?;
+    let matern_nu = parse_smoothness(smoothness)?;
     let n_draws = kernel_draw_count(kernel, &t_proj, p)?;
     let cfd_estimand = match estimand {
         "ate" => CfdEstimand::Ate { improved },
@@ -1473,7 +1474,7 @@ fn solve_cfd(
         kernel: KernelParams {
             kernel,
             bw_scale,
-            smoothness,
+            matern_nu,
             t_proj: t_proj.as_slice(),
             n_draws,
         },
@@ -1545,6 +1546,7 @@ fn solve_cfd_multi(
     }
     let opts = parse_cfd_options(options)?;
     let kernel = parse_kernel(kernel)?;
+    let matern_nu = parse_smoothness(smoothness)?;
     let n_draws = kernel_draw_count(kernel, &t_proj, p)?;
     let cfd_estimand = match estimand {
         "ate" => CfdEstimand::Ate { improved },
@@ -1565,7 +1567,7 @@ fn solve_cfd_multi(
         kernel: KernelParams {
             kernel,
             bw_scale,
-            smoothness,
+            matern_nu,
             t_proj: t_proj.as_slice(),
             n_draws,
         },
@@ -1593,9 +1595,10 @@ fn solve_cfd_multi(
 /// `n_draws` t-kernel projection matrix, empty for the other kernels; `s_weights`
 /// standardize the covariates; `discarded` marks units excluded from the bandwidth
 /// median, empty to discard none. The result is a column-major `n` by `n` symmetric
-/// matrix. The R layer uses this for the t-kernel projection path and for
-/// diagnostics; the solve entry points build the kernel internally so the `n` by
-/// `n` matrix never crosses the boundary during a fit.
+/// matrix. This entry point is mandated by the boundary contract and is available
+/// for building a kernel matrix directly, for diagnostics. The fit path does not
+/// call it: the solve entry points build the kernel internally, so the `n` by `n`
+/// matrix never crosses the boundary during a fit.
 ///
 /// Internal solver entry point, called from the R layer rather than by users, so
 /// it is not exported. `@noRd` keeps it out of the reference and out of
@@ -1631,13 +1634,14 @@ fn kernel_matrix(
     }
     let threads = parse_kernel_options(options)?;
     let kernel = parse_kernel(kernel)?;
+    let matern_nu = parse_smoothness(smoothness)?;
     let n_draws = kernel_draw_count(kernel, &t_proj, p)?;
     let discarded_mask: Vec<bool> = discarded.iter().collect();
 
     let params = KernelParams {
         kernel,
         bw_scale,
-        smoothness,
+        matern_nu,
         t_proj: t_proj.as_slice(),
         n_draws,
     };

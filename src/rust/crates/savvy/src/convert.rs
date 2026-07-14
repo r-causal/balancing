@@ -5,7 +5,7 @@
 //! an unrecognized option name is a contract violation and becomes an error.
 
 use balancing_core::dist::Distance;
-use balancing_core::dist::kernels::Kernel;
+use balancing_core::dist::kernels::{Kernel, MaternNu};
 use balancing_core::links::Link;
 use balancing_core::methods::cbps::CbpsEstimand;
 use balancing_core::methods::entropy::EntropySolver;
@@ -375,6 +375,22 @@ pub fn parse_kernel(kernel: &str) -> savvy::Result<Kernel> {
     })
 }
 
+/// Resolve the Matern smoothness passed by the R layer to a supported
+/// half-integer.
+///
+/// The S7 validator restricts the value to the closed forms this version carries,
+/// so an unsupported value cannot arrive through the public API. Resolving it here
+/// keeps the boundary from silently substituting a default, matching how
+/// `parse_kernel` treats an unrecognized name. The value is ignored for the
+/// non-Matern kernels, which pass their default smoothness.
+pub fn parse_smoothness(smoothness: f64) -> savvy::Result<MaternNu> {
+    MaternNu::from_smoothness(smoothness).ok_or_else(|| {
+        savvy::Error::new(format!(
+            "unsupported Matern smoothness `{smoothness}`; expected 0.5, 1.5, or 2.5"
+        ))
+    })
+}
+
 /// Resolve the distance definition named by the R layer.
 pub fn parse_distance(distance: &str) -> savvy::Result<Distance> {
     Distance::from_name(distance).ok_or_else(|| {
@@ -459,4 +475,24 @@ pub fn real_vector(data: &[f64]) -> savvy::Result<OwnedRealSexp> {
     let mut out = OwnedRealSexp::new(data.len())?;
     out.as_mut_slice().copy_from_slice(data);
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_smoothness_resolves_the_supported_half_integers() {
+        assert_eq!(parse_smoothness(0.5).unwrap(), MaternNu::Half);
+        assert_eq!(parse_smoothness(1.5).unwrap(), MaternNu::ThreeHalves);
+        assert_eq!(parse_smoothness(2.5).unwrap(), MaternNu::FiveHalves);
+    }
+
+    #[test]
+    fn parse_smoothness_errors_on_an_unsupported_value() {
+        // Unreachable through the S7 validator, but the boundary reports rather
+        // than silently substituting a default.
+        assert!(parse_smoothness(2.0).is_err());
+        assert!(parse_smoothness(3.5).is_err());
+    }
 }

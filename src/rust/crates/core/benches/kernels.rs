@@ -18,7 +18,7 @@ use std::time::Duration;
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
 
-use balancing_core::dist::kernels::{Kernel, KernelParams, build_kernel};
+use balancing_core::dist::kernels::{Kernel, KernelParams, MaternNu, build_kernel};
 use balancing_core::methods::entropy::{EntropySolver, solve_continuous};
 
 mod common;
@@ -146,7 +146,7 @@ fn bench_kernel_matrix(c: &mut Criterion) {
                 let params = KernelParams {
                     kernel: Kernel::Gaussian,
                     bw_scale: 1.0,
-                    smoothness: 1.5,
+                    matern_nu: MaternNu::ThreeHalves,
                     t_proj: &[],
                     n_draws: 0,
                 };

@@ -70,7 +70,7 @@ bw_entropy <- new_class(
     convergence_tolerance = 1e-10,
     max_iterations = NULL
   ) {
-    rlang::check_dots_empty()
+    check_method_dots(...)
     if (!is.null(base_weights)) {
       base_weights <- vctrs::vec_cast(
         base_weights,

@@ -76,6 +76,11 @@ pub fn solve<P: EsteqProblem>(
     // observed here, once control returns to this thread.
     let interrupted = interrupt();
 
+    // Convergence is judged on the recomputed sup norm against the tolerance, not
+    // on basin's exit reason. basin terminates on the L2 gradient norm, which is
+    // never smaller than the sup norm, so a run can hit the iteration cap with its
+    // L2 norm above the tolerance while the sup norm is already below it; that run
+    // has converged by this criterion.
     SolveReport {
         converged: grad_norm <= opts.grad_tol,
         interrupted,
@@ -108,14 +113,14 @@ mod tests {
         }
         fn value(&self, beta: &[f64]) -> Option<f64> {
             let mut v = 0.0;
-            for j in 0..beta.len() {
-                v += 0.5 * self.scale[j] * (beta[j] - self.center[j]).powi(2);
+            for (j, &b) in beta.iter().enumerate() {
+                v += 0.5 * self.scale[j] * (b - self.center[j]).powi(2);
             }
             Some(v)
         }
         fn gradient(&self, beta: &[f64], g: &mut [f64]) {
-            for j in 0..beta.len() {
-                g[j] = self.scale[j] * (beta[j] - self.center[j]);
+            for (j, gj) in g.iter_mut().enumerate() {
+                *gj = self.scale[j] * (beta[j] - self.center[j]);
             }
         }
         fn hessian(&self, _beta: &[f64], mut h: MatMut<'_, f64>) {
@@ -147,8 +152,59 @@ mod tests {
             &|| false,
         );
         assert!(report.converged);
-        for j in 0..3 {
-            assert!((beta[j] - problem.center[j]).abs() < 1e-6);
+        for (b, c) in beta.iter().zip(&problem.center) {
+            assert!((b - c).abs() < 1e-6);
         }
+    }
+
+    // Regression: convergence is judged on the final gradient sup norm against the
+    // tolerance, independent of how basin's loop exited. basin's own gradient
+    // termination uses the L2 norm, so a run can reach the iteration cap with its
+    // L2 norm still above the tolerance while the sup norm is already below it; the
+    // adapter must report that run converged. The problem below places the start
+    // point at a gradient of 0.6e-8 in every one of four components: the sup norm
+    // is 0.6e-8 (below the 1e-8 tolerance) while the L2 norm is 1.2e-8 (above it),
+    // so basin exits on the iteration cap rather than its gradient criterion.
+    #[test]
+    fn a_gradient_below_tolerance_at_the_iteration_cap_reports_converged() {
+        let grad_tol = 1e-8;
+        let component = 0.6e-8;
+        let problem = Quad {
+            // gradient(0) = scale * (0 - center) = -center, so center = -component
+            // puts every start-point gradient component at +component.
+            center: vec![-component; 4],
+            scale: vec![1.0; 4],
+        };
+        let mut beta = vec![0.0; 4];
+        let report = solve(
+            &problem,
+            &mut beta,
+            &SolveOptions {
+                // A zero cap forces the run to exit on the iteration limit at the
+                // start point, the deterministic form of "cap reached".
+                max_iter: 0,
+                grad_tol,
+                fista_rel_tol: 1e-10,
+            },
+            &|| false,
+        );
+
+        // The exit was the cap, not basin's gradient criterion: the L2 norm at the
+        // start point exceeds the tolerance.
+        let l2 = (4.0 * component * component).sqrt();
+        assert!(
+            l2 > grad_tol,
+            "the scenario needs the L2 norm above tolerance"
+        );
+        assert_eq!(report.iterations, 0, "the iteration cap should bind");
+        assert!(
+            report.grad_norm <= grad_tol,
+            "sup norm {} should be below tolerance",
+            report.grad_norm
+        );
+        assert!(
+            report.converged,
+            "a sup-norm gradient below tolerance is convergence regardless of the exit reason"
+        );
     }
 }

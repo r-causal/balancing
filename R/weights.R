@@ -298,6 +298,21 @@ max.bw <- function(..., na.rm = FALSE) {
   do.call("max", c(args, list(na.rm = na.rm)))
 }
 
+# median() and quantile() are not part of the Summary group generic, so a bw
+# vector needs its own methods to reach them, mirroring propensity's psw. Both
+# operate on the underlying double and return a plain numeric summary.
+#' @importFrom stats median
+#' @export
+median.bw <- function(x, na.rm = FALSE, ...) {
+  stats::median(vctrs::vec_data(x), na.rm = na.rm, ...)
+}
+
+#' @importFrom stats quantile
+#' @export
+quantile.bw <- function(x, probs = seq(0, 1, 0.25), na.rm = FALSE, ...) {
+  stats::quantile(vctrs::vec_data(x), probs = probs, na.rm = na.rm, ...)
+}
+
 #' @export
 `[.bw` <- function(x, i, ...) {
   if (missing(i)) {

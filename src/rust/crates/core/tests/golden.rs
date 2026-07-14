@@ -435,6 +435,9 @@ fn assert_sbw_solved(path: &Path, result: &SbwResult) {
 /// (rust-architecture section 6) requires constraint satisfaction alongside the
 /// one-sided objective bound, since a lower objective from a too-loose feasible set
 /// is otherwise indistinguishable from solver quality.
+// The argument list names each piece of the discrete constraint box this helper
+// checks; grouping them into a struct would only relocate the same fields.
+#[allow(clippy::too_many_arguments)]
 fn assert_sbw_discrete_constraints(
     path: &Path,
     levels: &[i32],
@@ -459,11 +462,11 @@ fn assert_sbw_discrete_constraints(
         SbwEstimand::Focal { focal } => Some(*focal),
         SbwEstimand::Ate => None,
     };
-    for t in 0..n_levels {
-        if Some(t) == focal || n_t[t] == 0 {
+    for (t, &n_group) in n_t.iter().enumerate().take(n_levels) {
+        if Some(t) == focal || n_group == 0 {
             continue;
         }
-        let swnt = |i: usize| s_norm[i] / n_t[t] as f64;
+        let swnt = |i: usize| s_norm[i] / n_group as f64;
         let group_sum: f64 = (0..n)
             .filter(|&i| levels[i] == t as i32)
             .map(|i| swnt(i) * weights[i])

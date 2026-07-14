@@ -71,7 +71,7 @@ impl Kernel {
 
 /// The Matern smoothness values with a closed form in this version.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MaternNu {
+pub enum MaternNu {
     Half,
     ThreeHalves,
     FiveHalves,
@@ -80,7 +80,7 @@ enum MaternNu {
 impl MaternNu {
     /// Resolve a smoothness value to a supported half-integer, returning `None`
     /// for an unsupported value.
-    fn from_smoothness(smoothness: f64) -> Option<Self> {
+    pub fn from_smoothness(smoothness: f64) -> Option<Self> {
         if (smoothness - 0.5).abs() < 1e-9 {
             Some(MaternNu::Half)
         } else if (smoothness - 1.5).abs() < 1e-9 {
@@ -99,8 +99,9 @@ pub struct KernelParams<'a> {
     pub kernel: Kernel,
     /// Bandwidth scale factor multiplying the median pairwise distance.
     pub bw_scale: f64,
-    /// Matern smoothness; ignored unless `kernel` is `Matern`.
-    pub smoothness: f64,
+    /// Matern smoothness, resolved to a supported half-integer at the boundary;
+    /// ignored unless `kernel` is `Matern`.
+    pub matern_nu: MaternNu,
     /// Column-major `p` by `n_draws` frequency vectors for the t kernel, drawn on
     /// the R side; empty for the other kernels.
     pub t_proj: &'a [f64],
@@ -226,13 +227,12 @@ pub fn build_kernel(
     }
 
     let bw = median_bandwidth(&dist, n, discarded, params.bw_scale, threads);
-    let matern_nu = MaternNu::from_smoothness(params.smoothness);
     let apply = |d: f64| -> f64 {
         let r = d / bw;
         match params.kernel {
             Kernel::Gaussian => gaussian(r),
             Kernel::Laplace => laplace(r),
-            Kernel::Matern => match matern_nu.unwrap_or(MaternNu::ThreeHalves) {
+            Kernel::Matern => match params.matern_nu {
                 MaternNu::Half => matern_half(r),
                 MaternNu::ThreeHalves => matern_three_halves(r),
                 MaternNu::FiveHalves => matern_five_halves(r),
@@ -316,10 +316,19 @@ mod tests {
         KernelParams {
             kernel,
             bw_scale: 1.0,
-            smoothness: 1.5,
+            matern_nu: MaternNu::ThreeHalves,
             t_proj: &[],
             n_draws: 0,
         }
+    }
+
+    #[test]
+    fn from_smoothness_rejects_an_unsupported_value() {
+        assert_eq!(MaternNu::from_smoothness(0.5), Some(MaternNu::Half));
+        assert_eq!(MaternNu::from_smoothness(1.5), Some(MaternNu::ThreeHalves));
+        assert_eq!(MaternNu::from_smoothness(2.5), Some(MaternNu::FiveHalves));
+        assert_eq!(MaternNu::from_smoothness(3.5), None);
+        assert_eq!(MaternNu::from_smoothness(1.0), None);
     }
 
     /// The smallest eigenvalue of a symmetric column-major matrix.
@@ -422,11 +431,11 @@ mod tests {
         let n = 6;
         let covs: Vec<f64> = (0..n * 2).map(|k| ((k as f64) * 0.29).cos()).collect();
         let s = vec![1.0; n];
-        for smoothness in [0.5, 1.5, 2.5] {
+        for matern_nu in [MaternNu::Half, MaternNu::ThreeHalves, MaternNu::FiveHalves] {
             let p = KernelParams {
                 kernel: Kernel::Matern,
                 bw_scale: 1.0,
-                smoothness,
+                matern_nu,
                 t_proj: &[],
                 n_draws: 0,
             };
@@ -434,7 +443,7 @@ mod tests {
             assert_symmetric_unit_diagonal(&k, n, 1.0);
             assert!(
                 min_eigenvalue(&k, n) > -1e-9,
-                "matern {smoothness} is not psd"
+                "matern {matern_nu:?} is not psd"
             );
         }
     }
@@ -473,7 +482,7 @@ mod tests {
         let tp = KernelParams {
             kernel: Kernel::T,
             bw_scale: 1.0,
-            smoothness: 1.5,
+            matern_nu: MaternNu::ThreeHalves,
             t_proj: &proj,
             n_draws: d,
         };
@@ -493,7 +502,7 @@ mod tests {
             expected += (a0 - a1).cos();
         }
         expected /= d as f64;
-        assert!((k[1 * n + 0] - expected).abs() < 1e-12, "t kernel entry");
+        assert!((k[n] - expected).abs() < 1e-12, "t kernel entry");
 
         // Rebuilding with the same projections gives a bit-identical matrix.
         let again = build_kernel(&covs, n, p, &s, &tp, &[], 1);

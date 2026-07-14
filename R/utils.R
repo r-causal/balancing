@@ -36,6 +36,37 @@ alert_info <- function(.message, .envir = parent.frame()) {
   }
 }
 
+# Guard the trailing dots of a method constructor. Each constructor takes only
+# its named tuning parameters, so an unexpected argument, usually a misspelled
+# name, raises a classed `balancing_method_error` naming the offending arguments
+# rather than the unclassed dots error `rlang::check_dots_empty()` produces.
+check_method_dots <- function(..., call = rlang::caller_env()) {
+  if (...length() == 0L) {
+    return(invisible())
+  }
+  names <- rlang::names2(rlang::list2(...))
+  named <- names[nzchar(names)]
+  n_unnamed <- ...length() - length(named)
+  if (length(named) > 0) {
+    abort(
+      c(
+        "Unknown tuning argument{?s} {.arg {named}}.",
+        i = "Check the argument names against the constructor's help page."
+      ),
+      error_class = "balancing_method_error",
+      call = call
+    )
+  }
+  abort(
+    c(
+      "This method constructor accepts only named tuning arguments.",
+      x = "You passed {n_unnamed} unnamed argument{?s}."
+    ),
+    error_class = "balancing_method_error",
+    call = call
+  )
+}
+
 # Resolve the worker-thread count for a solver call. The resolution order is the
 # explicit `threads` argument, then the `balancing.threads` option, then an
 # automatic count. The automatic count is the physical core count, capped by
@@ -70,12 +101,12 @@ automatic_threads <- function() {
   max(1L, as.integer(min(caps)))
 }
 
-# Resolve the solver for the exact entropy problem. The shipped default is
-# Newton, the only solver that drives the estimating equations to machine
-# precision. The default is read from an option so the benchmark promotion
-# process can change it in one place without touching the fit path; the
-# alternatives are the basin L-BFGS adapter and the L-BFGS-then-Newton hybrid,
-# whose Newton polish restores machine-precision estimating equations.
+# Resolve the solver for the exact entropy problem. The default is Newton, the
+# only solver that drives the estimating equations to machine precision. The
+# default is read from an option so it can change in one place without touching
+# the fit path; the alternatives are the basin L-BFGS adapter and the
+# L-BFGS-then-Newton hybrid, whose Newton polish restores machine-precision
+# estimating equations.
 resolve_entropy_solver <- function() {
   choices <- c("newton", "lbfgs", "lbfgs_then_newton")
   solver <- getOption("balancing.entropy_solver", default = "newton")
@@ -92,7 +123,7 @@ resolve_entropy_solver <- function() {
 }
 
 # Resolve the quadratic-program backend for the positive-semidefinite methods.
-# The shipped default is "auto": the default solver runs first and, on a
+# The default is "auto": the default solver runs first and, on a
 # primal-infeasibility certificate, the fit re-solves with the interior-point
 # backend, which handles feasible instances the default solver can falsely
 # certify infeasible. The value is read from an option so a user can pin a

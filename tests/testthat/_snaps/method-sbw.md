@@ -1,7 +1,7 @@
 # the required-tolerance message names the tuning parameter
 
     Code
-      expr
+      balance(data, exposure, c(x1, x2), method = bw_sbw(), estimand = "ate")
     Condition <balancing_constraints_error>
       Error in `method(fit_method, balancing::bw_sbw)`:
       ! Stable balancing weights require a positive balance tolerance.
@@ -11,7 +11,8 @@
 # the unsupported-norm message points to the least-squares norm
 
     Code
-      expr
+      balance(data, exposure, c(x1, x2), method = bw_sbw(norm = "l1"), estimand = "ate",
+      constraints = balance_terms(tolerance = 0.05))
     Condition <balancing_method_error>
       Error in `method(fit_method, balancing::bw_sbw)`:
       ! The "l1" norm is not yet available for stable balancing weights.
@@ -20,7 +21,8 @@
 # an infeasible constraint set raises balancing_infeasible_error
 
     Code
-      expr
+      balance(data, exposure, c(x1, x2), method = bw_sbw(), estimand = "ate",
+      constraints = balance_terms(tolerance = 0.01))
     Condition <balancing_infeasible_error>
       Error in `balance()`:
       ! The balancing problem is infeasible.

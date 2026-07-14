@@ -1,14 +1,16 @@
+# Snapshot helpers that forward the caller's expression to expect_snapshot() so
+# the recorded Code block shows the failing call, not the literal `expr` token.
 expect_balancing_error <- function(expr) {
-  testthat::expect_snapshot(
+  rlang::inject(testthat::expect_snapshot(
     error = TRUE,
     cnd_class = TRUE,
-    expr
-  )
+    !!rlang::enquo(expr)
+  ))
 }
 
 expect_balancing_warning <- function(expr) {
-  testthat::expect_snapshot(
+  rlang::inject(testthat::expect_snapshot(
     cnd_class = TRUE,
-    expr
-  )
+    !!rlang::enquo(expr)
+  ))
 }

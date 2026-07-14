@@ -168,6 +168,8 @@ is_binary_numeric <- function(v) {
 #' @param exposure_type One of `"binary"`, `"categorical"`, or `"continuous"`.
 #' @param sampling_weights Optional sampling weights, reserved for weighted
 #'   standardization.
+#' @param call The calling environment, used to build the error's call so a
+#'   constraint error names the user-facing function.
 #'
 #' @return A list with `matrix` and `recipe`.
 #' @keywords internal
@@ -177,7 +179,8 @@ build_constraint_matrix <- function(
   .covariates,
   constraints,
   exposure_type,
-  sampling_weights = NULL
+  sampling_weights = NULL,
+  call = rlang::caller_env()
 ) {
   if (is.null(constraints)) {
     constraints <- balance_terms(moments = 1L)
@@ -190,12 +193,17 @@ build_constraint_matrix <- function(
         x = "The exposure is {.val continuous}.",
         i = "Drop {.arg quantiles} from {.fn balance_terms}, or balance moments instead."
       ),
-      error_class = "balancing_constraints_error"
+      error_class = "balancing_constraints_error",
+      call = call
     )
   }
 
   moments <- resolve_moments(constraints@moments, .covariates)
-  tolerances <- resolve_tolerance(constraints@tolerance, .covariates)
+  tolerances <- resolve_tolerance(
+    constraints@tolerance,
+    .covariates,
+    call = call
+  )
 
   records <- list()
   interaction_bases <- list()

@@ -1,7 +1,8 @@
 # balancing_convergence_warning: the iteration cap is reached
 
     Code
-      expr
+      balance(data, exposure, c(x1, x2), method = bw_entropy(max_iterations = 3L),
+      estimand = "ate")
     Condition <balancing_convergence_warning>
       Warning in `balance()`:
       The solver did not reach its convergence tolerance.
@@ -20,7 +21,8 @@
 # balancing_balance_warning: achieved balance exceeds the tolerance
 
     Code
-      expr
+      balance(data, exposure, c(x1, x2), method = bw_entropy(), estimand = "ate",
+      constraints = balance_terms(tolerance = 0.1))
     Condition <balancing_balance_warning>
       Warning in `balance()`:
       The achieved balance exceeds the requested tolerance.
@@ -40,7 +42,8 @@
 # balancing_ignored_argument_warning: two_step without over_identified
 
     Code
-      expr
+      balance(data, exposure, c(x1, x2), method = bw_cbps(two_step = FALSE,
+        over_identified = FALSE), estimand = "ate")
     Condition <balancing_ignored_argument_warning>
       Warning in `method(fit_method, balancing::bw_cbps)`:
       `two_step` applies only to the over-identified fit and is ignored.
@@ -59,7 +62,7 @@
 # balancing_class_downgrade_warning: mismatched estimands
 
     Code
-      expr
+      vctrs::vec_c(x, y)
     Condition <balancing_class_downgrade_warning>
       Warning in `warn_bw_downgrade()`:
       Cannot combine <bw> weights with <bw>.
