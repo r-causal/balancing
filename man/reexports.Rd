@@ -3,6 +3,7 @@
 \docType{import}
 \name{reexports}
 \alias{reexports}
+\alias{ess}
 \alias{tidy}
 \alias{glance}
 \alias{is_causal_wt}
@@ -14,8 +15,10 @@ These objects are imported from other packages. Follow the links
 below to see their documentation.
 
 \describe{
+  \item{causalgenerics}{\code{\link[causalgenerics:ess]{ess()}}}
+
   \item{generics}{\code{\link[generics:glance]{glance()}}, \code{\link[generics:tidy]{tidy()}}}
 
-  \item{propensity}{\code{\link[propensity:estimand]{estimand()}}, \code{\link[propensity:is_causal_wt]{is_causal_wt()}}}
+  \item{propensity}{\code{\link[propensity:estimand]{estimand}}, \code{\link[propensity:is_causal_wt]{is_causal_wt}}}
 }}
 

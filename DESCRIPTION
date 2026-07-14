@@ -19,6 +19,7 @@ BugReports: https://github.com/r-causal/balancing/issues
 Depends:
     R (>= 4.2.0)
 Imports:
+    causalgenerics,
     cli,
     generics,
     propensity,

@@ -19,8 +19,9 @@ set.seed(2024)
 Balancing weights target covariate balance directly. Instead of fitting a model for the probability of exposure and deriving weights from it, a balancing method poses covariate balance as a convex optimization problem and solves for the weights that achieve it. This vignette walks through the core workflow for a binary exposure: fitting weights with `balance()`, reading the balance they achieve, checking that balance more broadly with halfmoon, and estimating a causal effect.
 
 ```{r setup, message = FALSE}
-# halfmoon is attached before balancing so that, because both packages
-# define ess(), balancing's ess() method is the one in scope.
+# halfmoon provides the broader balance-assessment tools used later in this
+# vignette. Both packages register ess() on the same shared generic, so
+# attaching both masks neither method.
 if (requireNamespace("halfmoon", quietly = TRUE)) {
   library(halfmoon)
 }
@@ -111,7 +112,7 @@ balance_check
 plot_balance(balance_check)
 ```
 
-halfmoon owns the general balance-assessment workflow, so its love plots, mirrored histograms, and balance summaries are the place to look when you want a fuller picture than the constraint terms provide. Both packages export `ess()`; because balancing is attached after halfmoon, `ess()` here dispatches to the method in balancing, while `check_balance()` and `plot_balance()` from halfmoon remain available.
+halfmoon owns the general balance-assessment workflow, so its love plots, mirrored histograms, and balance summaries are the place to look when you want a fuller picture than the constraint terms provide. Both packages register `ess()` methods on the same shared generic, so `ess(fit)` summarizes a balancing fit while `ess()` on a weight vector uses halfmoon's method, and `check_balance()` and `plot_balance()` from halfmoon remain available.
 
 ## Estimating a causal effect
 

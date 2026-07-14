@@ -337,13 +337,17 @@ method(weights, balancing) <- function(
   w
 }
 
-#' Effective sample size
+#' Effective sample size for a balancing fit
 #'
 #' Reports the effective sample size implied by a set of balancing weights. The
 #' effective sample size within a group is `sum(w)^2 / sum(w^2)`, which equals
 #' the group size when the weights are uniform and shrinks as the weights become
 #' more variable. Discrete exposures report one row per exposure level;
 #' continuous exposures report a single overall row.
+#'
+#' This method registers on [causalgenerics::ess()], the shared effective sample
+#' size generic. `library(balancing)` re-exports the generic, so `ess(fit)`
+#' works without a second attachment.
 #'
 #' @param x A [balancing] result.
 #' @param ... Ignored.
@@ -357,10 +361,12 @@ method(weights, balancing) <- function(
 #' fit <- balance(df, exposure, x1, method = bw_entropy())
 #' ess(fit)
 #'
-#' @export
-ess <- new_generic("ess", "x")
+#' @name ess.balancing
+NULL
 
-method(ess, balancing) <- function(x, ...) {
+causalgenerics_ess <- new_external_generic("causalgenerics", "ess", "x")
+
+method(causalgenerics_ess, balancing) <- function(x, ...) {
   w <- as.numeric(weights(x))
   effective <- function(weights) sum(weights)^2 / sum(weights^2)
 

@@ -80,7 +80,7 @@
 #' propensity::ipw(fit, outcome_mod)
 #'
 #' @name ipw.balancing
-#' @importFrom propensity ipw
+#' @importFrom causalgenerics ipw
 #' @importFrom stats getCall
 NULL
 
@@ -93,9 +93,9 @@ method(getCall_generic, balancing) <- function(x, ...) {
   x@call
 }
 
-propensity_ipw <- new_external_generic("propensity", "ipw", "ps_mod")
+causalgenerics_ipw <- new_external_generic("causalgenerics", "ipw", "ps_mod")
 
-method(propensity_ipw, balancing) <- function(
+method(causalgenerics_ipw, balancing) <- function(
   ps_mod,
   outcome_mod,
   .data = NULL,
