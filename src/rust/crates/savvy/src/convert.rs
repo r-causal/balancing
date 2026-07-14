@@ -4,10 +4,12 @@
 //! once as owned SEXPs and filled directly. Option lists are parsed strictly:
 //! an unrecognized option name is a contract violation and becomes an error.
 
+use balancing_core::dist::Distance;
 use balancing_core::links::Link;
 use balancing_core::methods::cbps::CbpsEstimand;
 use balancing_core::methods::entropy::EntropySolver;
 use balancing_core::methods::ipt::IptEstimand;
+use balancing_core::qp::QpOptions;
 use savvy::{ListSexp, OwnedRealSexp, RealSexp, Sexp};
 
 /// Resolved solver options shared by the entropy entrypoints.
@@ -144,6 +146,77 @@ pub fn parse_ipt_options(options: ListSexp) -> savvy::Result<IptOptions> {
     }
 
     Ok(resolved)
+}
+
+/// Resolved options for an energy balancing solve: the worker-thread count and
+/// the quadratic-program tuning.
+pub struct EnergyOptions {
+    pub threads: usize,
+    pub qp: QpOptions,
+}
+
+/// Parse the option list for an energy balancing solve, rejecting unknown names.
+///
+/// `convergence_tolerance` sets both the absolute and relative solver tolerances;
+/// `backend` is accepted for forward compatibility but energy balancing always
+/// solves through the ADMM backend, so a value other than `osqp` or `auto` is an
+/// error rather than a silent override.
+pub fn parse_qp_options(options: ListSexp) -> savvy::Result<EnergyOptions> {
+    const ALLOWED: [&str; 5] = [
+        "threads",
+        "convergence_tolerance",
+        "max_iterations",
+        "polish",
+        "backend",
+    ];
+
+    for name in options.names_iter() {
+        if !ALLOWED.contains(&name) {
+            return Err(savvy::Error::new(format!(
+                "unknown option `{name}`; allowed options are {}",
+                ALLOWED.join(", ")
+            )));
+        }
+    }
+
+    let mut qp = QpOptions::default();
+    let mut threads = balancing_core::available_threads().0;
+
+    if let Some(value) = options.get("threads") {
+        threads = option_usize(value, "threads")?.max(1);
+    }
+    if let Some(value) = options.get("convergence_tolerance") {
+        let tol = option_f64(value, "convergence_tolerance")?;
+        qp.eps_abs = tol;
+        qp.eps_rel = tol;
+    }
+    if let Some(value) = options.get("max_iterations") {
+        qp.max_iter = option_usize(value, "max_iterations")?.max(1);
+    }
+    if let Some(value) = options.get("polish") {
+        qp.polish = bool::try_from(value)
+            .map_err(|_| savvy::Error::new("option `polish` must be a logical scalar"))?;
+    }
+    if let Some(value) = options.get("backend") {
+        let name = <&str>::try_from(value)
+            .map_err(|_| savvy::Error::new("option `backend` must be a string"))?;
+        if name != "osqp" && name != "auto" {
+            return Err(savvy::Error::new(format!(
+                "unknown backend `{name}`; energy balancing solves through `osqp`"
+            )));
+        }
+    }
+
+    Ok(EnergyOptions { threads, qp })
+}
+
+/// Resolve the distance definition named by the R layer.
+pub fn parse_distance(distance: &str) -> savvy::Result<Distance> {
+    Distance::from_name(distance).ok_or_else(|| {
+        savvy::Error::new(format!(
+            "unknown distance `{distance}`; expected scaled_euclidean, mahalanobis, or euclidean"
+        ))
+    })
 }
 
 /// Resolve the propensity link named by the R layer.

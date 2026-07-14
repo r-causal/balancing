@@ -139,7 +139,7 @@ balance <- function(
     focal_level
   )
 
-  constraints <- constraints %||% balance_terms(moments = 1L)
+  constraints <- constraints %||% default_constraints(method)
 
   built <- build_constraint_matrix(
     .data,
@@ -172,6 +172,7 @@ balance <- function(
     focal_level = focal_level,
     sampling_weights = sampling_weights_value %||% rep(1, n),
     n = n,
+    constraints = constraints,
     tolerances = column_tolerances(built$recipe)
   )
 
@@ -185,15 +186,7 @@ balance <- function(
     rlang::interrupt()
   }
 
-  if (!fit$converged) {
-    warn(
-      c(
-        "The solver did not reach its convergence tolerance.",
-        i = "Increase {.arg max_iterations} or loosen {.arg convergence_tolerance} in {.fn {class(method)[1]}}."
-      ),
-      warning_class = "balancing_convergence_warning"
-    )
-  }
+  check_solver_status(fit, method)
 
   weights <- new_bw(fit$weights, estimand = estimand, groups = groups)
 
@@ -250,7 +243,7 @@ balance <- function(
     constraints = constraints,
     recipe = built$recipe,
     balance_table = balance_table,
-    duals = NULL,
+    duals = fit$duals,
     coefficients = fit$coefficients,
     converged = fit$converged,
     iterations = fit$iterations,
@@ -260,6 +253,66 @@ balance <- function(
     sampling_weights = sampling_weights_value,
     call = the_call
   )
+}
+
+# Raise or warn on the solver outcome. The quadratic-program family reports a
+# terminal status the backend assigns, so an infeasible constraint set raises
+# `balancing_infeasible_error` and a hard solver failure raises
+# `balancing_convergence_error`, each naming the knob to turn; a reached iteration
+# cap with a usable iterate still warns. The estimating-equation family carries no
+# status and warns when it did not meet its convergence tolerance.
+check_solver_status <- function(fit, method, call = rlang::caller_env()) {
+  if (!is.null(fit$status)) {
+    if (isTRUE(fit$converged)) {
+      return(invisible())
+    }
+    if (identical(fit$status, "primal_infeasible")) {
+      abort(
+        c(
+          "The balancing problem is infeasible.",
+          x = "The solver reported that the constraints cannot be satisfied together.",
+          i = "Raise {.arg tolerance} in {.fn balance_terms}, lower the moments, or drop interactions."
+        ),
+        error_class = "balancing_infeasible_error",
+        call = call
+      )
+    }
+    if (fit$status %in% c("non_convex", "dual_infeasible")) {
+      abort(
+        c(
+          "The solver failed to produce a valid solution.",
+          x = "It terminated with status {.val {fit$status}}.",
+          i = "Check the covariates for collinearity, or raise {.arg weight_penalty} in {.fn {class(method)[1]}}."
+        ),
+        error_class = "balancing_convergence_error",
+        call = call
+      )
+    }
+  }
+  if (!isTRUE(fit$converged)) {
+    warn(
+      c(
+        "The solver did not reach its convergence tolerance.",
+        i = "Increase {.arg max_iterations} or loosen {.arg convergence_tolerance} in {.fn {class(method)[1]}}."
+      ),
+      warning_class = "balancing_convergence_warning",
+      call = call
+    )
+  }
+  invisible()
+}
+
+# The default constraint set for a method with no explicit constraints. The
+# estimating-equation family balances first moments by default, its identifying
+# conditions; the quadratic-program family lets its objective drive balance and
+# adds no moment constraints unless the caller requests them, so its default
+# carries none.
+default_constraints <- function(method) {
+  if (S7::S7_inherits(method, quadratic_program_method)) {
+    balance_terms()
+  } else {
+    balance_terms(moments = 1L)
+  }
 }
 
 # The per-column tolerances carried by a recipe, aligned with the constraint

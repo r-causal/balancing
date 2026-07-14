@@ -5,11 +5,13 @@
 //! work testable in isolation and leaves room for a second frontend against the
 //! same core.
 
+pub mod dist;
 pub mod esteq;
 pub mod glm;
 pub mod linalg;
 pub mod links;
 pub mod methods;
+pub mod qp;
 pub mod threads;
 pub mod weights;
 

@@ -671,6 +671,421 @@ cbps_continuous_fixture <- function(name, data) {
   )
 }
 
+# ---- Energy balancing fixtures --------------------------------------------
+
+# The energy fixtures capture the raw covariates the Rust core builds the
+# distance from, together with the achieved quadratic-program objective of the
+# reference weights. The reference objective is computed here by the same
+# quadratic form the core minimizes, evaluated at the reference weights after
+# renormalizing each group to the solver's group-sum scale, so the harness can
+# assert that our solver attains a value at or below it. The objective
+# replication below is verified against the core during development to reproduce
+# its reported value to machine precision.
+
+# Weighted standard deviation with the reliability denominator, matching the
+# core's scaled-Euclidean transform and reducing to the sample standard deviation
+# for equal weights.
+energy_wsd <- function(x, w) {
+  sw <- sum(w)
+  wn <- w / sw
+  mean <- sum(w * x) / sw
+  second <- sum(w * x * x) / sw - mean * mean
+  denom <- 1 - sum(wn * wn)
+  variance <- if (denom > 0) max(second / denom, 0) else 0
+  if (variance > 0) sqrt(variance) else 1
+}
+
+# Pairwise distance matrix under the named distance definition. Scaled Euclidean
+# divides each covariate by its weighted standard deviation; Euclidean leaves the
+# covariates unchanged.
+energy_distance_matrix <- function(covs, distance, w) {
+  transformed <- covs
+  if (identical(distance, "scaled_euclidean")) {
+    for (j in seq_len(ncol(covs))) {
+      transformed[, j] <- covs[, j] / energy_wsd(covs[, j], w)
+    }
+  }
+  as.matrix(stats::dist(transformed))
+}
+
+# Group-normalize sampling weights so each level has mean one.
+energy_group_normalized <- function(s, levels_idx, n_levels) {
+  out <- s
+  for (g in seq_len(n_levels) - 1L) {
+    idx <- which(levels_idx == g)
+    if (length(idx) > 0) {
+      m <- mean(s[idx])
+      if (m > 0) {
+        out[idx] <- s[idx] / m
+      }
+    }
+  }
+  out
+}
+
+# Double-center a symmetric distance matrix.
+energy_double_center <- function(d) {
+  n <- nrow(d)
+  row_means <- colMeans(d)
+  grand <- mean(row_means)
+  d +
+    grand -
+    outer(row_means, rep(1, n)) -
+    outer(rep(1, n), row_means)
+}
+
+# The quadratic-program objective for a discrete energy solve, evaluated at the
+# active weights. Mirrors the core's assembly: the negated distance matrix scaled
+# by the group-normalization outer product and the estimand's neighbor factor,
+# the weight-penalty ridge, and the cross-energy linear term.
+energy_discrete_objective <- function(
+  covs,
+  levels_idx,
+  s,
+  distance,
+  estimand,
+  improved,
+  focal,
+  lambda,
+  x_active
+) {
+  n <- nrow(covs)
+  n_levels <- max(levels_idx) + 1L
+  dm <- energy_distance_matrix(covs, distance, s)
+  s_norm <- energy_group_normalized(s, levels_idx, n_levels)
+  n_t <- tabulate(levels_idx + 1L, nbins = n_levels)
+  swnt <- s_norm / n_t[levels_idx + 1L]
+
+  if (identical(estimand, "ate")) {
+    active <- which(levels_idx >= 0)
+    src <- s_norm
+    mult <- 2 / n
+  } else {
+    active <- which(levels_idx != focal)
+    nf <- max(n_t[focal + 1L], 1)
+    src <- ifelse(levels_idx == focal, s_norm / nf, 0)
+    mult <- 2
+  }
+
+  neighbor <- function(li, lj) {
+    if (identical(estimand, "ate")) {
+      if (improved) {
+        if (li == lj) n_levels else -1
+      } else if (li == lj) {
+        1
+      } else {
+        0
+      }
+    } else if (li == lj) {
+      1
+    } else {
+      0
+    }
+  }
+
+  nv <- length(active)
+  pmat <- matrix(0, nv, nv)
+  for (a in seq_len(nv)) {
+    ia <- active[a]
+    for (b in seq_len(nv)) {
+      ib <- active[b]
+      factor <- neighbor(levels_idx[ia], levels_idx[ib])
+      if (factor != 0) {
+        pmat[a, b] <- -dm[ia, ib] * swnt[ia] * swnt[ib] * factor
+      }
+    }
+  }
+  diag(pmat) <- diag(pmat) + lambda * swnt[active]^2 / 2
+  cross <- vapply(
+    seq_len(nv),
+    function(a) mult * sum(src * dm[, active[a]]),
+    numeric(1)
+  )
+  q <- cross * swnt[active]
+  as.numeric(t(x_active) %*% pmat %*% x_active + sum(q * x_active))
+}
+
+# The quadratic-program objective for a continuous energy solve, evaluated at the
+# full weight vector. Mirrors the core's distance-covariance kernel plus the
+# marginal energy terms and the dimension adjustment.
+energy_cont_objective <- function(
+  covs,
+  treat,
+  s,
+  distance,
+  dimension_adj,
+  lambda,
+  x
+) {
+  n <- nrow(covs)
+  p <- ncol(covs)
+  xdist <- energy_distance_matrix(covs, distance, s)
+  a_sd <- energy_wsd(treat, s)
+  adist <- as.matrix(stats::dist(matrix(treat / a_sd, ncol = 1)))
+  s_c <- s * n / sum(s)
+  xa <- energy_double_center(xdist)
+  aa <- energy_double_center(adist)
+  q_a <- if (dimension_adj) 1 / (1 + sqrt(p)) else 0.5
+  q_x <- 1 - q_a
+  n2 <- n * n
+  pmat <- (xa * aa / n2 - adist / n2 * q_a - xdist / n2 * q_x) * outer(s_c, s_c)
+  q <- (as.numeric(t(s_c) %*% adist) *
+    2 /
+    n2 *
+    q_a +
+    as.numeric(t(s_c) %*% xdist) * 2 / n2 * q_x) *
+    s_c
+  diag(pmat) <- diag(pmat) + lambda * s_c^2 / 2
+  as.numeric(t(x) %*% pmat %*% x + sum(q * x))
+}
+
+# Renormalize reference weights so each active group meets the solver's group-sum
+# scale, the constraint the quadratic program fixes.
+energy_rescale_groups <- function(w, levels_idx, s, n_levels, active_levels) {
+  n_t <- tabulate(levels_idx + 1L, nbins = n_levels)
+  s_norm <- energy_group_normalized(s, levels_idx, n_levels)
+  swnt <- s_norm / n_t[levels_idx + 1L]
+  out <- w
+  for (g in active_levels) {
+    idx <- which(levels_idx == g)
+    denom <- sum(swnt[idx] * w[idx])
+    if (denom > 0) {
+      out[idx] <- w[idx] / denom
+    }
+  }
+  out
+}
+
+energy_min_weight <- 1e-8
+energy_lambda <- 1e-4
+
+# Build a binary energy fixture. `estimand` is one of the core's `ate`, `att`, or
+# `atc`; `focal` is the coded-one focal level for the focal estimands.
+energy_binary_fixture <- function(
+  name,
+  data,
+  estimand,
+  distance = "scaled_euclidean",
+  improved = TRUE,
+  s = NULL
+) {
+  covs <- as.matrix(data[c("x1", "x2")])
+  n <- nrow(covs)
+  s <- s %||% rep(1, n)
+  treat <- as.integer(data$exposure == 1L)
+
+  reference <- if (identical(estimand, "ate")) {
+    weightit(
+      exposure ~ x1 + x2,
+      data = data,
+      method = "energy",
+      estimand = "ATE",
+      s.weights = s
+    )
+  } else if (identical(estimand, "att")) {
+    weightit(
+      exposure ~ x1 + x2,
+      data = data,
+      method = "energy",
+      estimand = "ATT",
+      focal = "1",
+      s.weights = s
+    )
+  } else {
+    weightit(
+      exposure ~ x1 + x2,
+      data = data,
+      method = "energy",
+      estimand = "ATC",
+      focal = "0",
+      s.weights = s
+    )
+  }
+
+  focal <- switch(estimand, att = 1L, atc = 0L, 0L)
+  active_levels <- if (identical(estimand, "ate")) {
+    c(0L, 1L)
+  } else {
+    setdiff(c(0L, 1L), focal)
+  }
+  rescaled <- energy_rescale_groups(
+    reference$weights,
+    treat,
+    s,
+    2L,
+    active_levels
+  )
+  active <- if (identical(estimand, "ate")) {
+    seq_len(n)
+  } else {
+    which(treat != focal)
+  }
+  expected_obj <- energy_discrete_objective(
+    covs,
+    treat,
+    s,
+    distance,
+    estimand,
+    improved,
+    focal,
+    energy_lambda,
+    rescaled[active]
+  )
+
+  write_fixture(
+    name,
+    list(
+      kind = "energy",
+      n = n,
+      p = ncol(covs),
+      covs = as.numeric(covs),
+      s = as.numeric(s),
+      treat = as.numeric(treat),
+      distance = distance,
+      estimand = estimand,
+      improved = improved,
+      min_w = energy_min_weight,
+      lambda = energy_lambda,
+      expected_obj = expected_obj,
+      rel_tol = 1e-6
+    )
+  )
+}
+
+# Build a categorical energy fixture through the multi-category solver.
+energy_categorical_fixture <- function(
+  name,
+  data,
+  estimand,
+  focal_level = NULL,
+  distance = "scaled_euclidean",
+  improved = TRUE
+) {
+  covs <- as.matrix(data[c("x1", "x2")])
+  n <- nrow(covs)
+  s <- rep(1, n)
+  levels <- levels(data$exposure)
+  levels_idx <- match(as.character(data$exposure), levels) - 1L
+  n_levels <- length(levels)
+
+  reference <- if (identical(estimand, "ate")) {
+    weightit(
+      exposure ~ x1 + x2,
+      data = data,
+      method = "energy",
+      estimand = "ATE"
+    )
+  } else {
+    weightit(
+      exposure ~ x1 + x2,
+      data = data,
+      method = "energy",
+      estimand = "ATT",
+      focal = focal_level
+    )
+  }
+
+  focal <- if (identical(estimand, "ate")) {
+    0L
+  } else {
+    match(focal_level, levels) - 1L
+  }
+  active_levels <- if (identical(estimand, "ate")) {
+    seq_len(n_levels) - 1L
+  } else {
+    setdiff(seq_len(n_levels) - 1L, focal)
+  }
+  rescaled <- energy_rescale_groups(
+    reference$weights,
+    levels_idx,
+    s,
+    n_levels,
+    active_levels
+  )
+  active <- if (identical(estimand, "ate")) {
+    seq_len(n)
+  } else {
+    which(levels_idx != focal)
+  }
+  expected_obj <- energy_discrete_objective(
+    covs,
+    levels_idx,
+    s,
+    distance,
+    estimand,
+    improved,
+    focal,
+    energy_lambda,
+    rescaled[active]
+  )
+
+  write_fixture(
+    name,
+    list(
+      kind = "energy_multi",
+      n = n,
+      p = ncol(covs),
+      covs = as.numeric(covs),
+      s = as.numeric(s),
+      treat = as.numeric(levels_idx),
+      focal = focal,
+      distance = distance,
+      estimand = if (identical(estimand, "ate")) "ate" else "att",
+      improved = improved,
+      min_w = energy_min_weight,
+      lambda = energy_lambda,
+      expected_obj = expected_obj,
+      rel_tol = 1e-6
+    )
+  )
+}
+
+# Build a continuous energy fixture. The harness solves the pure objective with
+# no marginal constraints, so the reference objective is the same objective
+# evaluated at the reference weights.
+energy_continuous_fixture <- function(
+  name,
+  data,
+  dimension_adj = TRUE,
+  distance = "scaled_euclidean"
+) {
+  covs <- as.matrix(data[c("x1", "x2")])
+  n <- nrow(covs)
+  s <- rep(1, n)
+  exposure <- as.numeric(data$exposure)
+
+  reference <- weightit(exposure ~ x1 + x2, data = data, method = "energy")
+  s_c <- s * n / sum(s)
+  rescaled <- reference$weights * n / sum(s_c * reference$weights)
+  expected_obj <- energy_cont_objective(
+    covs,
+    exposure,
+    s,
+    distance,
+    dimension_adj,
+    energy_lambda,
+    rescaled
+  )
+
+  write_fixture(
+    name,
+    list(
+      kind = "energy_cont",
+      n = n,
+      p = ncol(covs),
+      covs = as.numeric(covs),
+      s = as.numeric(s),
+      treat = as.numeric(exposure),
+      distance = distance,
+      dimension_adj = dimension_adj,
+      min_w = energy_min_weight,
+      lambda = energy_lambda,
+      expected_obj = expected_obj,
+      rel_tol = 1e-6
+    )
+  )
+}
+
 for (n in c(500L, 5000L)) {
   binary <- sim_binary(n, seed = 2024)
   categorical <- sim_categorical(n, seed = 2024)
@@ -777,6 +1192,47 @@ for (n in c(500L, 5000L)) {
     focal = "b"
   )
   cbps_continuous_fixture(sprintf("cbps_continuous_ate_n%d", n), continuous)
+
+  # Energy balancing. Binary and categorical over the average treatment effect
+  # and a focal estimand, the continuous exposure, plus an alternate distance and
+  # sampling-weight coverage. The parity criterion is at the objective level:
+  # our solver must attain a value at or below the reference weights' objective.
+  # The energy quadratic program is dense in n, so the fixtures are generated at
+  # the smaller size only; the larger size would make the debug-profile golden
+  # run impractically slow without adding solver coverage.
+  if (n != 500L) {
+    next
+  }
+  energy_binary_fixture(sprintf("energy_binary_ate_n%d", n), binary, "ate")
+  energy_binary_fixture(sprintf("energy_binary_att_n%d", n), binary, "att")
+  energy_binary_fixture(sprintf("energy_binary_atc_n%d", n), binary, "atc")
+  energy_binary_fixture(
+    sprintf("energy_binary_ate_euclidean_n%d", n),
+    binary,
+    "ate",
+    distance = "euclidean"
+  )
+  energy_binary_fixture(
+    sprintf("energy_binary_ate_sweights_n%d", n),
+    binary,
+    "ate",
+    s = sampling_weights
+  )
+  energy_categorical_fixture(
+    sprintf("energy_categorical_ate_n%d", n),
+    categorical,
+    "ate"
+  )
+  energy_categorical_fixture(
+    sprintf("energy_categorical_att_n%d", n),
+    categorical,
+    "att",
+    focal_level = "b"
+  )
+  energy_continuous_fixture(
+    sprintf("energy_continuous_ate_n%d", n),
+    continuous
+  )
 }
 
 message("Golden fixtures written to ", output_dir)

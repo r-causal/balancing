@@ -37,3 +37,7 @@ harness = false
 [[bench]]
 name = "esteq_solvers"
 harness = false
+
+[[bench]]
+name = "qp_backends"
+harness = false

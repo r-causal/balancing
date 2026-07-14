@@ -138,6 +138,55 @@ NULL
   .Call(savvy_solve_cbps_multi__impl, `covs`, `treat_idx`, `focal`, `s_weights`, `estimand`, `link`, `options`)
 }
 
+#' Solve a binary-exposure energy balancing problem.
+#'
+#' `treat` holds the zero/one exposure indicator; `distance` names the covariate
+#' distance definition; `estimand` is one of `ate`, `att`, or `atc`; `improved`
+#' selects the between-group term of the improved average-treatment-effect
+#' variant. `moment_covs` are the standardized moment-constraint columns with
+#' `targets` and `tols`, both empty when no moment constraints are requested.
+#'
+#' Internal solver entry point, called from the R layer rather than by users, so
+#' it is not exported. `@noRd` keeps it out of the reference and out of
+#' NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+#' lines into the generated wrapper.
+#' @noRd
+`solve_energy` <- function(`covs`, `treat`, `s_weights`, `distance`, `estimand`, `improved`, `moment_covs`, `targets`, `tols`, `min_weight`, `weight_penalty`, `options`) {
+  .Call(savvy_solve_energy__impl, `covs`, `treat`, `s_weights`, `distance`, `estimand`, `improved`, `moment_covs`, `targets`, `tols`, `min_weight`, `weight_penalty`, `options`)
+}
+
+#' Solve a continuous-exposure energy balancing problem.
+#'
+#' `treat` holds the continuous exposure. `d_covs` and `d_treat` are the
+#' distribution-moment columns for the covariates and the exposure, centered and
+#' scaled on the R side and held exactly at the unweighted sample value;
+#' `bal_covs` and `bal_tols` are the correlation-constraint covariates and their
+#' tolerances. `dimension_adj` weights the covariate energy distance by the
+#' dimensionality adjustment.
+#'
+#' Internal solver entry point, called from the R layer rather than by users, so
+#' it is not exported. `@noRd` keeps it out of the reference and out of
+#' NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+#' lines into the generated wrapper.
+#' @noRd
+`solve_energy_cont` <- function(`covs`, `treat`, `s_weights`, `distance`, `dimension_adj`, `min_weight`, `weight_penalty`, `d_covs`, `d_treat`, `bal_covs`, `bal_tols`, `options`) {
+  .Call(savvy_solve_energy_cont__impl, `covs`, `treat`, `s_weights`, `distance`, `dimension_adj`, `min_weight`, `weight_penalty`, `d_covs`, `d_treat`, `bal_covs`, `bal_tols`, `options`)
+}
+
+#' Solve a multi-category-exposure energy balancing problem.
+#'
+#' `treat_idx` holds the zero-based level of each unit; `focal` is the focal
+#' level index used by `att` and ignored by `ate`; `estimand` is `ate` or `att`.
+#'
+#' Internal solver entry point, called from the R layer rather than by users, so
+#' it is not exported. `@noRd` keeps it out of the reference and out of
+#' NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+#' lines into the generated wrapper.
+#' @noRd
+`solve_energy_multi` <- function(`covs`, `treat_idx`, `focal`, `s_weights`, `distance`, `estimand`, `improved`, `moment_covs`, `targets`, `tols`, `min_weight`, `weight_penalty`, `options`) {
+  .Call(savvy_solve_energy_multi__impl, `covs`, `treat_idx`, `focal`, `s_weights`, `distance`, `estimand`, `improved`, `moment_covs`, `targets`, `tols`, `min_weight`, `weight_penalty`, `options`)
+}
+
 #' Solve a discrete (binary or categorical) entropy balancing problem.
 #'
 #' Internal solver entry point, called from the R layer rather than by users, so

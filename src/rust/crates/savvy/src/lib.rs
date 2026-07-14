@@ -10,6 +10,9 @@ mod interrupt;
 use balancing_core::methods::cbps::{
     self, CbpsContInputs, CbpsInputs, CbpsMultiInputs, CbpsResult,
 };
+use balancing_core::methods::energy::{
+    EnergyContInputs, EnergyDiscreteInputs, EnergyEstimand, EnergyResult,
+};
 use balancing_core::methods::entropy::{
     EntropyInputs, EntropyResult, scale_estimating_output, solve_continuous, solve_discrete,
 };
@@ -20,8 +23,9 @@ use savvy::{
 };
 
 use convert::{
-    parse_binary_estimand, parse_cbps_estimand, parse_cbps_multi_estimand, parse_entropy_options,
-    parse_ipt_options, parse_link, parse_multi_estimand, real_matrix, real_vector,
+    parse_binary_estimand, parse_cbps_estimand, parse_cbps_multi_estimand, parse_distance,
+    parse_entropy_options, parse_ipt_options, parse_link, parse_multi_estimand, parse_qp_options,
+    real_matrix, real_vector,
 };
 
 /// Report the parallel resources the Rust core observes.
@@ -820,6 +824,298 @@ fn solve_cbps_cont(
     };
     let result = cbps::solve_cont(&inputs, &interrupt::pending);
     cbps_result_list(&result, n)
+}
+
+/// Pack an energy balancing result into its R list.
+///
+/// The list is `weights`, `duals`, `converged`, `iterations`, `objective`,
+/// `solver_status` (the backend identity), `status` (the solver's terminal
+/// status name), `pri_res`, `dua_res`, and the interrupt flag, in that order. The
+/// quadratic-program family has no estimating equations, so none appear.
+fn energy_result_list(result: &EnergyResult) -> savvy::Result<savvy::Sexp> {
+    let mut out = OwnedListSexp::new(10, true)?;
+    out.set_name_and_value(0, "weights", real_vector(&result.weights)?)?;
+    out.set_name_and_value(1, "duals", real_vector(&result.duals)?)?;
+    out.set_name_and_value(2, "converged", scalar_logical(result.converged)?)?;
+    out.set_name_and_value(3, "iterations", scalar_integer(result.iterations)?)?;
+    out.set_name_and_value(4, "objective", scalar_real(result.objective)?)?;
+    out.set_name_and_value(5, "solver_status", scalar_string(result.backend)?)?;
+    out.set_name_and_value(6, "status", scalar_string(result.status)?)?;
+    out.set_name_and_value(7, "pri_res", scalar_real(result.pri_res)?)?;
+    out.set_name_and_value(8, "dua_res", scalar_real(result.dua_res)?)?;
+    out.set_name_and_value(9, "interrupted", scalar_logical(result.interrupted)?)?;
+    Ok(out.into())
+}
+
+/// Validate the shared shape of the energy inputs, returning the covariate column
+/// count `p` and the moment-constraint column count `q`.
+fn energy_dims(
+    n: usize,
+    covs: &RealSexp,
+    s_weights: &RealSexp,
+    moment_covs: &RealSexp,
+    targets: &RealSexp,
+    tols: &RealSexp,
+) -> savvy::Result<(usize, usize)> {
+    if n == 0 || covs.len() % n != 0 {
+        return Err(savvy::Error::new(format!(
+            "covs has {} elements but is not a multiple of n = {n}",
+            covs.len()
+        )));
+    }
+    let p = covs.len() / n;
+    if s_weights.len() != n {
+        return Err(savvy::Error::new("s_weights must have length n"));
+    }
+    let q = targets.len();
+    if tols.len() != q || moment_covs.len() != n * q {
+        return Err(savvy::Error::new(
+            "moment_covs must be n by length(targets), and tols must match targets",
+        ));
+    }
+    Ok((p, q))
+}
+
+/// Solve a binary-exposure energy balancing problem.
+///
+/// `treat` holds the zero/one exposure indicator; `distance` names the covariate
+/// distance definition; `estimand` is one of `ate`, `att`, or `atc`; `improved`
+/// selects the between-group term of the improved average-treatment-effect
+/// variant. `moment_covs` are the standardized moment-constraint columns with
+/// `targets` and `tols`, both empty when no moment constraints are requested.
+///
+/// Internal solver entry point, called from the R layer rather than by users, so
+/// it is not exported. `@noRd` keeps it out of the reference and out of
+/// NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+/// lines into the generated wrapper.
+/// @noRd
+// The argument list is the fixed savvy boundary signature; the balancing inputs
+// are irreducibly numerous.
+#[allow(clippy::too_many_arguments)]
+#[savvy]
+fn solve_energy(
+    covs: RealSexp,
+    treat: IntegerSexp,
+    s_weights: RealSexp,
+    distance: &str,
+    estimand: &str,
+    improved: bool,
+    moment_covs: RealSexp,
+    targets: RealSexp,
+    tols: RealSexp,
+    min_weight: f64,
+    weight_penalty: f64,
+    options: ListSexp,
+) -> savvy::Result<savvy::Sexp> {
+    let n = s_weights.len();
+    let (p, q) = energy_dims(n, &covs, &s_weights, &moment_covs, &targets, &tols)?;
+    if treat.len() != n {
+        return Err(savvy::Error::new("treat must have length n"));
+    }
+    let treat_slice = treat.as_slice();
+    if treat_slice.iter().any(|&t| t != 0 && t != 1) {
+        return Err(savvy::Error::new("treat must hold only zero and one"));
+    }
+    let opts = parse_qp_options(options)?;
+    let dist = parse_distance(distance)?;
+    let energy_estimand = match estimand {
+        "ate" => EnergyEstimand::Ate { improved },
+        "att" => EnergyEstimand::Focal { focal: 1 },
+        "atc" => EnergyEstimand::Focal { focal: 0 },
+        other => {
+            return Err(savvy::Error::new(format!(
+                "unknown estimand `{other}`; expected ate, att, or atc"
+            )));
+        }
+    };
+
+    let inputs = EnergyDiscreteInputs {
+        covs: covs.as_slice(),
+        n,
+        p,
+        distance: dist,
+        levels: treat_slice,
+        n_levels: 2,
+        estimand: energy_estimand,
+        s: s_weights.as_slice(),
+        min_weight,
+        lambda: weight_penalty,
+        moment_covs: moment_covs.as_slice(),
+        n_moments: q,
+        targets: targets.as_slice(),
+        tols: tols.as_slice(),
+        threads: opts.threads,
+        qp: opts.qp,
+    };
+    let result = balancing_core::methods::energy::solve_discrete(&inputs, &interrupt::pending);
+    energy_result_list(&result)
+}
+
+/// Solve a multi-category-exposure energy balancing problem.
+///
+/// `treat_idx` holds the zero-based level of each unit; `focal` is the focal
+/// level index used by `att` and ignored by `ate`; `estimand` is `ate` or `att`.
+///
+/// Internal solver entry point, called from the R layer rather than by users, so
+/// it is not exported. `@noRd` keeps it out of the reference and out of
+/// NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+/// lines into the generated wrapper.
+/// @noRd
+// The argument list is the fixed savvy boundary signature; the balancing inputs
+// are irreducibly numerous.
+#[allow(clippy::too_many_arguments)]
+#[savvy]
+fn solve_energy_multi(
+    covs: RealSexp,
+    treat_idx: IntegerSexp,
+    focal: i32,
+    s_weights: RealSexp,
+    distance: &str,
+    estimand: &str,
+    improved: bool,
+    moment_covs: RealSexp,
+    targets: RealSexp,
+    tols: RealSexp,
+    min_weight: f64,
+    weight_penalty: f64,
+    options: ListSexp,
+) -> savvy::Result<savvy::Sexp> {
+    let n = s_weights.len();
+    let (p, q) = energy_dims(n, &covs, &s_weights, &moment_covs, &targets, &tols)?;
+    if treat_idx.len() != n {
+        return Err(savvy::Error::new("treat_idx must have length n"));
+    }
+    let levels = treat_idx.as_slice();
+    if levels.iter().any(|&t| t < 0) {
+        return Err(savvy::Error::new("treat_idx values must be non-negative"));
+    }
+    let n_levels = levels.iter().copied().max().map_or(0, |m| m + 1) as usize;
+    if focal < 0 || focal as usize >= n_levels {
+        return Err(savvy::Error::new(
+            "focal must be a level present in treat_idx",
+        ));
+    }
+    let opts = parse_qp_options(options)?;
+    let dist = parse_distance(distance)?;
+    let energy_estimand = match estimand {
+        "ate" => EnergyEstimand::Ate { improved },
+        "att" | "atc" => EnergyEstimand::Focal {
+            focal: focal as usize,
+        },
+        other => {
+            return Err(savvy::Error::new(format!(
+                "unknown estimand `{other}`; expected ate or att"
+            )));
+        }
+    };
+
+    let inputs = EnergyDiscreteInputs {
+        covs: covs.as_slice(),
+        n,
+        p,
+        distance: dist,
+        levels,
+        n_levels,
+        estimand: energy_estimand,
+        s: s_weights.as_slice(),
+        min_weight,
+        lambda: weight_penalty,
+        moment_covs: moment_covs.as_slice(),
+        n_moments: q,
+        targets: targets.as_slice(),
+        tols: tols.as_slice(),
+        threads: opts.threads,
+        qp: opts.qp,
+    };
+    let result = balancing_core::methods::energy::solve_discrete(&inputs, &interrupt::pending);
+    energy_result_list(&result)
+}
+
+/// Solve a continuous-exposure energy balancing problem.
+///
+/// `treat` holds the continuous exposure. `d_covs` and `d_treat` are the
+/// distribution-moment columns for the covariates and the exposure, centered and
+/// scaled on the R side and held exactly at the unweighted sample value;
+/// `bal_covs` and `bal_tols` are the correlation-constraint covariates and their
+/// tolerances. `dimension_adj` weights the covariate energy distance by the
+/// dimensionality adjustment.
+///
+/// Internal solver entry point, called from the R layer rather than by users, so
+/// it is not exported. `@noRd` keeps it out of the reference and out of
+/// NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+/// lines into the generated wrapper.
+/// @noRd
+// The argument list is the fixed savvy boundary signature; the balancing inputs
+// are irreducibly numerous.
+#[allow(clippy::too_many_arguments)]
+#[savvy]
+fn solve_energy_cont(
+    covs: RealSexp,
+    treat: RealSexp,
+    s_weights: RealSexp,
+    distance: &str,
+    dimension_adj: bool,
+    min_weight: f64,
+    weight_penalty: f64,
+    d_covs: RealSexp,
+    d_treat: RealSexp,
+    bal_covs: RealSexp,
+    bal_tols: RealSexp,
+    options: ListSexp,
+) -> savvy::Result<savvy::Sexp> {
+    let n = s_weights.len();
+    if n == 0 || covs.len() % n != 0 {
+        return Err(savvy::Error::new(format!(
+            "covs has {} elements but is not a multiple of n = {n}",
+            covs.len()
+        )));
+    }
+    let p = covs.len() / n;
+    if treat.len() != n {
+        return Err(savvy::Error::new("treat must have length n"));
+    }
+    let n_d_covs = if d_covs.is_empty() {
+        0
+    } else {
+        d_covs.len() / n
+    };
+    let n_d_treat = if d_treat.is_empty() {
+        0
+    } else {
+        d_treat.len() / n
+    };
+    let n_bal = bal_tols.len();
+    if d_covs.len() != n * n_d_covs || d_treat.len() != n * n_d_treat || bal_covs.len() != n * n_bal
+    {
+        return Err(savvy::Error::new(
+            "d_covs, d_treat, and bal_covs must each have n rows",
+        ));
+    }
+    let opts = parse_qp_options(options)?;
+    let dist = parse_distance(distance)?;
+
+    let inputs = EnergyContInputs {
+        covs: covs.as_slice(),
+        n,
+        p,
+        treat: treat.as_slice(),
+        distance: dist,
+        s: s_weights.as_slice(),
+        min_weight,
+        lambda: weight_penalty,
+        dimension_adj,
+        d_covs: d_covs.as_slice(),
+        n_d_covs,
+        d_treat: d_treat.as_slice(),
+        n_d_treat,
+        bal_covs: bal_covs.as_slice(),
+        n_bal,
+        bal_tols: bal_tols.as_slice(),
+        threads: opts.threads,
+        qp: opts.qp,
+    };
+    let result = balancing_core::methods::energy::solve_cont(&inputs, &interrupt::pending);
+    energy_result_list(&result)
 }
 
 #[cfg(test)]

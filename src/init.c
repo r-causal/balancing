@@ -69,6 +69,21 @@ SEXP savvy_solve_cbps_multi__impl(SEXP c_arg__covs, SEXP c_arg__treat_idx, SEXP 
     return handle_result(res);
 }
 
+SEXP savvy_solve_energy__impl(SEXP c_arg__covs, SEXP c_arg__treat, SEXP c_arg__s_weights, SEXP c_arg__distance, SEXP c_arg__estimand, SEXP c_arg__improved, SEXP c_arg__moment_covs, SEXP c_arg__targets, SEXP c_arg__tols, SEXP c_arg__min_weight, SEXP c_arg__weight_penalty, SEXP c_arg__options) {
+    SEXP res = savvy_solve_energy__ffi(c_arg__covs, c_arg__treat, c_arg__s_weights, c_arg__distance, c_arg__estimand, c_arg__improved, c_arg__moment_covs, c_arg__targets, c_arg__tols, c_arg__min_weight, c_arg__weight_penalty, c_arg__options);
+    return handle_result(res);
+}
+
+SEXP savvy_solve_energy_cont__impl(SEXP c_arg__covs, SEXP c_arg__treat, SEXP c_arg__s_weights, SEXP c_arg__distance, SEXP c_arg__dimension_adj, SEXP c_arg__min_weight, SEXP c_arg__weight_penalty, SEXP c_arg__d_covs, SEXP c_arg__d_treat, SEXP c_arg__bal_covs, SEXP c_arg__bal_tols, SEXP c_arg__options) {
+    SEXP res = savvy_solve_energy_cont__ffi(c_arg__covs, c_arg__treat, c_arg__s_weights, c_arg__distance, c_arg__dimension_adj, c_arg__min_weight, c_arg__weight_penalty, c_arg__d_covs, c_arg__d_treat, c_arg__bal_covs, c_arg__bal_tols, c_arg__options);
+    return handle_result(res);
+}
+
+SEXP savvy_solve_energy_multi__impl(SEXP c_arg__covs, SEXP c_arg__treat_idx, SEXP c_arg__focal, SEXP c_arg__s_weights, SEXP c_arg__distance, SEXP c_arg__estimand, SEXP c_arg__improved, SEXP c_arg__moment_covs, SEXP c_arg__targets, SEXP c_arg__tols, SEXP c_arg__min_weight, SEXP c_arg__weight_penalty, SEXP c_arg__options) {
+    SEXP res = savvy_solve_energy_multi__ffi(c_arg__covs, c_arg__treat_idx, c_arg__focal, c_arg__s_weights, c_arg__distance, c_arg__estimand, c_arg__improved, c_arg__moment_covs, c_arg__targets, c_arg__tols, c_arg__min_weight, c_arg__weight_penalty, c_arg__options);
+    return handle_result(res);
+}
+
 SEXP savvy_solve_entropy__impl(SEXP c_arg__covs, SEXP c_arg__group_idx, SEXP c_arg__targets, SEXP c_arg__base_weights, SEXP c_arg__s_weights, SEXP c_arg__tols, SEXP c_arg__n_eff, SEXP c_arg__options) {
     SEXP res = savvy_solve_entropy__ffi(c_arg__covs, c_arg__group_idx, c_arg__targets, c_arg__base_weights, c_arg__s_weights, c_arg__tols, c_arg__n_eff, c_arg__options);
     return handle_result(res);
@@ -102,6 +117,9 @@ static const R_CallMethodDef CallEntries[] = {
     {"savvy_solve_cbps__impl", (DL_FUNC) &savvy_solve_cbps__impl, 9},
     {"savvy_solve_cbps_cont__impl", (DL_FUNC) &savvy_solve_cbps_cont__impl, 4},
     {"savvy_solve_cbps_multi__impl", (DL_FUNC) &savvy_solve_cbps_multi__impl, 7},
+    {"savvy_solve_energy__impl", (DL_FUNC) &savvy_solve_energy__impl, 12},
+    {"savvy_solve_energy_cont__impl", (DL_FUNC) &savvy_solve_energy_cont__impl, 12},
+    {"savvy_solve_energy_multi__impl", (DL_FUNC) &savvy_solve_energy_multi__impl, 13},
     {"savvy_solve_entropy__impl", (DL_FUNC) &savvy_solve_entropy__impl, 8},
     {"savvy_solve_entropy_cont__impl", (DL_FUNC) &savvy_solve_entropy_cont__impl, 8},
     {"savvy_solve_ipt__impl", (DL_FUNC) &savvy_solve_ipt__impl, 6},

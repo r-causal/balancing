@@ -29,15 +29,21 @@
 
 use std::path::{Path, PathBuf};
 
+use balancing_core::dist::Distance;
 use balancing_core::links::Link;
 use balancing_core::methods::cbps::{
     CbpsContInputs, CbpsEstimand, CbpsInputs, CbpsMultiInputs, solve as solve_cbps,
     solve_cont as solve_cbps_cont, solve_multi as solve_cbps_multi,
 };
+use balancing_core::methods::energy::{
+    EnergyContInputs, EnergyDiscreteInputs, EnergyEstimand, EnergyResult,
+    solve_cont as solve_energy_cont, solve_discrete as solve_energy_discrete,
+};
 use balancing_core::methods::entropy::{
     EntropyInputs, EntropySolver, solve_continuous, solve_discrete,
 };
 use balancing_core::methods::ipt::{IptEstimand, IptInputs, solve as solve_ipt};
+use balancing_core::qp::QpOptions;
 use serde_json::Value;
 
 fn golden_dir() -> PathBuf {
@@ -249,6 +255,152 @@ fn check_cbps_cont_fixture(path: &Path, f: &Value) {
     compare_weights(path, &result.weights, &expected, rel_tol);
 }
 
+fn distance_from(f: &Value) -> Distance {
+    match f["distance"].as_str().unwrap_or("scaled_euclidean") {
+        "scaled_euclidean" => Distance::ScaledEuclidean,
+        "mahalanobis" => Distance::Mahalanobis,
+        "euclidean" => Distance::Euclidean,
+        other => panic!("unknown fixture distance `{other}`"),
+    }
+}
+
+/// Assert the energy solve succeeded before its objective is compared. A
+/// one-sided objective comparison alone would accept a degenerate zero-weight
+/// failure, whose objective of zero falls below every positive reference, so the
+/// harness first requires a solved status (the backend reports this only when the
+/// primal residual, including the group-sum rows, is within tolerance) and finite
+/// non-negative weights.
+fn assert_energy_solved(path: &Path, result: &EnergyResult) {
+    assert!(
+        result.converged,
+        "{}: solve did not reach a solved status (status {})",
+        path.display(),
+        result.status,
+    );
+    assert!(
+        result.weights.iter().all(|w| w.is_finite() && *w >= 0.0),
+        "{}: solved weights are not all finite and non-negative",
+        path.display(),
+    );
+    assert!(
+        result.weights.iter().sum::<f64>() > 0.0,
+        "{}: solved weights sum to zero",
+        path.display(),
+    );
+}
+
+/// Assert an achieved quadratic-program objective sits at or below the reference
+/// plus a relative tolerance, the parity criterion for the energy family: both
+/// implementations minimize the same energy loss, so ours must not exceed the
+/// reference by more than the tolerance.
+fn compare_objective(path: &Path, ours: f64, reference: f64, rel_tol: f64) {
+    let scale = reference.abs().max(1.0);
+    assert!(
+        ours <= reference + rel_tol * scale,
+        "{}: objective {ours} exceeds reference {reference} + {rel_tol} relative",
+        path.display(),
+    );
+}
+
+/// Solve a binary or multi-category energy balancing fixture and compare the
+/// achieved objective. Schema adds `distance`, `estimand`, `improved`, `min_w`,
+/// `lambda`, `treat` (zero/one for binary, zero-based level for multi), an
+/// optional `focal`, and `expected_obj`; a multi fixture sets `kind` to
+/// `energy_multi`.
+fn check_energy_fixture(path: &Path, f: &Value, multi: bool) {
+    let n = scalar(f, "n") as usize;
+    let p = scalar(f, "p") as usize;
+    let covs = nums(f, "covs");
+    let s = nums(f, "s");
+    let levels: Vec<i32> = nums(f, "treat").iter().map(|t| *t as i32).collect();
+    let min_w = f["min_w"].as_f64().unwrap_or(1e-8);
+    let lambda = f["lambda"].as_f64().unwrap_or(1e-4);
+    let improved = f["improved"].as_bool().unwrap_or(true);
+    let estimand_name = f["estimand"].as_str().unwrap_or("ate");
+
+    let (n_levels, estimand) = if multi {
+        let n_levels = levels.iter().copied().max().map_or(0, |m| m + 1).max(0) as usize;
+        let focal = f["focal"].as_f64().map(|x| x as usize).unwrap_or(0);
+        let estimand = match estimand_name {
+            "ate" => EnergyEstimand::Ate { improved },
+            "att" | "atc" => EnergyEstimand::Focal { focal },
+            other => panic!("unknown energy estimand `{other}`"),
+        };
+        (n_levels, estimand)
+    } else {
+        let estimand = match estimand_name {
+            "ate" => EnergyEstimand::Ate { improved },
+            "att" => EnergyEstimand::Focal { focal: 1 },
+            "atc" => EnergyEstimand::Focal { focal: 0 },
+            other => panic!("unknown energy estimand `{other}`"),
+        };
+        (2usize, estimand)
+    };
+
+    let inputs = EnergyDiscreteInputs {
+        covs: &covs,
+        n,
+        p,
+        distance: distance_from(f),
+        levels: &levels,
+        n_levels,
+        estimand,
+        s: &s,
+        min_weight: min_w,
+        lambda,
+        moment_covs: &[],
+        n_moments: 0,
+        targets: &[],
+        tols: &[],
+        threads: 1,
+        qp: QpOptions::default(),
+    };
+    let result = solve_energy_discrete(&inputs, &|| false);
+    assert_energy_solved(path, &result);
+    let reference = scalar(f, "expected_obj");
+    let rel_tol = f["rel_tol"].as_f64().unwrap_or(1e-6);
+    compare_objective(path, result.objective, reference, rel_tol);
+}
+
+/// Solve a continuous-exposure energy balancing fixture and compare the achieved
+/// objective. Schema carries `treat` as the exposure and `dimension_adj`.
+fn check_energy_cont_fixture(path: &Path, f: &Value) {
+    let n = scalar(f, "n") as usize;
+    let p = scalar(f, "p") as usize;
+    let covs = nums(f, "covs");
+    let treat = nums(f, "treat");
+    let s = nums(f, "s");
+    let min_w = f["min_w"].as_f64().unwrap_or(1e-8);
+    let lambda = f["lambda"].as_f64().unwrap_or(1e-4);
+    let dimension_adj = f["dimension_adj"].as_bool().unwrap_or(true);
+
+    let inputs = EnergyContInputs {
+        covs: &covs,
+        n,
+        p,
+        treat: &treat,
+        distance: distance_from(f),
+        s: &s,
+        min_weight: min_w,
+        lambda,
+        dimension_adj,
+        d_covs: &[],
+        n_d_covs: 0,
+        d_treat: &[],
+        n_d_treat: 0,
+        bal_covs: &[],
+        n_bal: 0,
+        bal_tols: &[],
+        threads: 1,
+        qp: QpOptions::default(),
+    };
+    let result = solve_energy_cont(&inputs, &|| false);
+    assert_energy_solved(path, &result);
+    let reference = scalar(f, "expected_obj");
+    let rel_tol = f["rel_tol"].as_f64().unwrap_or(1e-6);
+    compare_objective(path, result.objective, reference, rel_tol);
+}
+
 fn check_fixture(path: &Path) {
     let text = std::fs::read_to_string(path).expect("read fixture");
     let f: Value = serde_json::from_str(&text).expect("parse fixture JSON");
@@ -256,6 +408,18 @@ fn check_fixture(path: &Path) {
     match f["kind"].as_str() {
         Some("ipt") => {
             check_ipt_fixture(path, &f);
+            return;
+        }
+        Some("energy") => {
+            check_energy_fixture(path, &f, false);
+            return;
+        }
+        Some("energy_multi") => {
+            check_energy_fixture(path, &f, true);
+            return;
+        }
+        Some("energy_cont") => {
+            check_energy_cont_fixture(path, &f);
             return;
         }
         Some("cbps") => {
