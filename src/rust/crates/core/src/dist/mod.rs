@@ -7,6 +7,7 @@
 //! (scaled Euclidean, Mahalanobis, or plain Euclidean), and [`pairwise`] forms
 //! the dense symmetric distance matrix in parallel.
 
+pub mod kernels;
 pub mod pairwise;
 pub mod transform;
 

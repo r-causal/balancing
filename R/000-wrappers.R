@@ -92,6 +92,26 @@ NULL
   .Call(savvy_eval_psi_ipt__impl, `coefs`, `covs`, `treat_idx`, `focal`, `s_weights`, `estimand`, `link`)
 }
 
+#' Build a kernel matrix for the covariates.
+#'
+#' `kernel` names the kernel; `bw_scale` scales the median bandwidth;
+#' `smoothness` is the Matern smoothness; `t_proj` is the column-major `p` by
+#' `n_draws` t-kernel projection matrix, empty for the other kernels; `s_weights`
+#' standardize the covariates; `discarded` marks units excluded from the bandwidth
+#' median, empty to discard none. The result is a column-major `n` by `n` symmetric
+#' matrix. The R layer uses this for the t-kernel projection path and for
+#' diagnostics; the solve entry points build the kernel internally so the `n` by
+#' `n` matrix never crosses the boundary during a fit.
+#'
+#' Internal solver entry point, called from the R layer rather than by users, so
+#' it is not exported. `@noRd` keeps it out of the reference and out of
+#' NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+#' lines into the generated wrapper.
+#' @noRd
+`kernel_matrix` <- function(`covs`, `kernel`, `bw_scale`, `smoothness`, `t_proj`, `s_weights`, `discarded`, `options`) {
+  .Call(savvy_kernel_matrix__impl, `covs`, `kernel`, `bw_scale`, `smoothness`, `t_proj`, `s_weights`, `discarded`, `options`)
+}
+
 #' Solve a binary covariate balancing propensity score problem.
 #'
 #' `covs_mod` is the propensity-model design and `covs_bal` the balance design;
@@ -136,6 +156,41 @@ NULL
 #' @noRd
 `solve_cbps_multi` <- function(`covs`, `treat_idx`, `focal`, `s_weights`, `estimand`, `link`, `options`) {
   .Call(savvy_solve_cbps_multi__impl, `covs`, `treat_idx`, `focal`, `s_weights`, `estimand`, `link`, `options`)
+}
+
+#' Solve a binary-exposure characteristic function distance balancing problem.
+#'
+#' `treat` holds the zero/one exposure indicator; `kernel` names the kernel;
+#' `bw_scale` scales the median bandwidth; `smoothness` is the Matern smoothness;
+#' `t_proj` is the column-major `p` by `n_draws` t-kernel projection matrix, empty
+#' for the other kernels; `improved` selects the between-group term of the improved
+#' average-treatment-effect variant; `estimand` is one of `ate`, `att`, or `atc`.
+#' `moment_covs` are the standardized moment-constraint columns with `targets` and
+#' `tols`, both empty when no moment constraints are requested.
+#'
+#' Internal solver entry point, called from the R layer rather than by users, so
+#' it is not exported. `@noRd` keeps it out of the reference and out of
+#' NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+#' lines into the generated wrapper.
+#' @noRd
+`solve_cfd` <- function(`covs`, `treat`, `s_weights`, `kernel`, `bw_scale`, `smoothness`, `t_proj`, `improved`, `estimand`, `moment_covs`, `targets`, `tols`, `min_weight`, `weight_penalty`, `options`) {
+  .Call(savvy_solve_cfd__impl, `covs`, `treat`, `s_weights`, `kernel`, `bw_scale`, `smoothness`, `t_proj`, `improved`, `estimand`, `moment_covs`, `targets`, `tols`, `min_weight`, `weight_penalty`, `options`)
+}
+
+#' Solve a multi-category-exposure characteristic function distance balancing
+#' problem.
+#'
+#' `treat_idx` holds the zero-based level of each unit; `focal` is the focal level
+#' index used by `att` and ignored by `ate`; `estimand` is `ate` or `att`. The
+#' kernel arguments match [`solve_cfd`].
+#'
+#' Internal solver entry point, called from the R layer rather than by users, so
+#' it is not exported. `@noRd` keeps it out of the reference and out of
+#' NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+#' lines into the generated wrapper.
+#' @noRd
+`solve_cfd_multi` <- function(`covs`, `treat_idx`, `focal`, `s_weights`, `kernel`, `bw_scale`, `smoothness`, `t_proj`, `improved`, `estimand`, `moment_covs`, `targets`, `tols`, `min_weight`, `weight_penalty`, `options`) {
+  .Call(savvy_solve_cfd_multi__impl, `covs`, `treat_idx`, `focal`, `s_weights`, `kernel`, `bw_scale`, `smoothness`, `t_proj`, `improved`, `estimand`, `moment_covs`, `targets`, `tols`, `min_weight`, `weight_penalty`, `options`)
 }
 
 #' Solve a binary-exposure energy balancing problem.

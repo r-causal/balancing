@@ -18,6 +18,7 @@ use std::time::Duration;
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
 
+use balancing_core::dist::kernels::{Kernel, KernelParams, build_kernel};
 use balancing_core::methods::entropy::{EntropySolver, solve_continuous};
 
 mod common;
@@ -114,5 +115,56 @@ fn bench_entropy_solve(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_entropy_solve);
+/// One kernel-matrix size to measure. The kernel build is an `n` by `n`
+/// assembly, so `n` dominates; `p` is held at a representative width.
+struct KernelPoint {
+    n: usize,
+    p: usize,
+}
+
+// The kernel matrix is quadratic in n, so the two sizes bracket the range while
+// keeping a single run modest; the larger point is last so an early stop still
+// yields the smaller one.
+const KERNEL_POINTS: &[KernelPoint] = &[
+    KernelPoint { n: 1_000, p: 10 },
+    KernelPoint { n: 10_000, p: 10 },
+];
+
+fn bench_kernel_matrix(c: &mut Criterion) {
+    let mut group = c.benchmark_group("kernel_matrix");
+    // The n = 10000 build is an order of magnitude larger than n = 1000, so a
+    // small sample keeps the larger point tractable.
+    group.sample_size(10);
+    group.warm_up_time(Duration::from_millis(500));
+    group.measurement_time(Duration::from_secs(5));
+
+    for point in KERNEL_POINTS {
+        let prob = make_problem(point.n, point.p, 0x9A17_5EED);
+        let id = format!("gaussian_n{}_p{}", point.n, point.p);
+        group.bench_with_input(BenchmarkId::from_parameter(&id), &prob, |b, prob| {
+            b.iter(|| {
+                let params = KernelParams {
+                    kernel: Kernel::Gaussian,
+                    bw_scale: 1.0,
+                    smoothness: 1.5,
+                    t_proj: &[],
+                    n_draws: 0,
+                };
+                let k = build_kernel(
+                    black_box(&prob.covs),
+                    prob.n,
+                    prob.p,
+                    &prob.s,
+                    &params,
+                    &[],
+                    1,
+                );
+                black_box(k.len())
+            });
+        });
+    }
+    group.finish();
+}
+
+criterion_group!(benches, bench_entropy_solve, bench_kernel_matrix);
 criterion_main!(benches);

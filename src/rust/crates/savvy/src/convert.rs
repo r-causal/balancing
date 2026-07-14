@@ -5,6 +5,7 @@
 //! an unrecognized option name is a contract violation and becomes an error.
 
 use balancing_core::dist::Distance;
+use balancing_core::dist::kernels::Kernel;
 use balancing_core::links::Link;
 use balancing_core::methods::cbps::CbpsEstimand;
 use balancing_core::methods::entropy::EntropySolver;
@@ -279,6 +280,99 @@ pub fn parse_sbw_norm(norm: &str) -> savvy::Result<SbwNorm> {
             "unknown norm `{other}`; expected l2, l1, or linf"
         ))),
     }
+}
+
+/// Parse the option list for a characteristic function distance solve, rejecting
+/// unknown names.
+///
+/// The tuning matches the other quadratic-program methods, and the kernels are
+/// positive semidefinite by construction (except the energy kernel), so the full
+/// backend set applies: `backend` is one of `auto`, `osqp`, or `clarabel`, `auto`
+/// (the default) solving with osqp first and re-solving with clarabel on an osqp
+/// primal-infeasibility certificate. Any other value is an error rather than a
+/// silent override.
+pub fn parse_cfd_options(options: ListSexp) -> savvy::Result<EnergyOptions> {
+    const ALLOWED: [&str; 5] = [
+        "threads",
+        "convergence_tolerance",
+        "max_iterations",
+        "polish",
+        "backend",
+    ];
+
+    for name in options.names_iter() {
+        if !ALLOWED.contains(&name) {
+            return Err(savvy::Error::new(format!(
+                "unknown option `{name}`; allowed options are {}",
+                ALLOWED.join(", ")
+            )));
+        }
+    }
+
+    let mut qp = QpOptions::default();
+    let mut threads = balancing_core::available_threads().0;
+
+    if let Some(value) = options.get("threads") {
+        threads = option_usize(value, "threads")?.max(1);
+    }
+    if let Some(value) = options.get("convergence_tolerance") {
+        let tol = option_f64(value, "convergence_tolerance")?;
+        qp.eps_abs = tol;
+        qp.eps_rel = tol;
+    }
+    if let Some(value) = options.get("max_iterations") {
+        qp.max_iter = option_usize(value, "max_iterations")?.max(1);
+    }
+    if let Some(value) = options.get("polish") {
+        qp.polish = bool::try_from(value)
+            .map_err(|_| savvy::Error::new("option `polish` must be a logical scalar"))?;
+    }
+    if let Some(value) = options.get("backend") {
+        let name = <&str>::try_from(value)
+            .map_err(|_| savvy::Error::new("option `backend` must be a string"))?;
+        qp.backend = match name {
+            "auto" => QpBackendChoice::Auto,
+            "osqp" => QpBackendChoice::Osqp,
+            "clarabel" => QpBackendChoice::Clarabel,
+            other => {
+                return Err(savvy::Error::new(format!(
+                    "unknown backend `{other}`; expected auto, osqp, or clarabel"
+                )));
+            }
+        };
+    }
+
+    Ok(EnergyOptions { threads, qp })
+}
+
+/// Parse the option list for a standalone kernel-matrix build, rejecting unknown
+/// names. The only tuning is the worker-thread count.
+pub fn parse_kernel_options(options: ListSexp) -> savvy::Result<usize> {
+    const ALLOWED: [&str; 1] = ["threads"];
+
+    for name in options.names_iter() {
+        if !ALLOWED.contains(&name) {
+            return Err(savvy::Error::new(format!(
+                "unknown option `{name}`; allowed options are {}",
+                ALLOWED.join(", ")
+            )));
+        }
+    }
+
+    let mut threads = balancing_core::available_threads().0;
+    if let Some(value) = options.get("threads") {
+        threads = option_usize(value, "threads")?.max(1);
+    }
+    Ok(threads)
+}
+
+/// Resolve the kernel named by the R layer.
+pub fn parse_kernel(kernel: &str) -> savvy::Result<Kernel> {
+    Kernel::from_name(kernel).ok_or_else(|| {
+        savvy::Error::new(format!(
+            "unknown kernel `{kernel}`; expected energy, gaussian, laplace, matern, or t"
+        ))
+    })
 }
 
 /// Resolve the distance definition named by the R layer.

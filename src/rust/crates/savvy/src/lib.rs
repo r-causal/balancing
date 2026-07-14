@@ -7,9 +7,11 @@
 mod convert;
 mod interrupt;
 
+use balancing_core::dist::kernels::{Kernel, KernelParams, build_kernel};
 use balancing_core::methods::cbps::{
     self, CbpsContInputs, CbpsInputs, CbpsMultiInputs, CbpsResult,
 };
+use balancing_core::methods::cfd::{self, CfdDiscreteInputs, CfdEstimand, CfdResult};
 use balancing_core::methods::energy::{
     EnergyContInputs, EnergyDiscreteInputs, EnergyEstimand, EnergyResult,
 };
@@ -21,14 +23,15 @@ use balancing_core::methods::sbw::{
     self, SbwContInputs, SbwDiscreteInputs, SbwEstimand, SbwResult,
 };
 use savvy::{
-    IntegerSexp, ListSexp, NullSexp, OwnedIntegerSexp, OwnedListSexp, OwnedLogicalSexp,
-    OwnedRealSexp, OwnedStringSexp, RealSexp, savvy,
+    IntegerSexp, ListSexp, LogicalSexp, NullSexp, OwnedIntegerSexp, OwnedListSexp,
+    OwnedLogicalSexp, OwnedRealSexp, OwnedStringSexp, RealSexp, savvy,
 };
 
 use convert::{
-    parse_binary_estimand, parse_cbps_estimand, parse_cbps_multi_estimand, parse_distance,
-    parse_entropy_options, parse_ipt_options, parse_link, parse_multi_estimand, parse_qp_options,
-    parse_sbw_norm, parse_sbw_options, real_matrix, real_vector,
+    parse_binary_estimand, parse_cbps_estimand, parse_cbps_multi_estimand, parse_cfd_options,
+    parse_distance, parse_entropy_options, parse_ipt_options, parse_kernel, parse_kernel_options,
+    parse_link, parse_multi_estimand, parse_qp_options, parse_sbw_norm, parse_sbw_options,
+    real_matrix, real_vector,
 };
 
 /// Report the parallel resources the Rust core observes.
@@ -1352,6 +1355,302 @@ fn solve_sbw_cont(
     };
     let result = sbw::solve_cont(&inputs, &interrupt::pending).map_err(savvy::Error::new)?;
     sbw_result_list(&result)
+}
+
+/// Pack a characteristic function distance result into its R list.
+///
+/// The list is `weights`, `duals`, `converged`, `iterations`, `objective`,
+/// `solver_status` (the backend identity), `status` (the solver's terminal
+/// status name), `pri_res`, `dua_res`, the interrupt flag, and the fallback flag,
+/// in that order. The quadratic-program family has no estimating equations, so
+/// none appear.
+fn cfd_result_list(result: &CfdResult) -> savvy::Result<savvy::Sexp> {
+    let mut out = OwnedListSexp::new(11, true)?;
+    out.set_name_and_value(0, "weights", real_vector(&result.weights)?)?;
+    out.set_name_and_value(1, "duals", real_vector(&result.duals)?)?;
+    out.set_name_and_value(2, "converged", scalar_logical(result.converged)?)?;
+    out.set_name_and_value(3, "iterations", scalar_integer(result.iterations)?)?;
+    out.set_name_and_value(4, "objective", scalar_real(result.objective)?)?;
+    out.set_name_and_value(5, "solver_status", scalar_string(result.backend)?)?;
+    out.set_name_and_value(6, "status", scalar_string(result.status)?)?;
+    out.set_name_and_value(7, "pri_res", scalar_real(result.pri_res)?)?;
+    out.set_name_and_value(8, "dua_res", scalar_real(result.dua_res)?)?;
+    out.set_name_and_value(9, "interrupted", scalar_logical(result.interrupted)?)?;
+    out.set_name_and_value(10, "fell_back", scalar_logical(result.fell_back)?)?;
+    Ok(out.into())
+}
+
+/// Resolve the Monte Carlo draw count for a kernel and validate the projection
+/// matrix. The projections carry only for the t kernel, where they are a column-
+/// major `p` by `n_draws` matrix drawn on the R side; the other kernels take an
+/// empty matrix and no draws.
+fn kernel_draw_count(kernel: Kernel, t_proj: &RealSexp, p: usize) -> savvy::Result<usize> {
+    if kernel != Kernel::T {
+        return Ok(0);
+    }
+    if p == 0 {
+        return Err(savvy::Error::new(
+            "the t kernel requires at least one covariate column",
+        ));
+    }
+    if t_proj.len() % p != 0 {
+        return Err(savvy::Error::new(
+            "t_proj must be a matrix with one row per covariate column",
+        ));
+    }
+    let n_draws = t_proj.len() / p;
+    if n_draws == 0 {
+        return Err(savvy::Error::new(
+            "the t kernel requires at least one Monte Carlo draw",
+        ));
+    }
+    Ok(n_draws)
+}
+
+/// Solve a binary-exposure characteristic function distance balancing problem.
+///
+/// `treat` holds the zero/one exposure indicator; `kernel` names the kernel;
+/// `bw_scale` scales the median bandwidth; `smoothness` is the Matern smoothness;
+/// `t_proj` is the column-major `p` by `n_draws` t-kernel projection matrix, empty
+/// for the other kernels; `improved` selects the between-group term of the improved
+/// average-treatment-effect variant; `estimand` is one of `ate`, `att`, or `atc`.
+/// `moment_covs` are the standardized moment-constraint columns with `targets` and
+/// `tols`, both empty when no moment constraints are requested.
+///
+/// Internal solver entry point, called from the R layer rather than by users, so
+/// it is not exported. `@noRd` keeps it out of the reference and out of
+/// NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+/// lines into the generated wrapper.
+/// @noRd
+// The argument list is the fixed savvy boundary signature; the balancing inputs
+// are irreducibly numerous.
+#[allow(clippy::too_many_arguments)]
+#[savvy]
+fn solve_cfd(
+    covs: RealSexp,
+    treat: IntegerSexp,
+    s_weights: RealSexp,
+    kernel: &str,
+    bw_scale: f64,
+    smoothness: f64,
+    t_proj: RealSexp,
+    improved: bool,
+    estimand: &str,
+    moment_covs: RealSexp,
+    targets: RealSexp,
+    tols: RealSexp,
+    min_weight: f64,
+    weight_penalty: f64,
+    options: ListSexp,
+) -> savvy::Result<savvy::Sexp> {
+    let n = s_weights.len();
+    let (p, q) = energy_dims(n, &covs, &s_weights, &moment_covs, &targets, &tols)?;
+    if treat.len() != n {
+        return Err(savvy::Error::new("treat must have length n"));
+    }
+    let treat_slice = treat.as_slice();
+    if treat_slice.iter().any(|&t| t != 0 && t != 1) {
+        return Err(savvy::Error::new("treat must hold only zero and one"));
+    }
+    let opts = parse_cfd_options(options)?;
+    let kernel = parse_kernel(kernel)?;
+    let n_draws = kernel_draw_count(kernel, &t_proj, p)?;
+    let cfd_estimand = match estimand {
+        "ate" => CfdEstimand::Ate { improved },
+        "att" => CfdEstimand::Focal { focal: 1 },
+        "atc" => CfdEstimand::Focal { focal: 0 },
+        other => {
+            return Err(savvy::Error::new(format!(
+                "unknown estimand `{other}`; expected ate, att, or atc"
+            )));
+        }
+    };
+
+    let inputs = CfdDiscreteInputs {
+        covs: covs.as_slice(),
+        n,
+        p,
+        kernel: KernelParams {
+            kernel,
+            bw_scale,
+            smoothness,
+            t_proj: t_proj.as_slice(),
+            n_draws,
+        },
+        levels: treat_slice,
+        n_levels: 2,
+        estimand: cfd_estimand,
+        s: s_weights.as_slice(),
+        min_weight,
+        lambda: weight_penalty,
+        moment_covs: moment_covs.as_slice(),
+        n_moments: q,
+        targets: targets.as_slice(),
+        tols: tols.as_slice(),
+        threads: opts.threads,
+        qp: opts.qp,
+    };
+    let result = cfd::solve_discrete(&inputs, &interrupt::pending).map_err(savvy::Error::new)?;
+    cfd_result_list(&result)
+}
+
+/// Solve a multi-category-exposure characteristic function distance balancing
+/// problem.
+///
+/// `treat_idx` holds the zero-based level of each unit; `focal` is the focal level
+/// index used by `att` and ignored by `ate`; `estimand` is `ate` or `att`. The
+/// kernel arguments match [`solve_cfd`].
+///
+/// Internal solver entry point, called from the R layer rather than by users, so
+/// it is not exported. `@noRd` keeps it out of the reference and out of
+/// NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+/// lines into the generated wrapper.
+/// @noRd
+// The argument list is the fixed savvy boundary signature; the balancing inputs
+// are irreducibly numerous.
+#[allow(clippy::too_many_arguments)]
+#[savvy]
+fn solve_cfd_multi(
+    covs: RealSexp,
+    treat_idx: IntegerSexp,
+    focal: i32,
+    s_weights: RealSexp,
+    kernel: &str,
+    bw_scale: f64,
+    smoothness: f64,
+    t_proj: RealSexp,
+    improved: bool,
+    estimand: &str,
+    moment_covs: RealSexp,
+    targets: RealSexp,
+    tols: RealSexp,
+    min_weight: f64,
+    weight_penalty: f64,
+    options: ListSexp,
+) -> savvy::Result<savvy::Sexp> {
+    let n = s_weights.len();
+    let (p, q) = energy_dims(n, &covs, &s_weights, &moment_covs, &targets, &tols)?;
+    if treat_idx.len() != n {
+        return Err(savvy::Error::new("treat_idx must have length n"));
+    }
+    let levels = treat_idx.as_slice();
+    if levels.iter().any(|&t| t < 0) {
+        return Err(savvy::Error::new("treat_idx values must be non-negative"));
+    }
+    let n_levels = levels.iter().copied().max().map_or(0, |m| m + 1) as usize;
+    if focal < 0 || focal as usize >= n_levels {
+        return Err(savvy::Error::new(
+            "focal must be a level present in treat_idx",
+        ));
+    }
+    let opts = parse_cfd_options(options)?;
+    let kernel = parse_kernel(kernel)?;
+    let n_draws = kernel_draw_count(kernel, &t_proj, p)?;
+    let cfd_estimand = match estimand {
+        "ate" => CfdEstimand::Ate { improved },
+        "att" | "atc" => CfdEstimand::Focal {
+            focal: focal as usize,
+        },
+        other => {
+            return Err(savvy::Error::new(format!(
+                "unknown estimand `{other}`; expected ate or att"
+            )));
+        }
+    };
+
+    let inputs = CfdDiscreteInputs {
+        covs: covs.as_slice(),
+        n,
+        p,
+        kernel: KernelParams {
+            kernel,
+            bw_scale,
+            smoothness,
+            t_proj: t_proj.as_slice(),
+            n_draws,
+        },
+        levels,
+        n_levels,
+        estimand: cfd_estimand,
+        s: s_weights.as_slice(),
+        min_weight,
+        lambda: weight_penalty,
+        moment_covs: moment_covs.as_slice(),
+        n_moments: q,
+        targets: targets.as_slice(),
+        tols: tols.as_slice(),
+        threads: opts.threads,
+        qp: opts.qp,
+    };
+    let result = cfd::solve_discrete(&inputs, &interrupt::pending).map_err(savvy::Error::new)?;
+    cfd_result_list(&result)
+}
+
+/// Build a kernel matrix for the covariates.
+///
+/// `kernel` names the kernel; `bw_scale` scales the median bandwidth;
+/// `smoothness` is the Matern smoothness; `t_proj` is the column-major `p` by
+/// `n_draws` t-kernel projection matrix, empty for the other kernels; `s_weights`
+/// standardize the covariates; `discarded` marks units excluded from the bandwidth
+/// median, empty to discard none. The result is a column-major `n` by `n` symmetric
+/// matrix. The R layer uses this for the t-kernel projection path and for
+/// diagnostics; the solve entry points build the kernel internally so the `n` by
+/// `n` matrix never crosses the boundary during a fit.
+///
+/// Internal solver entry point, called from the R layer rather than by users, so
+/// it is not exported. `@noRd` keeps it out of the reference and out of
+/// NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+/// lines into the generated wrapper.
+/// @noRd
+// The argument list is the fixed savvy boundary signature; the balancing inputs
+// are irreducibly numerous.
+#[allow(clippy::too_many_arguments)]
+#[savvy]
+fn kernel_matrix(
+    covs: RealSexp,
+    kernel: &str,
+    bw_scale: f64,
+    smoothness: f64,
+    t_proj: RealSexp,
+    s_weights: RealSexp,
+    discarded: LogicalSexp,
+    options: ListSexp,
+) -> savvy::Result<savvy::Sexp> {
+    let n = s_weights.len();
+    if n == 0 || covs.len() % n != 0 {
+        return Err(savvy::Error::new(format!(
+            "covs has {} elements but is not a multiple of n = {n}",
+            covs.len()
+        )));
+    }
+    let p = covs.len() / n;
+    if !discarded.is_empty() && discarded.len() != n {
+        return Err(savvy::Error::new(
+            "discarded must be empty or have length n",
+        ));
+    }
+    let threads = parse_kernel_options(options)?;
+    let kernel = parse_kernel(kernel)?;
+    let n_draws = kernel_draw_count(kernel, &t_proj, p)?;
+    let discarded_mask: Vec<bool> = discarded.iter().collect();
+
+    let params = KernelParams {
+        kernel,
+        bw_scale,
+        smoothness,
+        t_proj: t_proj.as_slice(),
+        n_draws,
+    };
+    let matrix = build_kernel(
+        covs.as_slice(),
+        n,
+        p,
+        s_weights.as_slice(),
+        &params,
+        &discarded_mask,
+        threads,
+    );
+    Ok(real_matrix(&matrix, n, n)?.into())
 }
 
 #[cfg(test)]
