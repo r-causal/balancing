@@ -237,6 +237,51 @@ NULL
   .Call(savvy_solve_ipt_multi__impl, `covs`, `treat_idx`, `focal`, `s_weights`, `estimand`, `link`, `options`)
 }
 
+#' Solve a binary-exposure stable balancing problem.
+#'
+#' `treat` holds the zero/one exposure indicator; `estimand` is one of `ate`,
+#' `att`, or `atc`; `norm` names the dispersion norm to minimize. `moment_covs`
+#' are the standardized balance columns with their `targets` and `tols`, all
+#' empty when no balance constraints are requested.
+#'
+#' Internal solver entry point, called from the R layer rather than by users, so
+#' it is not exported. `@noRd` keeps it out of the reference and out of
+#' NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+#' lines into the generated wrapper.
+#' @noRd
+`solve_sbw` <- function(`treat`, `s_weights`, `estimand`, `norm`, `moment_covs`, `targets`, `tols`, `min_weight`, `options`) {
+  .Call(savvy_solve_sbw__impl, `treat`, `s_weights`, `estimand`, `norm`, `moment_covs`, `targets`, `tols`, `min_weight`, `options`)
+}
+
+#' Solve a continuous-exposure stable balancing problem.
+#'
+#' `treat` holds the continuous exposure; `covs` are the standardized covariate
+#' columns held in weighted correlation with the exposure within `tols`; `norm`
+#' names the dispersion norm to minimize.
+#'
+#' Internal solver entry point, called from the R layer rather than by users, so
+#' it is not exported. `@noRd` keeps it out of the reference and out of
+#' NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+#' lines into the generated wrapper.
+#' @noRd
+`solve_sbw_cont` <- function(`treat`, `covs`, `s_weights`, `norm`, `tols`, `min_weight`, `options`) {
+  .Call(savvy_solve_sbw_cont__impl, `treat`, `covs`, `s_weights`, `norm`, `tols`, `min_weight`, `options`)
+}
+
+#' Solve a multi-category-exposure stable balancing problem.
+#'
+#' `treat_idx` holds the zero-based level of each unit; `focal` is the focal
+#' level index used by `att` and ignored by `ate`; `estimand` is `ate` or `att`.
+#'
+#' Internal solver entry point, called from the R layer rather than by users, so
+#' it is not exported. `@noRd` keeps it out of the reference and out of
+#' NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+#' lines into the generated wrapper.
+#' @noRd
+`solve_sbw_multi` <- function(`treat_idx`, `focal`, `s_weights`, `estimand`, `norm`, `moment_covs`, `targets`, `tols`, `min_weight`, `options`) {
+  .Call(savvy_solve_sbw_multi__impl, `treat_idx`, `focal`, `s_weights`, `estimand`, `norm`, `moment_covs`, `targets`, `tols`, `min_weight`, `options`)
+}
+
 #' Report the parallel resources the Rust core observes.
 #'
 #' A list with two elements: `available`, the integer thread count, and

@@ -17,6 +17,9 @@ use balancing_core::methods::entropy::{
     EntropyInputs, EntropyResult, scale_estimating_output, solve_continuous, solve_discrete,
 };
 use balancing_core::methods::ipt::{self, IptEstimand, IptInputs, IptResult};
+use balancing_core::methods::sbw::{
+    self, SbwContInputs, SbwDiscreteInputs, SbwEstimand, SbwResult,
+};
 use savvy::{
     IntegerSexp, ListSexp, NullSexp, OwnedIntegerSexp, OwnedListSexp, OwnedLogicalSexp,
     OwnedRealSexp, OwnedStringSexp, RealSexp, savvy,
@@ -25,7 +28,7 @@ use savvy::{
 use convert::{
     parse_binary_estimand, parse_cbps_estimand, parse_cbps_multi_estimand, parse_distance,
     parse_entropy_options, parse_ipt_options, parse_link, parse_multi_estimand, parse_qp_options,
-    real_matrix, real_vector,
+    parse_sbw_norm, parse_sbw_options, real_matrix, real_vector,
 };
 
 /// Report the parallel resources the Rust core observes.
@@ -1116,6 +1119,239 @@ fn solve_energy_cont(
     };
     let result = balancing_core::methods::energy::solve_cont(&inputs, &interrupt::pending);
     energy_result_list(&result)
+}
+
+/// Pack a stable balancing result into its R list.
+///
+/// The list is `weights`, `duals`, `converged`, `iterations`, `objective`,
+/// `solver_status` (the backend identity), `status` (the solver's terminal
+/// status name), `pri_res`, `dua_res`, and the interrupt flag, in that order. The
+/// quadratic-program family has no estimating equations, so none appear.
+fn sbw_result_list(result: &SbwResult) -> savvy::Result<savvy::Sexp> {
+    let mut out = OwnedListSexp::new(11, true)?;
+    out.set_name_and_value(0, "weights", real_vector(&result.weights)?)?;
+    out.set_name_and_value(1, "duals", real_vector(&result.duals)?)?;
+    out.set_name_and_value(2, "converged", scalar_logical(result.converged)?)?;
+    out.set_name_and_value(3, "iterations", scalar_integer(result.iterations)?)?;
+    out.set_name_and_value(4, "objective", scalar_real(result.objective)?)?;
+    out.set_name_and_value(5, "solver_status", scalar_string(result.backend)?)?;
+    out.set_name_and_value(6, "status", scalar_string(result.status)?)?;
+    out.set_name_and_value(7, "pri_res", scalar_real(result.pri_res)?)?;
+    out.set_name_and_value(8, "dua_res", scalar_real(result.dua_res)?)?;
+    out.set_name_and_value(9, "interrupted", scalar_logical(result.interrupted)?)?;
+    out.set_name_and_value(10, "fell_back", scalar_logical(result.fell_back)?)?;
+    Ok(out.into())
+}
+
+/// Validate the shared shape of the discrete stable balancing moment inputs,
+/// returning the moment-constraint column count `q`.
+fn sbw_moment_dims(
+    n: usize,
+    s_weights: &RealSexp,
+    moment_covs: &RealSexp,
+    targets: &RealSexp,
+    tols: &RealSexp,
+) -> savvy::Result<usize> {
+    if s_weights.len() != n {
+        return Err(savvy::Error::new("s_weights must have length n"));
+    }
+    let q = targets.len();
+    if tols.len() != q || moment_covs.len() != n * q {
+        return Err(savvy::Error::new(
+            "moment_covs must be n by length(targets), and tols must match targets",
+        ));
+    }
+    Ok(q)
+}
+
+/// Solve a binary-exposure stable balancing problem.
+///
+/// `treat` holds the zero/one exposure indicator; `estimand` is one of `ate`,
+/// `att`, or `atc`; `norm` names the dispersion norm to minimize. `moment_covs`
+/// are the standardized balance columns with their `targets` and `tols`, all
+/// empty when no balance constraints are requested.
+///
+/// Internal solver entry point, called from the R layer rather than by users, so
+/// it is not exported. `@noRd` keeps it out of the reference and out of
+/// NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+/// lines into the generated wrapper.
+/// @noRd
+// The argument list is the fixed savvy boundary signature; the balancing inputs
+// are irreducibly numerous.
+#[allow(clippy::too_many_arguments)]
+#[savvy]
+fn solve_sbw(
+    treat: IntegerSexp,
+    s_weights: RealSexp,
+    estimand: &str,
+    norm: &str,
+    moment_covs: RealSexp,
+    targets: RealSexp,
+    tols: RealSexp,
+    min_weight: f64,
+    options: ListSexp,
+) -> savvy::Result<savvy::Sexp> {
+    let n = s_weights.len();
+    let q = sbw_moment_dims(n, &s_weights, &moment_covs, &targets, &tols)?;
+    if treat.len() != n {
+        return Err(savvy::Error::new("treat must have length n"));
+    }
+    let treat_slice = treat.as_slice();
+    if treat_slice.iter().any(|&t| t != 0 && t != 1) {
+        return Err(savvy::Error::new("treat must hold only zero and one"));
+    }
+    let qp = parse_sbw_options(options)?;
+    let norm = parse_sbw_norm(norm)?;
+    let sbw_estimand = match estimand {
+        "ate" => SbwEstimand::Ate,
+        "att" => SbwEstimand::Focal { focal: 1 },
+        "atc" => SbwEstimand::Focal { focal: 0 },
+        other => {
+            return Err(savvy::Error::new(format!(
+                "unknown estimand `{other}`; expected ate, att, or atc"
+            )));
+        }
+    };
+
+    let inputs = SbwDiscreteInputs {
+        n,
+        levels: treat_slice,
+        n_levels: 2,
+        estimand: sbw_estimand,
+        s: s_weights.as_slice(),
+        min_weight,
+        norm,
+        moment_covs: moment_covs.as_slice(),
+        n_moments: q,
+        targets: targets.as_slice(),
+        tols: tols.as_slice(),
+        qp,
+    };
+    let result = sbw::solve_discrete(&inputs, &interrupt::pending).map_err(savvy::Error::new)?;
+    sbw_result_list(&result)
+}
+
+/// Solve a multi-category-exposure stable balancing problem.
+///
+/// `treat_idx` holds the zero-based level of each unit; `focal` is the focal
+/// level index used by `att` and ignored by `ate`; `estimand` is `ate` or `att`.
+///
+/// Internal solver entry point, called from the R layer rather than by users, so
+/// it is not exported. `@noRd` keeps it out of the reference and out of
+/// NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+/// lines into the generated wrapper.
+/// @noRd
+// The argument list is the fixed savvy boundary signature; the balancing inputs
+// are irreducibly numerous.
+#[allow(clippy::too_many_arguments)]
+#[savvy]
+fn solve_sbw_multi(
+    treat_idx: IntegerSexp,
+    focal: i32,
+    s_weights: RealSexp,
+    estimand: &str,
+    norm: &str,
+    moment_covs: RealSexp,
+    targets: RealSexp,
+    tols: RealSexp,
+    min_weight: f64,
+    options: ListSexp,
+) -> savvy::Result<savvy::Sexp> {
+    let n = s_weights.len();
+    let q = sbw_moment_dims(n, &s_weights, &moment_covs, &targets, &tols)?;
+    if treat_idx.len() != n {
+        return Err(savvy::Error::new("treat_idx must have length n"));
+    }
+    let levels = treat_idx.as_slice();
+    if levels.iter().any(|&t| t < 0) {
+        return Err(savvy::Error::new("treat_idx values must be non-negative"));
+    }
+    let n_levels = levels.iter().copied().max().map_or(0, |m| m + 1) as usize;
+    if focal < 0 || focal as usize >= n_levels {
+        return Err(savvy::Error::new(
+            "focal must be a level present in treat_idx",
+        ));
+    }
+    let qp = parse_sbw_options(options)?;
+    let norm = parse_sbw_norm(norm)?;
+    let sbw_estimand = match estimand {
+        "ate" => SbwEstimand::Ate,
+        "att" | "atc" => SbwEstimand::Focal {
+            focal: focal as usize,
+        },
+        other => {
+            return Err(savvy::Error::new(format!(
+                "unknown estimand `{other}`; expected ate or att"
+            )));
+        }
+    };
+
+    let inputs = SbwDiscreteInputs {
+        n,
+        levels,
+        n_levels,
+        estimand: sbw_estimand,
+        s: s_weights.as_slice(),
+        min_weight,
+        norm,
+        moment_covs: moment_covs.as_slice(),
+        n_moments: q,
+        targets: targets.as_slice(),
+        tols: tols.as_slice(),
+        qp,
+    };
+    let result = sbw::solve_discrete(&inputs, &interrupt::pending).map_err(savvy::Error::new)?;
+    sbw_result_list(&result)
+}
+
+/// Solve a continuous-exposure stable balancing problem.
+///
+/// `treat` holds the continuous exposure; `covs` are the standardized covariate
+/// columns held in weighted correlation with the exposure within `tols`; `norm`
+/// names the dispersion norm to minimize.
+///
+/// Internal solver entry point, called from the R layer rather than by users, so
+/// it is not exported. `@noRd` keeps it out of the reference and out of
+/// NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+/// lines into the generated wrapper.
+/// @noRd
+// The argument list is the fixed savvy boundary signature; the balancing inputs
+// are irreducibly numerous.
+#[allow(clippy::too_many_arguments)]
+#[savvy]
+fn solve_sbw_cont(
+    treat: RealSexp,
+    covs: RealSexp,
+    s_weights: RealSexp,
+    norm: &str,
+    tols: RealSexp,
+    min_weight: f64,
+    options: ListSexp,
+) -> savvy::Result<savvy::Sexp> {
+    let n = s_weights.len();
+    if treat.len() != n {
+        return Err(savvy::Error::new("treat must have length n"));
+    }
+    let n_covs = tols.len();
+    if covs.len() != n * n_covs {
+        return Err(savvy::Error::new("covs must be n by length(tols)"));
+    }
+    let qp = parse_sbw_options(options)?;
+    let norm = parse_sbw_norm(norm)?;
+
+    let inputs = SbwContInputs {
+        n,
+        treat: treat.as_slice(),
+        covs: covs.as_slice(),
+        n_covs,
+        s: s_weights.as_slice(),
+        min_weight,
+        norm,
+        tols: tols.as_slice(),
+        qp,
+    };
+    let result = sbw::solve_cont(&inputs, &interrupt::pending).map_err(savvy::Error::new)?;
+    sbw_result_list(&result)
 }
 
 #[cfg(test)]

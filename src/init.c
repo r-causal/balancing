@@ -104,6 +104,21 @@ SEXP savvy_solve_ipt_multi__impl(SEXP c_arg__covs, SEXP c_arg__treat_idx, SEXP c
     return handle_result(res);
 }
 
+SEXP savvy_solve_sbw__impl(SEXP c_arg__treat, SEXP c_arg__s_weights, SEXP c_arg__estimand, SEXP c_arg__norm, SEXP c_arg__moment_covs, SEXP c_arg__targets, SEXP c_arg__tols, SEXP c_arg__min_weight, SEXP c_arg__options) {
+    SEXP res = savvy_solve_sbw__ffi(c_arg__treat, c_arg__s_weights, c_arg__estimand, c_arg__norm, c_arg__moment_covs, c_arg__targets, c_arg__tols, c_arg__min_weight, c_arg__options);
+    return handle_result(res);
+}
+
+SEXP savvy_solve_sbw_cont__impl(SEXP c_arg__treat, SEXP c_arg__covs, SEXP c_arg__s_weights, SEXP c_arg__norm, SEXP c_arg__tols, SEXP c_arg__min_weight, SEXP c_arg__options) {
+    SEXP res = savvy_solve_sbw_cont__ffi(c_arg__treat, c_arg__covs, c_arg__s_weights, c_arg__norm, c_arg__tols, c_arg__min_weight, c_arg__options);
+    return handle_result(res);
+}
+
+SEXP savvy_solve_sbw_multi__impl(SEXP c_arg__treat_idx, SEXP c_arg__focal, SEXP c_arg__s_weights, SEXP c_arg__estimand, SEXP c_arg__norm, SEXP c_arg__moment_covs, SEXP c_arg__targets, SEXP c_arg__tols, SEXP c_arg__min_weight, SEXP c_arg__options) {
+    SEXP res = savvy_solve_sbw_multi__ffi(c_arg__treat_idx, c_arg__focal, c_arg__s_weights, c_arg__estimand, c_arg__norm, c_arg__moment_covs, c_arg__targets, c_arg__tols, c_arg__min_weight, c_arg__options);
+    return handle_result(res);
+}
+
 SEXP savvy_thread_info__impl(void) {
     SEXP res = savvy_thread_info__ffi();
     return handle_result(res);
@@ -124,6 +139,9 @@ static const R_CallMethodDef CallEntries[] = {
     {"savvy_solve_entropy_cont__impl", (DL_FUNC) &savvy_solve_entropy_cont__impl, 8},
     {"savvy_solve_ipt__impl", (DL_FUNC) &savvy_solve_ipt__impl, 6},
     {"savvy_solve_ipt_multi__impl", (DL_FUNC) &savvy_solve_ipt_multi__impl, 7},
+    {"savvy_solve_sbw__impl", (DL_FUNC) &savvy_solve_sbw__impl, 9},
+    {"savvy_solve_sbw_cont__impl", (DL_FUNC) &savvy_solve_sbw_cont__impl, 7},
+    {"savvy_solve_sbw_multi__impl", (DL_FUNC) &savvy_solve_sbw_multi__impl, 10},
     {"savvy_thread_info__impl", (DL_FUNC) &savvy_thread_info__impl, 0},
     {NULL, NULL, 0}
 };

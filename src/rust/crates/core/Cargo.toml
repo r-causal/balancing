@@ -41,3 +41,7 @@ harness = false
 [[bench]]
 name = "qp_backends"
 harness = false
+
+[[bench]]
+name = "sbw_backends"
+harness = false

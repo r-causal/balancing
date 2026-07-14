@@ -1086,6 +1086,197 @@ energy_continuous_fixture <- function(
   )
 }
 
+# ---- Stable balancing weights fixtures ------------------------------------
+
+# The stable balancing fixtures anchor to optweight, which minimizes the same
+# weight dispersion. The covariates are standardized so the tolerance is a
+# standardized mean difference, the target is the pooled (focal, for a focal
+# estimand) mean, and the band is applied at its full width against the target.
+# For the focal estimands this is optweight's own single held-fixed band, so the
+# feasible sets coincide; for the average treatment effect our full-width band is a
+# strict superset of optweight's, which additionally pins the pair average. In
+# every case optweight's reference weights are feasible in the core's box, so their
+# weight-dispersion value bounds the core's from above, the objective-level parity
+# the quadratic-program family is checked on. Each fixture verifies the reference
+# weights satisfy the core's constraints before recording the objective, so the
+# one-sided comparison is meaningful.
+
+sbw_min_weight <- 1e-8
+sbw_tolerance <- 0.05
+
+# Sum of squared weights over the active units on the core's group-sum scale,
+# where each active group's group-normalized total is one. For the average
+# treatment effect every unit is active; for a focal estimand the focal group is
+# held at unit weight and excluded, so only the reweighted groups contribute. This
+# is the objective the core reports for the L2 norm. The group normalization
+# matches the solver's group-sum row exactly, so sampling weights renormalize each
+# group the same way the core does.
+sbw_objective <- function(weights, group_idx, active_levels, s) {
+  total <- 0
+  for (g in active_levels) {
+    idx <- group_idx == g
+    s_norm <- s[idx] / mean(s[idx])
+    swnt <- s_norm / sum(idx)
+    scale <- sum(swnt * weights[idx])
+    w <- weights[idx] / scale
+    total <- total + sum(w * w)
+  }
+  total
+}
+
+# Build a binary or categorical stable balancing fixture. `estimand` is one of the
+# core's `ate`, `att`, or `atc`; `focal` is the focal level for the focal
+# estimands; `multi` selects the categorical solver and its fixture kind; `s` sets
+# sampling weights, defaulting to uniform.
+sbw_discrete_fixture <- function(
+  name,
+  data,
+  estimand,
+  focal = NULL,
+  multi = FALSE,
+  s = NULL
+) {
+  z <- standardize(model.matrix(~ x1 + x2 - 1, data))
+  n <- nrow(z)
+  p <- ncol(z)
+  s <- s %||% rep(1, n)
+  exposure <- as.character(data$exposure)
+  levels_all <- if (is.factor(data$exposure)) {
+    levels(data$exposure)
+  } else {
+    sort(unique(exposure))
+  }
+  group_idx <- match(exposure, levels_all) - 1L
+
+  zdf <- as.data.frame(z)
+  names(zdf) <- paste0("z", seq_len(p))
+  zdf$exposure <- if (multi) {
+    factor(exposure, levels = levels_all)
+  } else {
+    group_idx
+  }
+  form <- stats::reformulate(paste0("z", seq_len(p)), response = "exposure")
+
+  args <- list(
+    form,
+    data = zdf,
+    tols = sbw_tolerance,
+    estimand = toupper(estimand)
+  )
+  if (!is.null(focal)) {
+    args$focal <- as.character(focal)
+  }
+  if (any(s != 1)) {
+    args$s.weights <- s
+  }
+  reference <- do.call(optweight::optweight, args)
+  wt <- reference$weights
+
+  if (identical(estimand, "ate")) {
+    targets <- apply(z, 2, stats::weighted.mean, w = s)
+    active_levels <- sort(unique(group_idx))
+    focal_idx <- NULL
+  } else {
+    focal_idx <- match(as.character(focal), levels_all) - 1L
+    is_focal <- group_idx == focal_idx
+    targets <- apply(
+      z[is_focal, , drop = FALSE],
+      2,
+      stats::weighted.mean,
+      w = s[is_focal]
+    )
+    active_levels <- setdiff(sort(unique(group_idx)), focal_idx)
+  }
+
+  # Matched-constraint verification: each active group's reference weighted mean of
+  # every column, on the sampling-weight-composed scale the solver's moment row
+  # uses, sits inside the tolerance band around the target.
+  for (g in active_levels) {
+    idx <- group_idx == g
+    achieved <- abs(
+      apply(
+        z[idx, , drop = FALSE],
+        2,
+        stats::weighted.mean,
+        w = s[idx] * wt[idx]
+      ) -
+        targets
+    )
+    if (any(achieved > sbw_tolerance + 1e-6)) {
+      stop(sprintf("reference weights violate the constraint box for %s", name))
+    }
+  }
+
+  expected_obj <- sbw_objective(wt, group_idx, active_levels, s)
+  fixture <- list(
+    kind = if (multi) "sbw_multi" else "sbw",
+    n = n,
+    p = p,
+    moment_covs = as.numeric(z),
+    targets = as.numeric(targets),
+    tols = rep(sbw_tolerance, p),
+    treat = as.numeric(group_idx),
+    s = as.numeric(s),
+    estimand = estimand,
+    norm = "l2",
+    min_w = sbw_min_weight,
+    expected_obj = expected_obj,
+    rel_tol = 1e-6
+  )
+  if (!is.null(focal_idx)) {
+    fixture$focal <- focal_idx
+  }
+  write_fixture(name, fixture)
+}
+
+# Build a continuous stable balancing fixture. optweight constrains the same
+# linearized weighted correlation the core bounds, so its reference weights are
+# feasible in the core's box and their dispersion bounds the core's from above.
+sbw_continuous_fixture <- function(name, data) {
+  z <- standardize(model.matrix(~ x1 + x2 - 1, data))
+  n <- nrow(z)
+  p <- ncol(z)
+  s <- rep(1, n)
+  exposure <- data$exposure
+
+  zdf <- as.data.frame(z)
+  names(zdf) <- paste0("z", seq_len(p))
+  zdf$exposure <- exposure
+  form <- stats::reformulate(paste0("z", seq_len(p)), response = "exposure")
+  reference <- optweight::optweight(form, data = zdf, tols = sbw_tolerance)
+  wt <- reference$weights * n / sum(reference$weights)
+
+  a_mean <- mean(exposure)
+  a_sd <- stats::sd(exposure)
+  tstd <- (exposure - a_mean) / a_sd
+  # The correlation row averages by n, matching the core's aligned denominator.
+  achieved <- vapply(
+    seq_len(p),
+    function(j) abs(sum(wt * tstd * z[, j]) / n),
+    numeric(1)
+  )
+  if (any(achieved > sbw_tolerance + 1e-6)) {
+    stop(sprintf("reference weights violate the correlation box for %s", name))
+  }
+
+  write_fixture(
+    name,
+    list(
+      kind = "sbw_cont",
+      n = n,
+      p = p,
+      covs = as.numeric(z),
+      treat = as.numeric(exposure),
+      tols = rep(sbw_tolerance, p),
+      s = as.numeric(s),
+      norm = "l2",
+      min_w = sbw_min_weight,
+      expected_obj = sum(wt * wt),
+      rel_tol = 1e-6
+    )
+  )
+}
+
 for (n in c(500L, 5000L)) {
   binary <- sim_binary(n, seed = 2024)
   categorical <- sim_categorical(n, seed = 2024)
@@ -1233,6 +1424,45 @@ for (n in c(500L, 5000L)) {
     sprintf("energy_continuous_ate_n%d", n),
     continuous
   )
+
+  # Stable balancing weights. Binary over the average treatment effect and both
+  # focal estimands, the categorical average treatment effect and a focal
+  # estimand, and the continuous exposure, all anchored to optweight at the
+  # objective level. Like the energy fixtures these are generated at the smaller
+  # size only, since the quadratic program is dense in n.
+  sbw_discrete_fixture(sprintf("sbw_binary_ate_n%d", n), binary, "ate")
+  sbw_discrete_fixture(
+    sprintf("sbw_binary_ate_sweights_n%d", n),
+    binary,
+    "ate",
+    s = sampling_weights
+  )
+  sbw_discrete_fixture(
+    sprintf("sbw_binary_att_n%d", n),
+    binary,
+    "att",
+    focal = 1
+  )
+  sbw_discrete_fixture(
+    sprintf("sbw_binary_atc_n%d", n),
+    binary,
+    "atc",
+    focal = 0
+  )
+  sbw_discrete_fixture(
+    sprintf("sbw_categorical_ate_n%d", n),
+    categorical,
+    "ate",
+    multi = TRUE
+  )
+  sbw_discrete_fixture(
+    sprintf("sbw_categorical_att_n%d", n),
+    categorical,
+    "att",
+    focal = "b",
+    multi = TRUE
+  )
+  sbw_continuous_fixture(sprintf("sbw_continuous_ate_n%d", n), continuous)
 }
 
 message("Golden fixtures written to ", output_dir)

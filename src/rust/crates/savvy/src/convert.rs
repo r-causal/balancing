@@ -9,7 +9,8 @@ use balancing_core::links::Link;
 use balancing_core::methods::cbps::CbpsEstimand;
 use balancing_core::methods::entropy::EntropySolver;
 use balancing_core::methods::ipt::IptEstimand;
-use balancing_core::qp::QpOptions;
+use balancing_core::methods::sbw::SbwNorm;
+use balancing_core::qp::{QpBackendChoice, QpOptions};
 use savvy::{ListSexp, OwnedRealSexp, RealSexp, Sexp};
 
 /// Resolved solver options shared by the entropy entrypoints.
@@ -208,6 +209,76 @@ pub fn parse_qp_options(options: ListSexp) -> savvy::Result<EnergyOptions> {
     }
 
     Ok(EnergyOptions { threads, qp })
+}
+
+/// Parse the option list for a stable balancing solve, rejecting unknown names.
+///
+/// The tuning matches the other quadratic-program methods: `convergence_tolerance`
+/// sets both the absolute and relative solver tolerances, `max_iterations` caps
+/// the iterations, and `polish` toggles the solution polish. `backend` is one of
+/// `auto`, `osqp`, or `clarabel`; `auto` (the default) solves with osqp first and
+/// re-solves with clarabel on an osqp primal-infeasibility certificate, and any
+/// other value is an error rather than a silent override.
+pub fn parse_sbw_options(options: ListSexp) -> savvy::Result<QpOptions> {
+    const ALLOWED: [&str; 5] = [
+        "threads",
+        "convergence_tolerance",
+        "max_iterations",
+        "polish",
+        "backend",
+    ];
+
+    for name in options.names_iter() {
+        if !ALLOWED.contains(&name) {
+            return Err(savvy::Error::new(format!(
+                "unknown option `{name}`; allowed options are {}",
+                ALLOWED.join(", ")
+            )));
+        }
+    }
+
+    let mut qp = QpOptions::default();
+
+    if let Some(value) = options.get("convergence_tolerance") {
+        let tol = option_f64(value, "convergence_tolerance")?;
+        qp.eps_abs = tol;
+        qp.eps_rel = tol;
+    }
+    if let Some(value) = options.get("max_iterations") {
+        qp.max_iter = option_usize(value, "max_iterations")?.max(1);
+    }
+    if let Some(value) = options.get("polish") {
+        qp.polish = bool::try_from(value)
+            .map_err(|_| savvy::Error::new("option `polish` must be a logical scalar"))?;
+    }
+    if let Some(value) = options.get("backend") {
+        let name = <&str>::try_from(value)
+            .map_err(|_| savvy::Error::new("option `backend` must be a string"))?;
+        qp.backend = match name {
+            "auto" => QpBackendChoice::Auto,
+            "osqp" => QpBackendChoice::Osqp,
+            "clarabel" => QpBackendChoice::Clarabel,
+            other => {
+                return Err(savvy::Error::new(format!(
+                    "unknown backend `{other}`; expected auto, osqp, or clarabel"
+                )));
+            }
+        };
+    }
+
+    Ok(qp)
+}
+
+/// Resolve the dispersion norm named by the R layer.
+pub fn parse_sbw_norm(norm: &str) -> savvy::Result<SbwNorm> {
+    match norm {
+        "l2" => Ok(SbwNorm::L2),
+        "l1" => Ok(SbwNorm::L1),
+        "linf" => Ok(SbwNorm::Linf),
+        other => Err(savvy::Error::new(format!(
+            "unknown norm `{other}`; expected l2, l1, or linf"
+        ))),
+    }
 }
 
 /// Resolve the distance definition named by the R layer.

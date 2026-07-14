@@ -91,6 +91,32 @@ resolve_entropy_solver <- function() {
   solver
 }
 
+# Resolve the quadratic-program backend for the positive-semidefinite methods.
+# The shipped default is "auto": the default solver runs first and, on a
+# primal-infeasibility certificate, the fit re-solves with the interior-point
+# backend, which handles feasible instances the default solver can falsely
+# certify infeasible. The value is read from an option so a user can pin a
+# backend without a constructor argument, matching the entropy-solver knob; the
+# alternatives are "osqp" (no fallback) and "clarabel".
+resolve_qp_backend <- function() {
+  choices <- c("auto", "osqp", "clarabel")
+  backend <- getOption("balancing.qp_backend", default = "auto")
+  if (
+    !is.character(backend) ||
+      length(backend) != 1L ||
+      !(backend %in% choices)
+  ) {
+    abort(
+      c(
+        "The {.code balancing.qp_backend} option must be one of {.val {choices}}.",
+        x = "It is {.val {backend}}."
+      ),
+      error_class = "balancing_range_error"
+    )
+  }
+  backend
+}
+
 # Parse an environment-variable thread cap, returning Inf when the variable is
 # unset or not a positive whole number so it does not constrain the minimum.
 env_thread_cap <- function(name) {

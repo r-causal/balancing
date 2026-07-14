@@ -302,17 +302,20 @@ check_solver_status <- function(fit, method, call = rlang::caller_env()) {
   invisible()
 }
 
-# The default constraint set for a method with no explicit constraints. The
-# estimating-equation family balances first moments by default, its identifying
-# conditions; the quadratic-program family lets its objective drive balance and
-# adds no moment constraints unless the caller requests them, so its default
-# carries none.
-default_constraints <- function(method) {
-  if (S7::S7_inherits(method, quadratic_program_method)) {
-    balance_terms()
-  } else {
-    balance_terms(moments = 1L)
-  }
+# The default constraint set for a method with no explicit constraints, dispatched
+# on the method so each family states its own default. The estimating-equation
+# family balances first moments, its identifying conditions; the objective-driven
+# quadratic-program methods let their objective drive balance and add no moment
+# constraints unless the caller requests them; stable balancing weights override
+# this with first-moment balance, since they need explicit constraints.
+default_constraints <- new_generic("default_constraints", "method")
+
+method(default_constraints, balance_method) <- function(method) {
+  balance_terms(moments = 1L)
+}
+
+method(default_constraints, quadratic_program_method) <- function(method) {
+  balance_terms()
 }
 
 # The per-column tolerances carried by a recipe, aligned with the constraint

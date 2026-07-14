@@ -63,8 +63,10 @@ impl QpBackend for Osqp {
         };
 
         // The chunk cap bounds the work between interrupt checks; OSQP reports
-        // reaching it as MaxIterationsReached, which the loop distinguishes from
-        // a genuine cap by tracking the total against `opts.max_iter`.
+        // reaching it as MaxIterationsReached or, when the looser tolerances are
+        // already met, SolvedInaccurate. Both are chunk-boundary outcomes, not
+        // genuine terminations, so the loop distinguishes them from the true cap
+        // by tracking the total against `opts.max_iter`.
         let chunk = opts.chunk_iters.clamp(1, opts.max_iter.max(1)) as u32;
         let settings = Settings::default()
             .eps_abs(opts.eps_abs)
@@ -86,29 +88,26 @@ impl QpBackend for Osqp {
             let status = problem.solve();
             total_iters += status.iter() as usize;
 
-            let terminal = matches!(
+            // A chunk-boundary outcome (the iteration cap reached, whether the
+            // looser tolerances were met or not) is non-terminal: the solve carries
+            // on into the next chunk until the total reaches `opts.max_iter`. Every
+            // other status is a genuine termination.
+            let terminal = !matches!(
                 status,
-                Status::Solved(_)
-                    | Status::SolvedInaccurate(_)
-                    | Status::PrimalInfeasible(_)
-                    | Status::PrimalInfeasibleInaccurate(_)
-                    | Status::DualInfeasible(_)
-                    | Status::DualInfeasibleInaccurate(_)
-                    | Status::NonConvex(_)
-                    | Status::TimeLimitReached(_)
+                Status::MaxIterationsReached(_) | Status::SolvedInaccurate(_)
             );
 
             if terminal || total_iters >= opts.max_iter {
                 return Ok(finish(spec, &status, total_iters, false));
             }
 
-            // Not terminal and under the cap: this was a chunk boundary. Poll the
-            // interrupt, then warm start the next chunk from the current iterate.
+            // A chunk boundary under the cap: poll the interrupt, then warm start
+            // the next chunk from the current iterate.
             if interrupt() {
                 return Ok(finish(spec, &status, total_iters, true));
             }
-            let (x, y) = match status.solution() {
-                Some(sol) => (sol.x().to_vec(), sol.y().to_vec()),
+            let (x, y) = match extract_solution(&status) {
+                Some(sol) => sol,
                 None => return Ok(finish(spec, &status, total_iters, false)),
             };
             problem.warm_start(&x, &y);
@@ -116,16 +115,30 @@ impl QpBackend for Osqp {
     }
 }
 
+/// Extract the primal and dual iterates from any OSQP status that carries a
+/// solution. OSQP attaches a `Solution` to `Solved`, `SolvedInaccurate`,
+/// `MaxIterationsReached`, and `TimeLimitReached`; the infeasibility and
+/// non-convex certificates carry none. The crate's own `Status::solution()` is
+/// `Some` only for `Solved`, so a solve that stopped at the iteration cap with a
+/// usable iterate would otherwise read as all zeros.
+fn extract_solution(status: &Status<'_>) -> Option<(Vec<f64>, Vec<f64>)> {
+    match status {
+        Status::Solved(s)
+        | Status::SolvedInaccurate(s)
+        | Status::MaxIterationsReached(s)
+        | Status::TimeLimitReached(s) => Some((s.x().to_vec(), s.y().to_vec())),
+        _ => None,
+    }
+}
+
 /// Build a [`QpSolution`] from an OSQP status. When the solve was interrupted or
-/// produced no usable iterate the primal is reported as zeros so the caller can
-/// react to the status rather than to a partial vector.
+/// produced no usable iterate (an infeasibility or non-convex certificate) the
+/// primal is reported as zeros so the caller reacts to the status rather than to a
+/// partial vector.
 fn finish(spec: &QpSpec, status: &Status<'_>, iterations: usize, interrupted: bool) -> QpSolution {
     let n = spec.n;
     let m = spec.m;
-    let (x, duals) = match status.solution() {
-        Some(sol) => (sol.x().to_vec(), sol.y().to_vec()),
-        None => (vec![0.0; n], vec![0.0; m]),
-    };
+    let (x, duals) = extract_solution(status).unwrap_or_else(|| (vec![0.0; n], vec![0.0; m]));
     let mapped = if interrupted {
         QpStatus::Interrupted
     } else {
@@ -212,6 +225,39 @@ mod tests {
         let sol = Osqp.solve(&spec, &opts, &|| true).expect("setup succeeds");
         assert!(sol.interrupted);
         assert_eq!(sol.status, QpStatus::Interrupted);
+    }
+
+    #[test]
+    fn a_multi_chunk_solve_matches_a_single_chunk_solve() {
+        // A chunk smaller than the iterations the problem needs forces the loop to
+        // warm start across several chunks. The result must match the single-chunk
+        // solve, proving the warm start carries the iterate forward rather than
+        // restarting or bailing out with zeros at the first cap. The chunk stays at
+        // or above OSQP's rho-adaptation interval so the step size still adapts
+        // within each chunk, the regime real solves run in.
+        let spec = simplex_spec();
+        let chunked = Osqp
+            .solve(
+                &spec,
+                &QpOptions {
+                    chunk_iters: 25,
+                    ..QpOptions::default()
+                },
+                &|| false,
+            )
+            .expect("setup succeeds");
+        let single = Osqp
+            .solve(&spec, &QpOptions::default(), &|| false)
+            .expect("setup succeeds");
+        assert!(chunked.status.is_solved(), "status {:?}", chunked.status);
+        assert!(
+            chunked.iterations > 25,
+            "solve took {} iterations, not a multi-chunk run",
+            chunked.iterations
+        );
+        assert!((chunked.x[0] - single.x[0]).abs() < 1e-6, "x0 diverged");
+        assert!((chunked.x[1] - single.x[1]).abs() < 1e-6, "x1 diverged");
+        assert!((chunked.x[0] - 0.5).abs() < 1e-5, "x0 = {}", chunked.x[0]);
     }
 
     #[test]

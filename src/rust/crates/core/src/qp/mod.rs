@@ -146,6 +146,9 @@ pub struct QpSolution {
 pub enum QpError {
     /// The backend does not accept an indefinite quadratic form.
     Indefinite,
+    /// An explicitly requested backend is not compiled into this build; the field
+    /// names the missing backend and its Cargo feature.
+    BackendUnavailable(&'static str),
     /// Backend setup rejected the data, with a message.
     Setup(String),
 }
@@ -157,9 +160,32 @@ impl std::fmt::Display for QpError {
                 f,
                 "the quadratic form is indefinite; this backend solves only positive-semidefinite problems"
             ),
+            QpError::BackendUnavailable(name) => write!(
+                f,
+                "the `{name}` backend is not compiled into this build; rebuild with the `qp-clarabel` feature or choose another backend"
+            ),
             QpError::Setup(msg) => write!(f, "quadratic-program setup failed: {msg}"),
         }
     }
+}
+
+/// Which backend a positive-semidefinite spec routes to.
+///
+/// The default is `Auto`: osqp solves first, and on an osqp primal-infeasibility
+/// certificate the identical spec is re-solved with clarabel, because osqp can
+/// falsely certify infeasibility on feasible but large or ill-scaled problems
+/// that the interior-point backend handles. An explicit choice pins one backend
+/// and disables the fallback.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum QpBackendChoice {
+    /// osqp primary with an automatic clarabel fallback on an osqp
+    /// primal-infeasibility certificate.
+    #[default]
+    Auto,
+    /// osqp only; a primal-infeasibility certificate is returned as it stands.
+    Osqp,
+    /// clarabel only.
+    Clarabel,
 }
 
 /// Tuning shared by the quadratic-program backends.
@@ -177,6 +203,8 @@ pub struct QpOptions {
     pub adaptive_rho: bool,
     /// Iterations solved between interrupt checks.
     pub chunk_iters: usize,
+    /// Backend routing for a positive-semidefinite spec.
+    pub backend: QpBackendChoice,
 }
 
 impl Default for QpOptions {
@@ -188,6 +216,7 @@ impl Default for QpOptions {
             polish: true,
             adaptive_rho: true,
             chunk_iters: 2_000,
+            backend: QpBackendChoice::Auto,
         }
     }
 }
@@ -209,6 +238,126 @@ pub trait QpBackend {
         opts: &QpOptions,
         interrupt: &dyn Fn() -> bool,
     ) -> Result<QpSolution, QpError>;
+}
+
+/// A solved positive-semidefinite spec together with the backend that produced
+/// the iterate and whether the automatic fallback engaged.
+#[derive(Debug, Clone)]
+pub struct RoutedSolution {
+    /// The backend solution.
+    pub solution: QpSolution,
+    /// The backend whose iterate is returned, `"osqp"` or `"clarabel"`.
+    pub backend: &'static str,
+    /// Whether the automatic clarabel fallback engaged after an osqp
+    /// primal-infeasibility certificate.
+    pub fell_back: bool,
+}
+
+/// Solve a positive-semidefinite spec under the routed backend policy.
+///
+/// `Auto` solves with osqp and, on an osqp primal-infeasibility certificate for a
+/// spec that is not tagged indefinite, re-solves the identical spec with clarabel
+/// and returns the clarabel result, since osqp can falsely certify infeasibility
+/// on feasible but large or ill-scaled instances. An explicit backend disables
+/// the fallback: `Osqp` returns the osqp certificate as it stands, and `Clarabel`
+/// solves directly. When the `qp-clarabel` feature is disabled the routing
+/// degrades to osqp only, preserving the pre-fallback behavior.
+///
+/// This routing is for the positive-semidefinite family (stable balancing weights
+/// and future PSD methods); the indefinite energy form must call osqp directly,
+/// since clarabel cannot accept it.
+pub fn solve_psd(
+    spec: &QpSpec,
+    opts: &QpOptions,
+    interrupt: &dyn Fn() -> bool,
+) -> Result<RoutedSolution, QpError> {
+    match opts.backend {
+        QpBackendChoice::Osqp => solve_with_osqp(spec, opts, interrupt),
+        QpBackendChoice::Clarabel => solve_with_clarabel(spec, opts, interrupt),
+        QpBackendChoice::Auto => solve_auto(spec, opts, interrupt),
+    }
+}
+
+/// Solve with osqp and report it as the producing backend.
+fn solve_with_osqp(
+    spec: &QpSpec,
+    opts: &QpOptions,
+    interrupt: &dyn Fn() -> bool,
+) -> Result<RoutedSolution, QpError> {
+    let solution = osqp::Osqp.solve(spec, opts, interrupt)?;
+    Ok(RoutedSolution {
+        solution,
+        backend: "osqp",
+        fell_back: false,
+    })
+}
+
+/// Solve directly with clarabel when the feature is compiled in; without it, the
+/// only backend available is osqp, so the routing degrades to it.
+#[cfg(feature = "qp-clarabel")]
+fn solve_with_clarabel(
+    spec: &QpSpec,
+    opts: &QpOptions,
+    interrupt: &dyn Fn() -> bool,
+) -> Result<RoutedSolution, QpError> {
+    let solution = clarabel::Clarabel.solve(spec, opts, interrupt)?;
+    Ok(RoutedSolution {
+        solution,
+        backend: "clarabel",
+        fell_back: false,
+    })
+}
+
+// Without the feature, clarabel is not linked. An explicit clarabel request is a
+// deliberate choice, so it errors naming the missing feature rather than silently
+// substituting osqp; the automatic path degrades quietly instead, since it did not
+// ask for clarabel by name.
+#[cfg(not(feature = "qp-clarabel"))]
+fn solve_with_clarabel(
+    _spec: &QpSpec,
+    _opts: &QpOptions,
+    _interrupt: &dyn Fn() -> bool,
+) -> Result<RoutedSolution, QpError> {
+    Err(QpError::BackendUnavailable("clarabel"))
+}
+
+/// osqp primary with a clarabel fallback on a primal-infeasibility certificate.
+#[cfg(feature = "qp-clarabel")]
+fn solve_auto(
+    spec: &QpSpec,
+    opts: &QpOptions,
+    interrupt: &dyn Fn() -> bool,
+) -> Result<RoutedSolution, QpError> {
+    let osqp_solution = osqp::Osqp.solve(spec, opts, interrupt)?;
+    // The fallback fires only on a genuine osqp infeasibility certificate for a
+    // convex spec that was not interrupted; an interrupted solve is the user's
+    // choice, and an indefinite spec is not clarabel's to accept.
+    let certificate = osqp_solution.status == QpStatus::PrimalInfeasible
+        && spec.convexity != Convexity::Indefinite
+        && !osqp_solution.interrupted;
+    if certificate {
+        if let Ok(clarabel_solution) = clarabel::Clarabel.solve(spec, opts, interrupt) {
+            return Ok(RoutedSolution {
+                solution: clarabel_solution,
+                backend: "clarabel",
+                fell_back: true,
+            });
+        }
+    }
+    Ok(RoutedSolution {
+        solution: osqp_solution,
+        backend: "osqp",
+        fell_back: false,
+    })
+}
+
+#[cfg(not(feature = "qp-clarabel"))]
+fn solve_auto(
+    spec: &QpSpec,
+    opts: &QpOptions,
+    interrupt: &dyn Fn() -> bool,
+) -> Result<RoutedSolution, QpError> {
+    solve_with_osqp(spec, opts, interrupt)
 }
 
 /// Evaluate `0.5 x' P x + q' x` for the stored (already doubled) quadratic term.

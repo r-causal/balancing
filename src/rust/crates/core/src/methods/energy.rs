@@ -26,7 +26,10 @@ use crate::qp::osqp::Osqp;
 use crate::qp::{Convexity, QpBackend, QpOptions, QpSpec, QpStatus, objective};
 use crate::threads::get_pool;
 
-use super::qp_balance::{ConstraintBuilder, add_diagonal_penalty, doubled_dense};
+use super::qp_balance::{
+    ConstraintBuilder, ZERO_SW, add_diagonal_penalty, doubled_dense, expand_and_floor,
+    group_normalized,
+};
 
 /// The estimand an energy balancing solve targets.
 #[derive(Debug, Clone, Copy)]
@@ -98,44 +101,6 @@ pub struct EnergyDiscreteInputs<'a> {
     pub threads: usize,
     /// Quadratic-program tuning.
     pub qp: QpOptions,
-}
-
-/// Threshold below which a sampling weight pins its unit's box to one, matching
-/// the reference treatment of zero-sampling-weight units.
-const ZERO_SW: f64 = 1e-8;
-
-/// The magnitude below which a resolved weight is snapped to zero, applied only
-/// when the minimum-weight floor is itself essentially zero.
-const SHRINK_TO_ZERO: f64 = 1e-10;
-
-/// Group-normalize the sampling weights so each level has mean one, matching the
-/// per-group scaling the objective assumes.
-fn group_normalized(s: &[f64], levels: &[i32], n_levels: usize) -> Vec<f64> {
-    let mut sums = vec![0.0; n_levels];
-    let mut counts = vec![0usize; n_levels];
-    for (i, &g) in levels.iter().enumerate() {
-        if g >= 0 {
-            sums[g as usize] += s[i];
-            counts[g as usize] += 1;
-        }
-    }
-    let means: Vec<f64> = sums
-        .iter()
-        .zip(&counts)
-        .map(|(&sum, &c)| if c > 0 { sum / c as f64 } else { 1.0 })
-        .collect();
-    levels
-        .iter()
-        .enumerate()
-        .map(|(i, &g)| {
-            if g >= 0 {
-                let m = means[g as usize];
-                if m > 0.0 { s[i] / m } else { s[i] }
-            } else {
-                s[i]
-            }
-        })
-        .collect()
 }
 
 /// The interaction factor of the group-normalization outer product for two units
@@ -381,22 +346,7 @@ fn package_discrete(
     active: &[usize],
     solution: &crate::qp::QpSolution,
 ) -> EnergyResult {
-    let mut weights = vec![1.0; inputs.n];
-    for (a, &i) in active.iter().enumerate() {
-        weights[i] = solution.x[a];
-    }
-    for w in weights.iter_mut() {
-        if *w < inputs.min_weight {
-            *w = inputs.min_weight;
-        }
-    }
-    if inputs.min_weight.abs() < SHRINK_TO_ZERO {
-        for w in weights.iter_mut() {
-            if w.abs() < SHRINK_TO_ZERO {
-                *w = 0.0;
-            }
-        }
-    }
+    let weights = expand_and_floor(inputs.n, active, &solution.x, inputs.min_weight);
     EnergyResult {
         weights,
         duals: solution.duals.clone(),
@@ -644,19 +594,10 @@ pub fn solve_cont(inputs: &EnergyContInputs<'_>, interrupt: &dyn Fn() -> bool) -
         .solve(&spec, &inputs.qp, interrupt)
         .unwrap_or_else(|e| degenerate(&spec, e));
 
-    let mut weights = solution.x.clone();
-    for w in weights.iter_mut() {
-        if *w < inputs.min_weight {
-            *w = inputs.min_weight;
-        }
-    }
-    if inputs.min_weight.abs() < SHRINK_TO_ZERO {
-        for w in weights.iter_mut() {
-            if w.abs() < SHRINK_TO_ZERO {
-                *w = 0.0;
-            }
-        }
-    }
+    // Every unit is a decision variable in the continuous solve, so the active
+    // set is the full index range.
+    let active: Vec<usize> = (0..n).collect();
+    let weights = expand_and_floor(n, &active, &solution.x, inputs.min_weight);
     let obj = objective(&spec, &solution.x);
     EnergyResult {
         weights,

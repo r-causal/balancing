@@ -120,6 +120,15 @@
       ! The `balancing.entropy_solver` option must be one of "newton", "lbfgs", and "lbfgs_then_newton".
       x It is "nope".
 
+# balancing_range_error: an invalid quadratic-program backend option
+
+    Code
+      expr
+    Condition <balancing_range_error>
+      Error in `resolve_qp_backend()`:
+      ! The `balancing.qp_backend` option must be one of "auto", "osqp", and "clarabel".
+      x It is "nope".
+
 # balancing_ipw_unsupported_error: estimating_equations() when absent
 
     Code

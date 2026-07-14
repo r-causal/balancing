@@ -143,6 +143,20 @@ test_that("balancing_range_error: an invalid entropy solver option", {
   )
 })
 
+test_that("balancing_range_error: an invalid quadratic-program backend option", {
+  data <- sim_binary(n = 100)
+  withr::local_options(balancing.qp_backend = "nope")
+  expect_balancing_error(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = sbw(),
+      constraints = balance_terms(tolerance = 0.05)
+    )
+  )
+})
+
 test_that("balancing_ipw_unsupported_error: estimating_equations() when absent", {
   data <- sim_binary(n = 150)
   fit <- balance(

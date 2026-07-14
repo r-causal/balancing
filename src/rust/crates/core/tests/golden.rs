@@ -43,6 +43,11 @@ use balancing_core::methods::entropy::{
     EntropyInputs, EntropySolver, solve_continuous, solve_discrete,
 };
 use balancing_core::methods::ipt::{IptEstimand, IptInputs, solve as solve_ipt};
+use balancing_core::methods::qp_balance::group_normalized;
+use balancing_core::methods::sbw::{
+    SbwContInputs, SbwDiscreteInputs, SbwEstimand, SbwNorm, SbwResult,
+    solve_cont as solve_sbw_cont, solve_discrete as solve_sbw_discrete,
+};
 use balancing_core::qp::QpOptions;
 use serde_json::Value;
 
@@ -401,6 +406,262 @@ fn check_energy_cont_fixture(path: &Path, f: &Value) {
     compare_objective(path, result.objective, reference, rel_tol);
 }
 
+/// Assert a stable balancing solve succeeded before its objective is compared, so
+/// a degenerate failure whose objective is zero cannot pass the one-sided
+/// comparison. The check requires a solved status and finite non-negative weights
+/// that sum above zero.
+fn assert_sbw_solved(path: &Path, result: &SbwResult) {
+    assert!(
+        result.converged,
+        "{}: solve did not reach a solved status (status {})",
+        path.display(),
+        result.status,
+    );
+    assert!(
+        result.weights.iter().all(|w| w.is_finite() && *w >= 0.0),
+        "{}: solved weights are not all finite and non-negative",
+        path.display(),
+    );
+    assert!(
+        result.weights.iter().sum::<f64>() > 0.0,
+        "{}: solved weights sum to zero",
+        path.display(),
+    );
+}
+
+/// Assert the returned discrete weights satisfy the fixture's constraint box: each
+/// active group's group-normalized total is one and each column's group-normalized
+/// weighted mean sits inside `target +/- tol`. The design's tolerance policy
+/// (rust-architecture section 6) requires constraint satisfaction alongside the
+/// one-sided objective bound, since a lower objective from a too-loose feasible set
+/// is otherwise indistinguishable from solver quality.
+fn assert_sbw_discrete_constraints(
+    path: &Path,
+    levels: &[i32],
+    n_levels: usize,
+    estimand: &SbwEstimand,
+    s: &[f64],
+    moment_covs: &[f64],
+    targets: &[f64],
+    tols: &[f64],
+    weights: &[f64],
+) {
+    let n = levels.len();
+    let q = targets.len();
+    let s_norm = group_normalized(s, levels, n_levels);
+    let mut n_t = vec![0usize; n_levels];
+    for &g in levels {
+        if g >= 0 {
+            n_t[g as usize] += 1;
+        }
+    }
+    let focal = match estimand {
+        SbwEstimand::Focal { focal } => Some(*focal),
+        SbwEstimand::Ate => None,
+    };
+    for t in 0..n_levels {
+        if Some(t) == focal || n_t[t] == 0 {
+            continue;
+        }
+        let swnt = |i: usize| s_norm[i] / n_t[t] as f64;
+        let group_sum: f64 = (0..n)
+            .filter(|&i| levels[i] == t as i32)
+            .map(|i| swnt(i) * weights[i])
+            .sum();
+        assert!(
+            (group_sum - 1.0).abs() < 1e-4,
+            "{}: group {t} normalized total {group_sum} is not one",
+            path.display(),
+        );
+        for c in 0..q {
+            let mean: f64 = (0..n)
+                .filter(|&i| levels[i] == t as i32)
+                .map(|i| swnt(i) * weights[i] * moment_covs[c * n + i])
+                .sum();
+            assert!(
+                mean >= targets[c] - tols[c] - 1e-4 && mean <= targets[c] + tols[c] + 1e-4,
+                "{}: group {t} column {c} weighted mean {mean} outside {} +/- {}",
+                path.display(),
+                targets[c],
+                tols[c],
+            );
+        }
+    }
+}
+
+/// Reliability-weighted variance, matching the exposure standardization the
+/// continuous solve uses so the checked correlation is the row the solver bounds.
+fn sbw_weighted_variance(x: &[f64], w: &[f64]) -> f64 {
+    let (mut sw, mut sw2, mut swx, mut swxx) = (0.0, 0.0, 0.0, 0.0);
+    for (&xi, &wi) in x.iter().zip(w) {
+        sw += wi;
+        sw2 += wi * wi;
+        swx += wi * xi;
+        swxx += wi * xi * xi;
+    }
+    if sw <= 0.0 {
+        return 0.0;
+    }
+    let mean = swx / sw;
+    let denom = 1.0 - sw2 / (sw * sw);
+    if denom > 0.0 {
+        ((swxx / sw - mean * mean) / denom).max(0.0)
+    } else {
+        0.0
+    }
+}
+
+/// Assert the returned continuous weights satisfy the fixture's constraints: the
+/// sampling-weighted total is n and each covariate's linearized weighted
+/// correlation with the exposure sits inside its tolerance.
+fn assert_sbw_cont_constraints(
+    path: &Path,
+    treat: &[f64],
+    covs: &[f64],
+    s: &[f64],
+    tols: &[f64],
+    weights: &[f64],
+) {
+    let n = treat.len();
+    let q = tols.len();
+    let s_sum: f64 = s.iter().sum();
+    let s_scaled: Vec<f64> = if s_sum > 0.0 {
+        s.iter().map(|&si| si * n as f64 / s_sum).collect()
+    } else {
+        vec![1.0; n]
+    };
+    let a_mean =
+        s.iter().zip(treat).map(|(&wi, &ti)| wi * ti).sum::<f64>() / s_sum.max(f64::MIN_POSITIVE);
+    let a_var = sbw_weighted_variance(treat, s);
+    let a_sd = if a_var > 0.0 { a_var.sqrt() } else { 1.0 };
+
+    let total: f64 = (0..n).map(|i| s_scaled[i] * weights[i]).sum();
+    assert!(
+        (total - n as f64).abs() < 1e-3 * n as f64,
+        "{}: sampling-weighted total {total} is not n",
+        path.display(),
+    );
+    for c in 0..q {
+        let corr: f64 = (0..n)
+            .map(|i| covs[c * n + i] * ((treat[i] - a_mean) / a_sd) * s_scaled[i] * weights[i])
+            .sum::<f64>()
+            / n as f64;
+        assert!(
+            corr.abs() <= tols[c] + 1e-4,
+            "{}: column {c} correlation {corr} exceeds tolerance {}",
+            path.display(),
+            tols[c],
+        );
+    }
+}
+
+fn sbw_norm(f: &Value) -> SbwNorm {
+    match f["norm"].as_str().unwrap_or("l2") {
+        "l2" => SbwNorm::L2,
+        "l1" => SbwNorm::L1,
+        "linf" => SbwNorm::Linf,
+        other => panic!("unknown sbw norm `{other}`"),
+    }
+}
+
+/// Solve a binary or multi-category stable balancing fixture and compare the
+/// achieved weight-dispersion objective. Schema adds `treat` (zero/one for binary,
+/// zero-based level for multi), `estimand`, an optional `focal`, `norm`, `min_w`,
+/// the standardized `moment_covs` with `targets` and `tols`, and `expected_obj`; a
+/// multi fixture sets `kind` to `sbw_multi`.
+fn check_sbw_fixture(path: &Path, f: &Value, multi: bool) {
+    let n = scalar(f, "n") as usize;
+    let p = scalar(f, "p") as usize;
+    let s = nums(f, "s");
+    let levels: Vec<i32> = nums(f, "treat").iter().map(|t| *t as i32).collect();
+    let moment_covs = nums(f, "moment_covs");
+    let targets = nums(f, "targets");
+    let tols = nums(f, "tols");
+    let min_w = f["min_w"].as_f64().unwrap_or(1e-8);
+    let estimand_name = f["estimand"].as_str().unwrap_or("ate");
+
+    let (n_levels, estimand) = if multi {
+        let n_levels = levels.iter().copied().max().map_or(0, |m| m + 1).max(0) as usize;
+        let focal = f["focal"].as_f64().map(|x| x as usize).unwrap_or(0);
+        let estimand = match estimand_name {
+            "ate" => SbwEstimand::Ate,
+            "att" | "atc" => SbwEstimand::Focal { focal },
+            other => panic!("unknown sbw estimand `{other}`"),
+        };
+        (n_levels, estimand)
+    } else {
+        let estimand = match estimand_name {
+            "ate" => SbwEstimand::Ate,
+            "att" => SbwEstimand::Focal { focal: 1 },
+            "atc" => SbwEstimand::Focal { focal: 0 },
+            other => panic!("unknown sbw estimand `{other}`"),
+        };
+        (2usize, estimand)
+    };
+
+    let inputs = SbwDiscreteInputs {
+        n,
+        levels: &levels,
+        n_levels,
+        estimand,
+        s: &s,
+        min_weight: min_w,
+        norm: sbw_norm(f),
+        moment_covs: &moment_covs,
+        n_moments: p,
+        targets: &targets,
+        tols: &tols,
+        qp: QpOptions::default(),
+    };
+    let result = solve_sbw_discrete(&inputs, &|| false).expect("supported norm");
+    assert_sbw_solved(path, &result);
+    assert_sbw_discrete_constraints(
+        path,
+        &levels,
+        n_levels,
+        &estimand,
+        &s,
+        &moment_covs,
+        &targets,
+        &tols,
+        &result.weights,
+    );
+    let reference = scalar(f, "expected_obj");
+    let rel_tol = f["rel_tol"].as_f64().unwrap_or(1e-6);
+    compare_objective(path, result.objective, reference, rel_tol);
+}
+
+/// Solve a continuous-exposure stable balancing fixture and compare the achieved
+/// dispersion objective. Schema carries `treat` as the exposure and the
+/// standardized `covs` with per-column `tols`.
+fn check_sbw_cont_fixture(path: &Path, f: &Value) {
+    let n = scalar(f, "n") as usize;
+    let p = scalar(f, "p") as usize;
+    let treat = nums(f, "treat");
+    let covs = nums(f, "covs");
+    let tols = nums(f, "tols");
+    let s = nums(f, "s");
+    let min_w = f["min_w"].as_f64().unwrap_or(1e-8);
+
+    let inputs = SbwContInputs {
+        n,
+        treat: &treat,
+        covs: &covs,
+        n_covs: p,
+        s: &s,
+        min_weight: min_w,
+        norm: sbw_norm(f),
+        tols: &tols,
+        qp: QpOptions::default(),
+    };
+    let result = solve_sbw_cont(&inputs, &|| false).expect("supported norm");
+    assert_sbw_solved(path, &result);
+    assert_sbw_cont_constraints(path, &treat, &covs, &s, &tols, &result.weights);
+    let reference = scalar(f, "expected_obj");
+    let rel_tol = f["rel_tol"].as_f64().unwrap_or(1e-6);
+    compare_objective(path, result.objective, reference, rel_tol);
+}
+
 fn check_fixture(path: &Path) {
     let text = std::fs::read_to_string(path).expect("read fixture");
     let f: Value = serde_json::from_str(&text).expect("parse fixture JSON");
@@ -432,6 +693,18 @@ fn check_fixture(path: &Path) {
         }
         Some("cbps_cont") => {
             check_cbps_cont_fixture(path, &f);
+            return;
+        }
+        Some("sbw") => {
+            check_sbw_fixture(path, &f, false);
+            return;
+        }
+        Some("sbw_multi") => {
+            check_sbw_fixture(path, &f, true);
+            return;
+        }
+        Some("sbw_cont") => {
+            check_sbw_cont_fixture(path, &f);
             return;
         }
         _ => {}
