@@ -1,6 +1,6 @@
 # Profile one stable balancing fit and attribute the time.
 #
-# Profiles balance(method = sbw()) on a binary average-treatment problem at
+# Profiles balance(method = bal_sbw()) on a binary average-treatment problem at
 # n = 5000, the size where the quadratic-program solve dominates but the fit
 # still runs in well under a second so the profiler collects enough samples. The
 # raw profvis object is saved to scratch/bench/raw and summarized with the
@@ -38,7 +38,7 @@ fit_once <- function() {
     df,
     exposure,
     all_of(covs),
-    method = sbw(),
+    method = bal_sbw(),
     estimand = "ate",
     constraints = balance_terms(tolerance = tol)
   )

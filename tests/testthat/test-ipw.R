@@ -147,7 +147,7 @@ test_that("an entropy binary ate fit exposes a consistent container", {
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "ate"
   )
   ee <- estimating_equations(fit)
@@ -160,13 +160,13 @@ test_that("an entropy binary ate fit exposes a consistent container", {
   expect_lt(max(abs(colSums(ee@psi))), 1e-6)
 })
 
-test_that("an ipt binary ate fit exposes a consistent container", {
+test_that("an bal_ipt binary ate fit exposes a consistent container", {
   data <- sim_binary(200)
   fit <- balance(
     data,
     exposure,
     c(x1, x2),
-    method = ipt(),
+    method = bal_ipt(),
     estimand = "ate"
   )
   ee <- estimating_equations(fit)
@@ -177,13 +177,13 @@ test_that("an ipt binary ate fit exposes a consistent container", {
   expect_lt(max(abs(colSums(ee@psi))), 1e-6)
 })
 
-test_that("a just-identified cbps binary ate fit exposes a consistent container", {
+test_that("a just-identified bal_cbps binary ate fit exposes a consistent container", {
   data <- sim_binary(200)
   fit <- balance(
     data,
     exposure,
     c(x1, x2),
-    method = cbps(),
+    method = bal_cbps(),
     estimand = "ate"
   )
   ee <- estimating_equations(fit)
@@ -200,9 +200,9 @@ test_that("a just-identified cbps binary ate fit exposes a consistent container"
 # it the container cannot be finite-difference checked, so these fail until it
 # is populated.
 for (spec in list(
-  list(label = "entropy", method = quote(entropy_balance())),
-  list(label = "ipt", method = quote(ipt())),
-  list(label = "cbps just-identified", method = quote(cbps()))
+  list(label = "entropy", method = quote(bal_entropy())),
+  list(label = "ipt", method = quote(bal_ipt())),
+  list(label = "cbps just-identified", method = quote(bal_cbps()))
 )) {
   local({
     spec <- spec
@@ -250,7 +250,7 @@ test_that("ipw() returns the binary-outcome effect rows for an entropy fit", {
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "att",
     focal_level = "1"
   )
@@ -270,7 +270,7 @@ test_that("ipw() returns a single difference row for a continuous outcome", {
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "att",
     focal_level = "1"
   )
@@ -289,7 +289,7 @@ test_that("an ipw() result prints for a balancing fit", {
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "ate"
   )
   w <- as.numeric(stats::weights(fit))
@@ -306,7 +306,7 @@ test_that("ipw() point estimates match the plain weighted-glm computation", {
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "ate"
   )
   w <- as.numeric(stats::weights(fit))
@@ -330,7 +330,7 @@ test_that("ipw() standard errors are finite and positive", {
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "ate"
   )
   w <- as.numeric(stats::weights(fit))
@@ -349,7 +349,7 @@ test_that("ipw() standard errors differ from the naive weights-fixed sandwich", 
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "ate"
   )
   w <- as.numeric(stats::weights(fit))
@@ -383,31 +383,31 @@ test_that("ipw() standard errors differ from the naive weights-fixed sandwich", 
 for (spec in list(
   list(
     label = "an entropy ate fit",
-    method = quote(entropy_balance()),
+    method = quote(bal_entropy()),
     estimand = "ate",
     focal = NULL
   ),
   list(
-    label = "an ipt ate fit",
-    method = quote(ipt()),
+    label = "an bal_ipt ate fit",
+    method = quote(bal_ipt()),
     estimand = "ate",
     focal = NULL
   ),
   list(
-    label = "an ipt att fit",
-    method = quote(ipt()),
+    label = "an bal_ipt att fit",
+    method = quote(bal_ipt()),
     estimand = "att",
     focal = "1"
   ),
   list(
-    label = "a just-identified cbps ate fit",
-    method = quote(cbps()),
+    label = "a just-identified bal_cbps ate fit",
+    method = quote(bal_cbps()),
     estimand = "ate",
     focal = NULL
   ),
   list(
-    label = "a just-identified cbps att fit",
-    method = quote(cbps()),
+    label = "a just-identified bal_cbps att fit",
+    method = quote(bal_cbps()),
     estimand = "att",
     focal = "1"
   )
@@ -453,7 +453,7 @@ test_that("ipw() risk-difference standard error is coherent with sampling weight
     data,
     exposure,
     c(x1, x2),
-    method = ipt(),
+    method = bal_ipt(),
     estimand = "ate",
     sampling_weights = sw
   )
@@ -475,7 +475,7 @@ test_that("ipw() standard errors track a nonparametric bootstrap", {
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "ate"
   )
   w <- as.numeric(stats::weights(fit))
@@ -501,7 +501,7 @@ test_that("ipw() standard errors track a nonparametric bootstrap", {
               resampled,
               exposure,
               c(x1, x2),
-              method = entropy_balance(),
+              method = bal_entropy(),
               estimand = "ate"
             )
             boot_w <- as.numeric(stats::weights(boot_fit))
@@ -535,7 +535,7 @@ test_that("ipw() respects conf_level", {
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "ate"
   )
   w <- as.numeric(stats::weights(fit))
@@ -557,7 +557,7 @@ test_that("ipw() rejects an estimand that contradicts the fit", {
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "ate"
   )
   w <- as.numeric(stats::weights(fit))
@@ -583,7 +583,7 @@ test_that("ipw() rejects an outcome model that is not a glm or lm", {
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "ate"
   )
 
@@ -600,7 +600,7 @@ test_that("ipw() rejects a covariate-adjusted outcome model", {
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "ate"
   )
   w <- as.numeric(stats::weights(fit))
@@ -619,7 +619,7 @@ test_that("ipw() rejects a supplied data frame without two exposure levels", {
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "ate"
   )
   w <- as.numeric(stats::weights(fit))
@@ -638,9 +638,15 @@ test_that("ipw() rejects a supplied data frame without two exposure levels", {
 # The container's psi re-evaluation hook crosses into Rust; a wrong-length
 # parameter vector must surface as an R condition rather than a panic.
 
-test_that("the ipt psi_fn rejects a wrong-length parameter vector", {
+test_that("the bal_ipt psi_fn rejects a wrong-length parameter vector", {
   data <- ipw_fixture()
-  fit <- balance(data, exposure, c(x1, x2), method = ipt(), estimand = "ate")
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bal_ipt(),
+    estimand = "ate"
+  )
   psi_fn <- estimating_equations(fit)@psi_fn
   expect_error(psi_fn(c(1, 2)))
 })
@@ -651,7 +657,7 @@ test_that("the entropy psi_fn rejects a wrong-length parameter vector", {
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "ate"
   )
   psi_fn <- estimating_equations(fit)@psi_fn
@@ -663,7 +669,7 @@ test_that("the entropy psi_fn rejects a wrong-length parameter vector", {
 # Fits whose weights do not solve smooth estimating equations cannot supply the
 # stacked sandwich, so ipw() raises the shared unsupported condition pointing to
 # the bootstrap workflow. The tolerance-relaxed entropy fit, the over-identified
-# cbps fit, and the continuous-exposure cbps fit each lack a container.
+# bal_cbps fit, and the continuous-exposure bal_cbps fit each lack a container.
 
 test_that("ipw() rejects a tolerance-relaxed entropy fit", {
   data <- ipw_fixture()
@@ -671,7 +677,7 @@ test_that("ipw() rejects a tolerance-relaxed entropy fit", {
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "ate",
     constraints = balance_terms(tolerance = 0.05)
   )
@@ -684,13 +690,13 @@ test_that("ipw() rejects a tolerance-relaxed entropy fit", {
   )
 })
 
-test_that("ipw() rejects an over-identified cbps fit", {
+test_that("ipw() rejects an over-identified bal_cbps fit", {
   data <- ipw_fixture()
   fit <- suppressWarnings(balance(
     data,
     exposure,
     c(x1, x2),
-    method = cbps(over_identified = TRUE),
+    method = bal_cbps(over_identified = TRUE),
     estimand = "ate"
   ))
   w <- as.numeric(stats::weights(fit))
@@ -702,14 +708,14 @@ test_that("ipw() rejects an over-identified cbps fit", {
   )
 })
 
-test_that("ipw() rejects a continuous-exposure cbps fit", {
+test_that("ipw() rejects a continuous-exposure bal_cbps fit", {
   data <- sim_continuous(200)
   data$y <- stats::rbinom(nrow(data), 1L, 0.5)
   fit <- balance(
     data,
     exposure,
     c(x1, x2),
-    method = cbps(),
+    method = bal_cbps(),
     estimand = "ate"
   )
   w <- as.numeric(stats::weights(fit))
@@ -732,7 +738,7 @@ test_that("ipw() rejects a categorical-exposure fit that has a container", {
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "ate"
   )
   expect_false(is.null(fit@estimating_equations))
@@ -758,7 +764,7 @@ test_that("ipw() rejects a continuous-exposure fit that has a container", {
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "ate"
   )
   expect_false(is.null(fit@estimating_equations))
@@ -777,7 +783,7 @@ test_that("the unsupported-weights ipw error carries the bootstrap pointer", {
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "ate",
     constraints = balance_terms(tolerance = 0.05)
   )

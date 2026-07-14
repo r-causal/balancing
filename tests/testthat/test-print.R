@@ -7,7 +7,7 @@ test_that("print() of a binary ate fit is stable", {
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "ate"
   )
   expect_snapshot(print(fit))
@@ -19,7 +19,7 @@ test_that("summary() of a binary ate fit is stable", {
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "ate"
   )
   expect_snapshot(summary(fit))
@@ -31,7 +31,7 @@ test_that("print() of a binary att fit renders the focal level", {
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "att"
   )
   expect_snapshot(print(fit))
@@ -43,7 +43,7 @@ test_that("print() of a continuous ate fit is stable", {
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "ate"
   )
   expect_snapshot(print(fit))
@@ -55,7 +55,7 @@ test_that("tidy() of a binary ate fit returns one row per constraint term", {
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "ate"
   )
   tidied <- generics::tidy(fit)

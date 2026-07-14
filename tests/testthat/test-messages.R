@@ -14,7 +14,7 @@ test_that("balancing_convergence_warning: the iteration cap is reached", {
       data,
       exposure,
       c(x1, x2),
-      method = entropy_balance(max_iterations = 3L),
+      method = bal_entropy(max_iterations = 3L),
       estimand = "ate"
     )
   )
@@ -30,7 +30,7 @@ test_that("balancing_balance_warning: achieved balance exceeds the tolerance", {
       data,
       exposure,
       c(x1, x2),
-      method = entropy_balance(),
+      method = bal_entropy(),
       estimand = "ate",
       constraints = balance_terms(tolerance = 0.1)
     )
@@ -47,7 +47,7 @@ test_that("balancing_ignored_argument_warning: two_step without over_identified"
       data,
       exposure,
       c(x1, x2),
-      method = cbps(two_step = FALSE, over_identified = FALSE),
+      method = bal_cbps(two_step = FALSE, over_identified = FALSE),
       estimand = "ate"
     )
   )
@@ -71,7 +71,7 @@ test_that("alert: the detected exposure type is announced", {
       data,
       exposure,
       c(x1, x2),
-      method = entropy_balance(),
+      method = bal_entropy(),
       estimand = "ate"
     ))
   )
@@ -86,7 +86,7 @@ test_that("alert: aliased constraint columns are dropped", {
       data,
       exposure,
       c(x1, x1_copy, x2),
-      method = entropy_balance(),
+      method = bal_entropy(),
       estimand = "ate",
       exposure_type = "binary"
     ))
@@ -102,7 +102,7 @@ test_that("alert: moments above one on a binary covariate are ignored", {
       data,
       exposure,
       c(x2, flag),
-      method = entropy_balance(),
+      method = bal_entropy(),
       estimand = "ate",
       exposure_type = "binary",
       constraints = balance_terms(moments = 2L)

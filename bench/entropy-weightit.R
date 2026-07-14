@@ -1,6 +1,6 @@
 # End-to-end entropy balancing benchmark against WeightIt's ebal.
 #
-# Measures balance(method = entropy_balance()) against the equivalent
+# Measures balance(method = bal_entropy()) against the equivalent
 # WeightIt::weightit(method = "ebal") call at the reference scale used by the
 # performance gate: n = 50000 units and 200 first-moment constraints, for the
 # ATE and ATT estimands. Weight parity and balance precision are verified before
@@ -61,7 +61,7 @@ fit_ours <- function(df, covs, estimand, solver = "newton") {
     df,
     exposure,
     all_of(covs),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = estimand
   )))
 }

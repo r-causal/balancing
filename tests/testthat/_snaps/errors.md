@@ -33,7 +33,7 @@
       Error in `balance()`:
       ! `method` must be a balancing method specification.
       x You supplied a string.
-      i Construct one with a method constructor, for example `entropy_balance()`.
+      i Construct one with a method constructor, for example `bal_entropy()`.
 
 # balancing_estimand_error: an unsupported estimand
 

@@ -1,6 +1,6 @@
 # End-to-end stable balancing weights benchmark against optweight.
 #
-# Measures balance(method = sbw()) against the equivalent optweight() call for a
+# Measures balance(method = bal_sbw()) against the equivalent optweight() call for a
 # binary exposure and the average treatment effect, plus one continuous case.
 # Both packages solve the same quadratic program: minimize the sum of squared
 # weights subject to each reweighted group's covariate means falling inside a
@@ -90,7 +90,7 @@ fit_ours <- function(df, covs, tol) {
     df,
     exposure,
     all_of(covs),
-    method = sbw(),
+    method = bal_sbw(),
     estimand = "ate",
     constraints = balance_terms(tolerance = tol)
   )))
@@ -181,7 +181,7 @@ run_continuous <- function(n = 2000L, p = 4L, tol = 0.1) {
       df,
       exposure,
       all_of(covs),
-      method = sbw(),
+      method = bal_sbw(),
       estimand = "ate",
       constraints = balance_terms(tolerance = tol)
     )))

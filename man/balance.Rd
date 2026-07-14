@@ -8,7 +8,7 @@ balance(
   .data,
   .exposure,
   .covariates,
-  method = entropy_balance(),
+  method = bal_entropy(),
   estimand = c("ate", "att", "atc", "ato"),
   ...,
   constraints = NULL,
@@ -27,7 +27,7 @@ column.}
 one column, with no default.}
 
 \item{method}{A \link{balance_method} specification from one of the method
-constructors, such as \code{\link[=entropy_balance]{entropy_balance()}}.}
+constructors, such as \code{\link[=bal_entropy]{bal_entropy()}}.}
 
 \item{estimand}{The target estimand: \code{"ate"}, \code{"att"}, \code{"atc"} (stored as
 \code{"atu"}), or \code{"ato"}. Defaults to \code{"ate"}.}
@@ -53,7 +53,7 @@ A \link{balancing} object.
 \code{balance()} is the entry point to the package. It fits a balancing method to a
 data frame, returning weights that target covariate balance directly. The
 exposure and covariates are chosen with tidyselect, the method is one of the
-method specifications such as \code{\link[=entropy_balance]{entropy_balance()}}, and the estimand and
+method specifications such as \code{\link[=bal_entropy]{bal_entropy()}}, and the estimand and
 constraints control what balance the weights achieve.
 }
 \details{
@@ -78,7 +78,7 @@ df <- data.frame(
   x1 = x1,
   x2 = x2
 )
-fit <- balance(df, exposure, c(x1, x2), method = entropy_balance())
+fit <- balance(df, exposure, c(x1, x2), method = bal_entropy())
 fit
 weights(fit)
 

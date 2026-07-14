@@ -3,19 +3,19 @@
     Code
       expr
     Condition <balancing_constraints_error>
-      Error in `method(fit_method, balancing::sbw)`:
+      Error in `method(fit_method, balancing::bal_sbw)`:
       ! Stable balancing weights require a positive balance tolerance.
       x No constraint carries a tolerance above zero.
-      i Set `tolerance` in `balance_terms()` to a positive value, the central tuning parameter for `sbw()`.
+      i Set `tolerance` in `balance_terms()` to a positive value, the central tuning parameter for `bal_sbw()`.
 
 # the unsupported-norm message points to the least-squares norm
 
     Code
       expr
     Condition <balancing_method_error>
-      Error in `method(fit_method, balancing::sbw)`:
+      Error in `method(fit_method, balancing::bal_sbw)`:
       ! The "l1" norm is not yet available for stable balancing weights.
-      i Set `norm = "l2"` in `sbw()`; only the least-squares norm is solved in this version.
+      i Set `norm = "l2"` in `bal_sbw()`; only the least-squares norm is solved in this version.
 
 # an infeasible constraint set raises balancing_infeasible_error
 
@@ -37,7 +37,7 @@
 # a stable balancing fit prints its summary block
 
     Code
-      fit <- balance(data, exposure, c(x1, x2), method = sbw(), estimand = "ate",
+      fit <- balance(data, exposure, c(x1, x2), method = bal_sbw(), estimand = "ate",
       constraints = balance_terms(tolerance = 0.05))
       fit
     Output

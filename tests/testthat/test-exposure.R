@@ -50,7 +50,7 @@ test_that("an explicit categorical type is honored on a factor exposure", {
   resolved <- resolve_exposure_type(
     "categorical",
     factor(c("a", "b", "c", "a")),
-    entropy_balance()
+    bal_entropy()
   )
   expect_identical(resolved, "categorical")
 })
@@ -60,7 +60,7 @@ test_that("an explicit continuous type is honored on a continuous exposure", {
   resolved <- resolve_exposure_type(
     "continuous",
     stats::rnorm(100),
-    entropy_balance()
+    bal_entropy()
   )
   expect_identical(resolved, "continuous")
 })
@@ -71,7 +71,7 @@ test_that("auto resolution announces the detected type", {
     resolved <- resolve_exposure_type(
       "auto",
       c(0L, 1L, 0L, 1L),
-      entropy_balance()
+      bal_entropy()
     ),
     "binary"
   )
@@ -84,7 +84,7 @@ test_that("a forced type the data contradict raises a classed error", {
     resolve_exposure_type(
       "binary",
       stats::rnorm(100),
-      entropy_balance()
+      bal_entropy()
     ),
     class = "balancing_exposure_type_error"
   )

@@ -1,4 +1,4 @@
-# cbps() is the method spec; balance(..., method = cbps()) fits it. The
+# bal_cbps() is the method spec; balance(..., method = bal_cbps()) fits it. The
 # covariate balancing propensity score fits a propensity model whose parameters
 # satisfy covariate balancing moment conditions. In the just-identified form the
 # number of moment conditions equals the number of parameters, so the balancing
@@ -100,9 +100,9 @@ cbps_gmm_objective_at <- function(design, treat, beta) {
 
 # ---- Constructor ----------------------------------------------------------
 
-test_that("cbps() carries its documented defaults", {
-  spec <- cbps()
-  expect_true(S7::S7_inherits(spec, cbps))
+test_that("bal_cbps() carries its documented defaults", {
+  spec <- bal_cbps()
+  expect_true(S7::S7_inherits(spec, bal_cbps))
   expect_true(S7::S7_inherits(spec, estimating_equation_method))
   expect_true(S7::S7_inherits(spec, balance_method))
   expect_false(spec@over_identified)
@@ -112,8 +112,8 @@ test_that("cbps() carries its documented defaults", {
   expect_null(spec@max_iterations)
 })
 
-test_that("cbps() stores supplied tuning parameters", {
-  spec <- cbps(
+test_that("bal_cbps() stores supplied tuning parameters", {
+  spec <- bal_cbps(
     over_identified = TRUE,
     two_step = FALSE,
     link = "probit",
@@ -127,99 +127,105 @@ test_that("cbps() stores supplied tuning parameters", {
   expect_identical(spec@max_iterations, 200L)
 })
 
-test_that("cbps() matches the link argument", {
-  expect_identical(cbps(link = "cloglog")@link, "cloglog")
-  expect_error(cbps(link = "identity"))
+test_that("bal_cbps() matches the link argument", {
+  expect_identical(bal_cbps(link = "cloglog")@link, "cloglog")
+  expect_error(bal_cbps(link = "identity"))
 })
 
-test_that("cbps() rejects unnamed extra arguments", {
-  expect_true(S7::S7_inherits(cbps(), balance_method))
-  expect_error(cbps(bogus = 1))
+test_that("bal_cbps() rejects unnamed extra arguments", {
+  expect_true(S7::S7_inherits(bal_cbps(), balance_method))
+  expect_error(bal_cbps(bogus = 1))
 })
 
 # ---- Validators -----------------------------------------------------------
 
-test_that("cbps() rejects a non-positive convergence tolerance", {
-  expect_identical(cbps()@convergence_tolerance, 1e-10)
-  expect_error(cbps(convergence_tolerance = -1e-10))
+test_that("bal_cbps() rejects a non-positive convergence tolerance", {
+  expect_identical(bal_cbps()@convergence_tolerance, 1e-10)
+  expect_error(bal_cbps(convergence_tolerance = -1e-10))
 })
 
-test_that("cbps() rejects a negative iteration cap", {
-  expect_null(cbps()@max_iterations)
-  expect_error(cbps(max_iterations = -5L))
+test_that("bal_cbps() rejects a negative iteration cap", {
+  expect_null(bal_cbps()@max_iterations)
+  expect_error(bal_cbps(max_iterations = -5L))
 })
 
-test_that("cbps() rejects non-logical flags", {
-  expect_false(cbps(over_identified = FALSE)@over_identified)
-  expect_error(cbps(over_identified = "yes"))
-  expect_error(cbps(two_step = 1))
+test_that("bal_cbps() rejects non-logical flags", {
+  expect_false(bal_cbps(over_identified = FALSE)@over_identified)
+  expect_error(bal_cbps(over_identified = "yes"))
+  expect_error(bal_cbps(two_step = 1))
 })
 
 # ---- Capability methods ---------------------------------------------------
 
 test_that("supported_exposure_types() lists every exposure type", {
   expect_setequal(
-    supported_exposure_types(cbps()),
+    supported_exposure_types(bal_cbps()),
     c("binary", "categorical", "continuous")
   )
 })
 
 test_that("supported_estimands() depends on the exposure type", {
-  binary <- supported_estimands(cbps(), "binary")
+  binary <- supported_estimands(bal_cbps(), "binary")
   expect_true(all(c("ate", "att", "ato") %in% binary))
   expect_true(any(c("atc", "atu") %in% binary))
 
   # The overlap estimand is legal only for a binary exposure.
   expect_setequal(
-    supported_estimands(cbps(), "categorical"),
+    supported_estimands(bal_cbps(), "categorical"),
     c("ate", "att")
   )
-  expect_false("ato" %in% supported_estimands(cbps(), "categorical"))
+  expect_false("ato" %in% supported_estimands(bal_cbps(), "categorical"))
 
   expect_setequal(
-    supported_estimands(cbps(), "continuous"),
+    supported_estimands(bal_cbps(), "continuous"),
     "ate"
   )
-  expect_false("ato" %in% supported_estimands(cbps(), "continuous"))
+  expect_false("ato" %in% supported_estimands(bal_cbps(), "continuous"))
 })
 
 test_that("supports_estimating_equations() follows the design's rules", {
   # The just-identified discrete form supplies estimating equations.
-  expect_true(supports_estimating_equations(cbps()))
-  expect_true(supports_estimating_equations(cbps(), exposure_type = "binary"))
+  expect_true(supports_estimating_equations(bal_cbps()))
   expect_true(supports_estimating_equations(
-    cbps(),
+    bal_cbps(),
+    exposure_type = "binary"
+  ))
+  expect_true(supports_estimating_equations(
+    bal_cbps(),
     exposure_type = "categorical"
   ))
 
   # The over-identified form minimizes a GMM criterion and has none, whatever
   # the exposure type.
-  expect_false(supports_estimating_equations(cbps(over_identified = TRUE)))
+  expect_false(supports_estimating_equations(bal_cbps(over_identified = TRUE)))
   expect_false(supports_estimating_equations(
-    cbps(over_identified = TRUE),
+    bal_cbps(over_identified = TRUE),
     exposure_type = "binary"
   ))
 
   # A continuous exposure has none either.
   expect_false(supports_estimating_equations(
-    cbps(),
+    bal_cbps(),
     exposure_type = "continuous"
   ))
 })
 
 test_that("method_label() names the method", {
-  expect_identical(method_label(cbps()), "Covariate balancing propensity score")
+  expect_identical(
+    method_label(bal_cbps()),
+    "Covariate balancing propensity score"
+  )
 })
 
 # ---- Statistical promises: binary just-identified -------------------------
 
-test_that("cbps balances a binary ate", {
+test_that("bal_cbps balances a binary ate", {
   data <- sim_binary()
   fit <- balance(
     data,
     exposure,
     c(x1, x2),
-    method = cbps(),
+    method = bal_cbps(),
     estimand = "ate"
   )
   expect_arms_balanced(fit, data)
@@ -227,7 +233,7 @@ test_that("cbps balances a binary ate", {
 })
 
 test_that("a binary ate fit reports arm-to-arm balance without a balance warning", {
-  # Just-identified cbps for the average treatment effect equates the two arms'
+  # Just-identified bal_cbps for the average treatment effect equates the two arms'
   # weighted means, which the balance table reports on the arm-to-arm
   # standardized-mean-difference convention. The achieved imbalance is therefore
   # zero and no balance warning fires, unlike an arm-to-pooled report.
@@ -237,7 +243,7 @@ test_that("a binary ate fit reports arm-to-arm balance without a balance warning
       data,
       exposure,
       c(x1, x2),
-      method = cbps(),
+      method = bal_cbps(),
       estimand = "ate"
     ),
     class = "balancing_balance_warning"
@@ -245,26 +251,26 @@ test_that("a binary ate fit reports arm-to-arm balance without a balance warning
   expect_lt(max(fit@balance_table$weighted), 1e-6)
 })
 
-test_that("cbps balances a binary att", {
+test_that("bal_cbps balances a binary att", {
   data <- sim_binary()
   fit <- balance(
     data,
     exposure,
     c(x1, x2),
-    method = cbps(),
+    method = bal_cbps(),
     estimand = "att"
   )
   expect_balanced(fit, data)
   expect_true(all(stats::weights(fit) >= 0))
 })
 
-test_that("cbps balances a binary atc", {
+test_that("bal_cbps balances a binary atc", {
   data <- sim_binary()
   fit <- balance(
     data,
     exposure,
     c(x1, x2),
-    method = cbps(),
+    method = bal_cbps(),
     estimand = "atc"
   )
   expect_balanced(fit, data)
@@ -273,26 +279,26 @@ test_that("cbps balances a binary atc", {
 
 # ---- Statistical promises: categorical ------------------------------------
 
-test_that("cbps balances a categorical ate", {
+test_that("bal_cbps balances a categorical ate", {
   data <- sim_categorical()
   fit <- balance(
     data,
     exposure,
     c(x1, x2),
-    method = cbps(),
+    method = bal_cbps(),
     estimand = "ate"
   )
   expect_balanced(fit, data)
   expect_true(all(stats::weights(fit) >= 0))
 })
 
-test_that("cbps balances a categorical att", {
+test_that("bal_cbps balances a categorical att", {
   data <- sim_categorical()
   fit <- balance(
     data,
     exposure,
     c(x1, x2),
-    method = cbps(),
+    method = bal_cbps(),
     estimand = "att",
     focal_level = "b"
   )
@@ -302,7 +308,7 @@ test_that("cbps balances a categorical att", {
 
 # ---- Statistical promises: continuous -------------------------------------
 
-test_that("cbps balances a continuous ate on the correlation scale", {
+test_that("bal_cbps balances a continuous ate on the correlation scale", {
   # A continuous exposure balances the weighted exposure-covariate covariance;
   # expect_balanced() reads that on the correlation scale.
   data <- sim_continuous()
@@ -310,7 +316,7 @@ test_that("cbps balances a continuous ate on the correlation scale", {
     data,
     exposure,
     c(x1, x2),
-    method = cbps(),
+    method = bal_cbps(),
     estimand = "ate"
   )
   expect_balanced(fit, data)
@@ -325,7 +331,7 @@ test_that("a binary ate normalizes each group to its size", {
     data,
     exposure,
     c(x1, x2),
-    method = cbps(),
+    method = bal_cbps(),
     estimand = "ate"
   )
   w <- as.numeric(stats::weights(fit))
@@ -340,7 +346,7 @@ test_that("a binary att keeps treated base weights and matches the control sum",
     data,
     exposure,
     c(x1, x2),
-    method = cbps(),
+    method = bal_cbps(),
     estimand = "att"
   )
   w <- as.numeric(stats::weights(fit))
@@ -358,7 +364,7 @@ test_that("the effective sample size is bounded by n within each group", {
     data,
     exposure,
     c(x1, x2),
-    method = cbps(),
+    method = bal_cbps(),
     estimand = "ate"
   )
   ess_tbl <- ess(fit)
@@ -368,13 +374,13 @@ test_that("the effective sample size is bounded by n within each group", {
 
 # ---- Overlap (ato) weights ------------------------------------------------
 
-test_that("cbps ato weights take the overlap form", {
+test_that("bal_cbps ato weights take the overlap form", {
   data <- sim_binary()
   fit <- balance(
     data,
     exposure,
     c(x1, x2),
-    method = cbps(),
+    method = bal_cbps(),
     estimand = "ato"
   )
   w <- as.numeric(stats::weights(fit))
@@ -392,20 +398,20 @@ test_that("cbps ato weights take the overlap form", {
   expect_lt(stats::sd(ratio_control) / mean(ratio_control), 1e-4)
 })
 
-test_that("cbps ato weights differ from the ate weights", {
+test_that("bal_cbps ato weights differ from the ate weights", {
   data <- sim_binary()
   fit_ato <- balance(
     data,
     exposure,
     c(x1, x2),
-    method = cbps(),
+    method = bal_cbps(),
     estimand = "ato"
   )
   fit_ate <- balance(
     data,
     exposure,
     c(x1, x2),
-    method = cbps(),
+    method = bal_cbps(),
     estimand = "ate"
   )
   w_ato <- normalize_by_group(
@@ -427,7 +433,7 @@ test_that("the fit stores the link coefficients", {
     data,
     exposure,
     c(x1, x2),
-    method = cbps(),
+    method = bal_cbps(),
     estimand = "ate"
   )
   expect_false(is.null(fit@coefficients))
@@ -446,7 +452,7 @@ test_that("a just-identified binary fit populates consistent estimating equation
     data,
     exposure,
     c(x1, x2),
-    method = cbps(),
+    method = bal_cbps(),
     estimand = "ate"
   )
   ee <- estimating_equations(fit)
@@ -468,10 +474,13 @@ test_that("a just-identified overlap fit populates consistent estimating equatio
     data,
     exposure,
     c(x1, x2),
-    method = cbps(),
+    method = bal_cbps(),
     estimand = "ato"
   )
-  expect_true(supports_estimating_equations(cbps(), exposure_type = "binary"))
+  expect_true(supports_estimating_equations(
+    bal_cbps(),
+    exposure_type = "binary"
+  ))
   ee <- estimating_equations(fit)
   n <- nrow(data)
   p <- ncol(ee@psi)
@@ -488,7 +497,7 @@ test_that("a just-identified categorical fit populates consistent estimating equ
     data,
     exposure,
     c(x1, x2),
-    method = cbps(),
+    method = bal_cbps(),
     estimand = "ate"
   )
   ee <- estimating_equations(fit)
@@ -510,7 +519,7 @@ test_that("each link function fits and balances a binary ate", {
       data,
       exposure,
       c(x1, x2),
-      method = cbps(link = link),
+      method = bal_cbps(link = link),
       estimand = "ate"
     )
     expect_arms_balanced(fit, data)
@@ -520,7 +529,7 @@ test_that("each link function fits and balances a binary ate", {
 
 # ---- Cross-method identity ------------------------------------------------
 
-test_that("just-identified cbps att weights equal entropy and ipt att weights (binary)", {
+test_that("just-identified bal_cbps att weights equal entropy and bal_ipt att weights (binary)", {
   # The design's tier-one promise: entropy balancing, inverse probability
   # tilting, and just-identified covariate balancing solve the same
   # treated-target moment conditions with the logit link, so their
@@ -530,21 +539,21 @@ test_that("just-identified cbps att weights equal entropy and ipt att weights (b
     data,
     exposure,
     c(x1, x2),
-    method = cbps(),
+    method = bal_cbps(),
     estimand = "att"
   )
   fit_ipt <- balance(
     data,
     exposure,
     c(x1, x2),
-    method = ipt(),
+    method = bal_ipt(),
     estimand = "att"
   )
   fit_ebal <- balance(
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "att"
   )
   w_cbps <- normalize_by_group(
@@ -575,7 +584,7 @@ test_that("two_step is warned and ignored without over_identified", {
       data,
       exposure,
       c(x1, x2),
-      method = cbps(two_step = FALSE, over_identified = FALSE),
+      method = bal_cbps(two_step = FALSE, over_identified = FALSE),
       estimand = "ate"
     ),
     class = "balancing_warning"
@@ -585,7 +594,7 @@ test_that("two_step is warned and ignored without over_identified", {
     data,
     exposure,
     c(x1, x2),
-    method = cbps(two_step = TRUE, over_identified = FALSE),
+    method = bal_cbps(two_step = TRUE, over_identified = FALSE),
     estimand = "ate"
   ))
   expect_equal(
@@ -603,7 +612,7 @@ test_that("an over-identified fit succeeds and records its criterion", {
     data,
     exposure,
     c(x1, x2),
-    method = cbps(over_identified = TRUE),
+    method = bal_cbps(over_identified = TRUE),
     estimand = "ate"
   )
   expect_true(all(stats::weights(fit) >= 0))
@@ -619,7 +628,7 @@ test_that("an over-identified fit has no estimating equations", {
     data,
     exposure,
     c(x1, x2),
-    method = cbps(over_identified = TRUE),
+    method = bal_cbps(over_identified = TRUE),
     estimand = "ate"
   )
   expect_null(fit@estimating_equations)
@@ -635,14 +644,14 @@ test_that("the two-step weighting changes the over-identified solution", {
     data,
     exposure,
     c(x1, x2),
-    method = cbps(over_identified = TRUE, two_step = TRUE),
+    method = bal_cbps(over_identified = TRUE, two_step = TRUE),
     estimand = "ate"
   )
   fit_full <- balance(
     data,
     exposure,
     c(x1, x2),
-    method = cbps(over_identified = TRUE, two_step = FALSE),
+    method = bal_cbps(over_identified = TRUE, two_step = FALSE),
     estimand = "ate"
   )
   w_twostep <- as.numeric(stats::weights(fit_twostep))
@@ -658,7 +667,7 @@ test_that("a continuous fit has no estimating equations", {
     data,
     exposure,
     c(x1, x2),
-    method = cbps(),
+    method = bal_cbps(),
     estimand = "ate"
   )
   expect_null(fit@estimating_equations)
@@ -682,7 +691,7 @@ test_that("the ato estimand raises balancing_estimand_error for a categorical ex
       data,
       exposure,
       c(x1, x2),
-      method = cbps(),
+      method = bal_cbps(),
       estimand = "ato"
     ),
     class = "balancing_estimand_error"
@@ -696,7 +705,7 @@ test_that("the ato estimand raises balancing_estimand_error for a continuous exp
       data,
       exposure,
       c(x1, x2),
-      method = cbps(),
+      method = bal_cbps(),
       estimand = "ato"
     ),
     class = "balancing_estimand_error"
@@ -705,7 +714,7 @@ test_that("the ato estimand raises balancing_estimand_error for a continuous exp
 
 # ---- Live consistency against WeightIt ------------------------------------
 
-test_that("just-identified cbps weights match WeightIt for a binary ate", {
+test_that("just-identified bal_cbps weights match WeightIt for a binary ate", {
   skip_on_cran()
   skip_if_not_installed("WeightIt")
 
@@ -714,7 +723,7 @@ test_that("just-identified cbps weights match WeightIt for a binary ate", {
     data,
     exposure,
     c(x1, x2),
-    method = cbps(),
+    method = bal_cbps(),
     estimand = "ate"
   )
   # over = FALSE selects WeightIt's just-identified (exactly balancing) CBPS.
@@ -734,7 +743,7 @@ test_that("just-identified cbps weights match WeightIt for a binary ate", {
   expect_equal(ours, theirs, tolerance = 1e-6)
 })
 
-test_that("just-identified cbps weights match WeightIt for a binary att", {
+test_that("just-identified bal_cbps weights match WeightIt for a binary att", {
   skip_on_cran()
   skip_if_not_installed("WeightIt")
 
@@ -743,7 +752,7 @@ test_that("just-identified cbps weights match WeightIt for a binary att", {
     data,
     exposure,
     c(x1, x2),
-    method = cbps(),
+    method = bal_cbps(),
     estimand = "att"
   )
   reference <- WeightIt::weightit(
@@ -763,7 +772,7 @@ test_that("just-identified cbps weights match WeightIt for a binary att", {
   expect_equal(ours, theirs, tolerance = 1e-6)
 })
 
-test_that("over-identified cbps meets the design objective tolerance against WeightIt", {
+test_that("over-identified bal_cbps meets the design objective tolerance against WeightIt", {
   skip_on_cran()
   skip_if_not_installed("WeightIt")
 
@@ -781,7 +790,7 @@ test_that("over-identified cbps meets the design objective tolerance against Wei
     data,
     exposure,
     c(x1, x2),
-    method = cbps(over_identified = TRUE, two_step = TRUE),
+    method = bal_cbps(over_identified = TRUE, two_step = TRUE),
     estimand = "ate"
   )
   # over = TRUE selects WeightIt's over-identified CBPS; twostep matches ours.
@@ -811,7 +820,7 @@ test_that("over-identified cbps meets the design objective tolerance against Wei
 
 # ---- Print snapshot -------------------------------------------------------
 
-test_that("a cbps fit prints its summary block", {
+test_that("a bal_cbps fit prints its summary block", {
   # Records on the first successful run once the fit path exists.
   data <- sim_binary()
   expect_snapshot({
@@ -819,7 +828,7 @@ test_that("a cbps fit prints its summary block", {
       data,
       exposure,
       c(x1, x2),
-      method = cbps(),
+      method = bal_cbps(),
       estimand = "ate"
     )
     fit

@@ -9,7 +9,7 @@
 
 test_that("balance() resolves the exposure and covariates with tidyselect", {
   data <- sim_binary(n = 200)
-  fit <- balance(data, exposure, c(x1, x2), method = entropy_balance())
+  fit <- balance(data, exposure, c(x1, x2), method = bal_entropy())
 
   expect_true(S7::S7_inherits(fit, balancing))
   expect_identical(fit@exposure, "exposure")
@@ -22,7 +22,7 @@ test_that("balance() accepts tidyselect helpers for covariates", {
     data,
     exposure,
     tidyselect::starts_with("x"),
-    method = entropy_balance()
+    method = bal_entropy()
   )
 
   expect_identical(fit@covariates, c("x1", "x2", "x3"))
@@ -31,7 +31,7 @@ test_that("balance() accepts tidyselect helpers for covariates", {
 test_that("balance() errors when the exposure selects more than one column", {
   data <- sim_binary(n = 200)
   expect_error(
-    balance(data, c(x1, x2), c(x1, x2), method = entropy_balance()),
+    balance(data, c(x1, x2), c(x1, x2), method = bal_entropy()),
     class = "balancing_selection_error"
   )
 })
@@ -43,7 +43,7 @@ test_that("balance() errors when the covariate selection is empty", {
       data,
       exposure,
       tidyselect::starts_with("nonexistent"),
-      method = entropy_balance()
+      method = bal_entropy()
     ),
     class = "balancing_selection_error"
   )
@@ -53,14 +53,14 @@ test_that("balance() errors when the covariate selection is empty", {
 
 test_that("balance() auto-detects the exposure type and stores it", {
   data <- sim_binary(n = 200)
-  fit <- balance(data, exposure, c(x1, x2), method = entropy_balance())
+  fit <- balance(data, exposure, c(x1, x2), method = bal_entropy())
   expect_identical(fit@exposure_type, "binary")
 
   fit_cat <- balance(
     sim_categorical(n = 200),
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "ate"
   )
   expect_identical(fit_cat@exposure_type, "categorical")
@@ -69,7 +69,7 @@ test_that("balance() auto-detects the exposure type and stores it", {
     sim_continuous(n = 200),
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "ate"
   )
   expect_identical(fit_cont@exposure_type, "continuous")
@@ -79,7 +79,7 @@ test_that("balance() announces the detected exposure type", {
   withr::local_options(balancing.quiet = FALSE)
   data <- sim_binary(n = 200)
   expect_message(
-    balance(data, exposure, c(x1, x2), method = entropy_balance()),
+    balance(data, exposure, c(x1, x2), method = bal_entropy()),
     regexp = "binary"
   )
 })
@@ -88,7 +88,7 @@ test_that("balance() stays silent when the quiet option is set", {
   withr::local_options(balancing.quiet = TRUE)
   data <- sim_binary(n = 200)
   expect_silent(
-    balance(data, exposure, c(x1, x2), method = entropy_balance())
+    balance(data, exposure, c(x1, x2), method = bal_entropy())
   )
 })
 
@@ -99,7 +99,7 @@ test_that("a forced exposure type that contradicts the data errors", {
       data,
       exposure,
       c(x1, x2),
-      method = entropy_balance(),
+      method = bal_entropy(),
       exposure_type = "binary"
     ),
     class = "balancing_exposure_type_error"
@@ -114,7 +114,7 @@ test_that("balance() stores the requested estimand for a binary exposure", {
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "att"
   )
   expect_identical(fit@estimand, "att")
@@ -126,14 +126,14 @@ test_that("the untreated-target synonyms resolve to propensity's canonical", {
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "atc"
   )
   fit_atu <- balance(
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "atu"
   )
 
@@ -149,7 +149,7 @@ test_that("an estimand unsupported by the method and exposure type errors", {
       data,
       exposure,
       c(x1, x2),
-      method = entropy_balance(),
+      method = bal_entropy(),
       estimand = "ato"
     ),
     class = "balancing_estimand_error"
@@ -163,7 +163,7 @@ test_that("a continuous exposure permits only the ate estimand", {
       data,
       exposure,
       c(x1, x2),
-      method = entropy_balance(),
+      method = bal_entropy(),
       estimand = "att"
     ),
     class = "balancing_estimand_error"
@@ -178,7 +178,7 @@ test_that("a binary att infers the treated level without focal_level", {
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "att"
   )
   expect_identical(fit@focal_level, "1")
@@ -191,7 +191,7 @@ test_that("a categorical att requires focal_level", {
       data,
       exposure,
       c(x1, x2),
-      method = entropy_balance(),
+      method = bal_entropy(),
       estimand = "att"
     ),
     class = "balancing_estimand_error"
@@ -204,7 +204,7 @@ test_that("a categorical att honors a supplied focal_level", {
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "att",
     focal_level = "b"
   )
@@ -220,7 +220,7 @@ test_that("balance() evaluates sampling_weights given as a bare column", {
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     sampling_weights = sw
   )
   expect_length(fit@sampling_weights, nrow(data))
@@ -234,7 +234,7 @@ test_that("balance() evaluates sampling_weights given as an external vector", {
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     sampling_weights = external
   )
   expect_length(fit@sampling_weights, nrow(data))
@@ -248,7 +248,7 @@ test_that("negative sampling weights error", {
       data,
       exposure,
       c(x1, x2),
-      method = entropy_balance(),
+      method = bal_entropy(),
       sampling_weights = rep(-1, nrow(data))
     ),
     class = "balancing_error"
@@ -261,11 +261,11 @@ test_that("balance() rejects unnamed arguments through check_dots_empty()", {
   data <- sim_binary(n = 200)
   # A valid call succeeds; an extra unnamed argument trips check_dots_empty().
   expect_true(S7::S7_inherits(
-    balance(data, exposure, c(x1, x2), method = entropy_balance()),
+    balance(data, exposure, c(x1, x2), method = bal_entropy()),
     balancing
   ))
   expect_error(
-    balance(data, exposure, c(x1, x2), method = entropy_balance(), 5)
+    balance(data, exposure, c(x1, x2), method = bal_entropy(), 5)
   )
 })
 
@@ -273,7 +273,7 @@ test_that("missing values in the covariates error", {
   data <- sim_binary(n = 200)
   data$x1[1] <- NA
   expect_error(
-    balance(data, exposure, c(x1, x2), method = entropy_balance()),
+    balance(data, exposure, c(x1, x2), method = bal_entropy()),
     class = "balancing_missing_error"
   )
 })
@@ -282,7 +282,7 @@ test_that("missing values in the exposure error", {
   data <- sim_binary(n = 200)
   data$exposure[1] <- NA
   expect_error(
-    balance(data, exposure, c(x1, x2), method = entropy_balance()),
+    balance(data, exposure, c(x1, x2), method = bal_entropy()),
     class = "balancing_missing_error"
   )
 })
@@ -299,7 +299,7 @@ test_that("a bare-string method errors", {
 
 test_that("balance() requires a data frame", {
   expect_error(
-    balance(list(a = 1), exposure, c(x1, x2), method = entropy_balance()),
+    balance(list(a = 1), exposure, c(x1, x2), method = bal_entropy()),
     class = "balancing_type_error"
   )
 })

@@ -27,7 +27,7 @@ quadratic-program fit, raise \code{balancing_ipw_unsupported_error}.
 n <- 200
 x1 <- rnorm(n)
 df <- data.frame(exposure = rbinom(n, 1, plogis(0.5 * x1)), x1 = x1)
-fit <- balance(df, exposure, x1, method = entropy_balance())
+fit <- balance(df, exposure, x1, method = bal_entropy())
 estimating_equations(fit)
 
 }

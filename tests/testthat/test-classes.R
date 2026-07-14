@@ -3,21 +3,21 @@
 # valid construction so the spec depends on the real implementation, then
 # asserts the rejection.
 
-# ---- entropy_balance validators -------------------------------------------
+# ---- bal_entropy validators -------------------------------------------
 
-test_that("entropy_balance() rejects a non-positive convergence tolerance", {
-  expect_identical(entropy_balance()@convergence_tolerance, 1e-10)
-  expect_error(entropy_balance(convergence_tolerance = -1e-10))
+test_that("bal_entropy() rejects a non-positive convergence tolerance", {
+  expect_identical(bal_entropy()@convergence_tolerance, 1e-10)
+  expect_error(bal_entropy(convergence_tolerance = -1e-10))
 })
 
-test_that("entropy_balance() rejects a negative iteration cap", {
-  expect_null(entropy_balance()@max_iterations)
-  expect_error(entropy_balance(max_iterations = -5L))
+test_that("bal_entropy() rejects a negative iteration cap", {
+  expect_null(bal_entropy()@max_iterations)
+  expect_error(bal_entropy(max_iterations = -5L))
 })
 
-test_that("entropy_balance() rejects negative base weights", {
-  expect_equal(entropy_balance(base_weights = c(1, 2))@base_weights, c(1, 2))
-  expect_error(entropy_balance(base_weights = c(1, -1, 1)))
+test_that("bal_entropy() rejects negative base weights", {
+  expect_equal(bal_entropy(base_weights = c(1, 2))@base_weights, c(1, 2))
+  expect_error(bal_entropy(base_weights = c(1, -1, 1)))
 })
 
 # ---- balance_terms validators ---------------------------------------------
@@ -56,7 +56,7 @@ test_that("balance_terms() accepts a quantile list and validates its elements", 
 
 test_that("the abstract method parents are not constructible", {
   # A concrete subclass constructs; the abstract parents do not.
-  expect_true(S7::S7_inherits(entropy_balance(), balance_method))
+  expect_true(S7::S7_inherits(bal_entropy(), balance_method))
   expect_error(balance_method())
   expect_error(estimating_equation_method())
   expect_error(quadratic_program_method())

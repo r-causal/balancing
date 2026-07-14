@@ -7,7 +7,7 @@
 
 #' Inverse probability tilting
 #'
-#' `ipt()` specifies inverse probability tilting for [balance()]. A propensity
+#' `bal_ipt()` specifies inverse probability tilting for [balance()]. A propensity
 #' model is fit not by maximum likelihood but by a tilted moment condition that
 #' forces each treatment group's weighted covariate means to their estimand
 #' targets, so balance on the requested moments is exact by construction.
@@ -36,7 +36,7 @@
 #' @param ... Reserved for future extensions; must be empty. Tuning parameters
 #'   must be passed by name.
 #'
-#' @return An `ipt` specification, a [balance_method].
+#' @return An `bal_ipt` specification, a [balance_method].
 #'
 #' @references
 #' Graham, B. S., Pinto, C. C. de X., and Egel, D. (2012). Inverse probability
@@ -52,12 +52,12 @@
 #'   x1 = x1,
 #'   x2 = x2
 #' )
-#' fit <- balance(df, exposure, c(x1, x2), method = ipt())
+#' fit <- balance(df, exposure, c(x1, x2), method = bal_ipt())
 #' fit
 #'
 #' @export
-ipt <- new_class(
-  "ipt",
+bal_ipt <- new_class(
+  "bal_ipt",
   parent = estimating_equation_method,
   properties = list(
     link = class_character
@@ -86,15 +86,15 @@ ipt <- new_class(
   }
 )
 
-method(method_label, ipt) <- function(method) {
+method(method_label, bal_ipt) <- function(method) {
   "Inverse probability tilting"
 }
 
-method(supported_exposure_types, ipt) <- function(method) {
+method(supported_exposure_types, bal_ipt) <- function(method) {
   c("binary", "categorical")
 }
 
-method(supported_estimands, ipt) <- function(method, exposure_type) {
+method(supported_estimands, bal_ipt) <- function(method, exposure_type) {
   switch(
     exposure_type,
     binary = c("ate", "att", "atu"),
@@ -106,7 +106,7 @@ method(supported_estimands, ipt) <- function(method, exposure_type) {
 # Inverse probability tilting always solves smooth estimating equations. Unlike
 # entropy balancing, the tilt keeps them regardless of the requested tolerance,
 # so the constraints do not change the answer.
-method(supports_estimating_equations, ipt) <- function(
+method(supports_estimating_equations, bal_ipt) <- function(
   method,
   ...,
   constraints = NULL
@@ -129,7 +129,7 @@ ipt_options <- function(method) {
   options
 }
 
-method(fit_method, ipt) <- function(method, prepared) {
+method(fit_method, bal_ipt) <- function(method, prepared) {
   if (identical(prepared$exposure_type, "binary")) {
     fit_ipt_binary(method, prepared)
   } else {

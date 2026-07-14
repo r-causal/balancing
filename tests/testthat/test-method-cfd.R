@@ -1,4 +1,4 @@
-# cfd_balance() is the method spec; balance(..., method = cfd_balance()) fits it.
+# bal_cfd() is the method spec; balance(..., method = bal_cfd()) fits it.
 # Characteristic function distance balancing (kernel balancing) chooses weights
 # that minimize a kernel measure of the distance between the reweighted exposure
 # groups and the target sample. Each kernel is positive semidefinite by
@@ -6,7 +6,7 @@
 # simplex-type constraint set, and the method spec carries only tuning
 # parameters. The improved variant adds the mean-embedding target adjustment of
 # the CFD literature. The energy kernel is the negative pairwise distance, so
-# cfd_balance(kernel = "energy") reproduces energy_balance() on the same data
+# bal_cfd(kernel = "energy") reproduces bal_energy() on the same data
 # and constraints; that equivalence is the parity anchor for this slice, since
 # there is no external reference implementation for the other kernels.
 #
@@ -38,9 +38,9 @@ weights_differ <- function(a, b) {
 
 # ---- Constructor ----------------------------------------------------------
 
-test_that("cfd_balance() carries its documented defaults", {
-  spec <- cfd_balance()
-  expect_true(S7::S7_inherits(spec, cfd_balance))
+test_that("bal_cfd() carries its documented defaults", {
+  spec <- bal_cfd()
+  expect_true(S7::S7_inherits(spec, bal_cfd))
   expect_true(S7::S7_inherits(spec, quadratic_program_method))
   expect_true(S7::S7_inherits(spec, balance_method))
   expect_identical(spec@kernel, "gaussian")
@@ -54,8 +54,8 @@ test_that("cfd_balance() carries its documented defaults", {
   expect_null(spec@max_iterations)
 })
 
-test_that("cfd_balance() stores supplied tuning parameters", {
-  spec <- cfd_balance(
+test_that("bal_cfd() stores supplied tuning parameters", {
+  spec <- bal_cfd(
     kernel = "matern",
     smoothness = 2.5,
     degrees_of_freedom = 8,
@@ -77,79 +77,79 @@ test_that("cfd_balance() stores supplied tuning parameters", {
   expect_identical(spec@max_iterations, 500L)
 })
 
-test_that("cfd_balance() matches the kernel argument", {
-  expect_identical(cfd_balance(kernel = "laplace")@kernel, "laplace")
-  expect_identical(cfd_balance(kernel = "t")@kernel, "t")
-  expect_identical(cfd_balance(kernel = "energy")@kernel, "energy")
-  expect_error(cfd_balance(kernel = "cauchy"))
+test_that("bal_cfd() matches the kernel argument", {
+  expect_identical(bal_cfd(kernel = "laplace")@kernel, "laplace")
+  expect_identical(bal_cfd(kernel = "t")@kernel, "t")
+  expect_identical(bal_cfd(kernel = "energy")@kernel, "energy")
+  expect_error(bal_cfd(kernel = "cauchy"))
 })
 
-test_that("cfd_balance() rejects unnamed and unknown extra arguments", {
-  expect_true(S7::S7_inherits(cfd_balance(), balance_method))
-  expect_error(cfd_balance(1e-4))
-  expect_error(cfd_balance(bogus = 1))
+test_that("bal_cfd() rejects unnamed and unknown extra arguments", {
+  expect_true(S7::S7_inherits(bal_cfd(), balance_method))
+  expect_error(bal_cfd(1e-4))
+  expect_error(bal_cfd(bogus = 1))
 })
 
 # ---- Validators -----------------------------------------------------------
 
-test_that("cfd_balance() accepts only the supported Matern smoothness values", {
-  expect_identical(cfd_balance(smoothness = 0.5)@smoothness, 0.5)
-  expect_identical(cfd_balance(smoothness = 1.5)@smoothness, 1.5)
-  expect_identical(cfd_balance(smoothness = 2.5)@smoothness, 2.5)
-  expect_error(cfd_balance(smoothness = 1))
-  expect_error(cfd_balance(smoothness = 3.5))
+test_that("bal_cfd() accepts only the supported Matern smoothness values", {
+  expect_identical(bal_cfd(smoothness = 0.5)@smoothness, 0.5)
+  expect_identical(bal_cfd(smoothness = 1.5)@smoothness, 1.5)
+  expect_identical(bal_cfd(smoothness = 2.5)@smoothness, 2.5)
+  expect_error(bal_cfd(smoothness = 1))
+  expect_error(bal_cfd(smoothness = 3.5))
 })
 
-test_that("cfd_balance() rejects degrees of freedom at or below two", {
-  expect_equal(cfd_balance(degrees_of_freedom = 3)@degrees_of_freedom, 3)
-  expect_error(cfd_balance(degrees_of_freedom = 2))
-  expect_error(cfd_balance(degrees_of_freedom = 1))
+test_that("bal_cfd() rejects degrees of freedom at or below two", {
+  expect_equal(bal_cfd(degrees_of_freedom = 3)@degrees_of_freedom, 3)
+  expect_error(bal_cfd(degrees_of_freedom = 2))
+  expect_error(bal_cfd(degrees_of_freedom = 1))
 })
 
-test_that("cfd_balance() rejects a negative weight penalty", {
-  expect_identical(cfd_balance(weight_penalty = 1e-3)@weight_penalty, 1e-3)
-  expect_error(cfd_balance(weight_penalty = -1e-4))
+test_that("bal_cfd() rejects a negative weight penalty", {
+  expect_identical(bal_cfd(weight_penalty = 1e-3)@weight_penalty, 1e-3)
+  expect_error(bal_cfd(weight_penalty = -1e-4))
 })
 
-test_that("cfd_balance() rejects a negative minimum weight", {
-  expect_identical(cfd_balance(min_weight = 1e-6)@min_weight, 1e-6)
-  expect_error(cfd_balance(min_weight = -1e-8))
+test_that("bal_cfd() rejects a negative minimum weight", {
+  expect_identical(bal_cfd(min_weight = 1e-6)@min_weight, 1e-6)
+  expect_error(bal_cfd(min_weight = -1e-8))
 })
 
-test_that("cfd_balance() rejects a non-positive number of simulation draws", {
-  expect_equal(cfd_balance(simulation_draws = 2000)@simulation_draws, 2000)
-  expect_error(cfd_balance(simulation_draws = 0))
-  expect_error(cfd_balance(simulation_draws = -100))
+test_that("bal_cfd() rejects a non-positive number of simulation draws", {
+  expect_equal(bal_cfd(simulation_draws = 2000)@simulation_draws, 2000)
+  expect_error(bal_cfd(simulation_draws = 0))
+  expect_error(bal_cfd(simulation_draws = -100))
 })
 
-test_that("cfd_balance() rejects a non-positive convergence tolerance", {
-  expect_null(cfd_balance()@convergence_tolerance)
-  expect_error(cfd_balance(convergence_tolerance = -1e-8))
+test_that("bal_cfd() rejects a non-positive convergence tolerance", {
+  expect_null(bal_cfd()@convergence_tolerance)
+  expect_error(bal_cfd(convergence_tolerance = -1e-8))
 })
 
-test_that("cfd_balance() rejects a negative iteration cap", {
-  expect_null(cfd_balance()@max_iterations)
-  expect_error(cfd_balance(max_iterations = -5L))
+test_that("bal_cfd() rejects a negative iteration cap", {
+  expect_null(bal_cfd()@max_iterations)
+  expect_error(bal_cfd(max_iterations = -5L))
 })
 
 # ---- Capability methods ---------------------------------------------------
 
 test_that("supported_exposure_types() lists binary and categorical only", {
   expect_setequal(
-    supported_exposure_types(cfd_balance()),
+    supported_exposure_types(bal_cfd()),
     c("binary", "categorical")
   )
-  expect_false("continuous" %in% supported_exposure_types(cfd_balance()))
+  expect_false("continuous" %in% supported_exposure_types(bal_cfd()))
 })
 
 test_that("supported_estimands() depends on the exposure type", {
-  binary <- supported_estimands(cfd_balance(), "binary")
+  binary <- supported_estimands(bal_cfd(), "binary")
   expect_true(all(c("ate", "att") %in% binary))
   expect_true(any(c("atc", "atu") %in% binary))
   expect_false("ato" %in% binary)
 
   expect_setequal(
-    supported_estimands(cfd_balance(), "categorical"),
+    supported_estimands(bal_cfd(), "categorical"),
     c("ate", "att")
   )
 })
@@ -157,24 +157,24 @@ test_that("supported_estimands() depends on the exposure type", {
 test_that("supports_estimating_equations() is always FALSE for cfd", {
   # The quadratic-program family has no estimating equations, whatever the
   # constraints or exposure type.
-  expect_false(supports_estimating_equations(cfd_balance()))
+  expect_false(supports_estimating_equations(bal_cfd()))
   expect_false(supports_estimating_equations(
-    cfd_balance(),
+    bal_cfd(),
     constraints = balance_terms(moments = 1L)
   ))
   expect_false(supports_estimating_equations(
-    cfd_balance(),
+    bal_cfd(),
     constraints = balance_terms(tolerance = 0.05)
   ))
   expect_false(supports_estimating_equations(
-    cfd_balance(),
+    bal_cfd(),
     exposure_type = "binary"
   ))
 })
 
 test_that("method_label() names the method", {
   expect_identical(
-    method_label(cfd_balance()),
+    method_label(bal_cfd()),
     "Characteristic function distance balancing"
   )
 })
@@ -182,9 +182,9 @@ test_that("method_label() names the method", {
 # ---- Energy-kernel equivalence: the parity anchor -------------------------
 
 test_that("the energy kernel reproduces energy balancing for a binary ate", {
-  # cfd_balance(kernel = "energy") is the negative pairwise distance, so with the
+  # bal_cfd(kernel = "energy") is the negative pairwise distance, so with the
   # matched defaults (improved variant, weight penalty, minimum weight) it solves
-  # the same quadratic program as energy_balance() on the same data and
+  # the same quadratic program as bal_energy() on the same data and
   # constraints and returns the same weights. This is the parity anchor for the
   # slice: the other kernels share the assembly and differ only in the kernel
   # matrix.
@@ -193,14 +193,14 @@ test_that("the energy kernel reproduces energy balancing for a binary ate", {
     data,
     exposure,
     c(x1, x2),
-    method = cfd_balance(kernel = "energy"),
+    method = bal_cfd(kernel = "energy"),
     estimand = "ate"
   )
   fit_energy <- balance(
     data,
     exposure,
     c(x1, x2),
-    method = energy_balance(),
+    method = bal_energy(),
     estimand = "ate"
   )
   expect_equal(
@@ -216,14 +216,14 @@ test_that("the energy kernel reproduces energy balancing for a binary att", {
     data,
     exposure,
     c(x1, x2),
-    method = cfd_balance(kernel = "energy"),
+    method = bal_cfd(kernel = "energy"),
     estimand = "att"
   )
   fit_energy <- balance(
     data,
     exposure,
     c(x1, x2),
-    method = energy_balance(),
+    method = bal_energy(),
     estimand = "att"
   )
   expect_equal(
@@ -241,7 +241,7 @@ test_that("a binary ate normalizes each group to its size", {
     data,
     exposure,
     c(x1, x2),
-    method = cfd_balance(),
+    method = bal_cfd(),
     estimand = "ate"
   )
   w <- as.numeric(stats::weights(fit))
@@ -259,7 +259,7 @@ test_that("a binary att targets the treated total in both groups", {
     data,
     exposure,
     c(x1, x2),
-    method = cfd_balance(),
+    method = bal_cfd(),
     estimand = "att"
   )
   w <- as.numeric(stats::weights(fit))
@@ -276,7 +276,7 @@ test_that("a binary atc fit produces non-negative floored weights", {
     data,
     exposure,
     c(x1, x2),
-    method = cfd_balance(),
+    method = bal_cfd(),
     estimand = "atc"
   )
   w <- as.numeric(stats::weights(fit))
@@ -292,7 +292,7 @@ test_that("the effective sample size is bounded by n within each group", {
     data,
     exposure,
     c(x1, x2),
-    method = cfd_balance(),
+    method = bal_cfd(),
     estimand = "ate"
   )
   ess_tbl <- ess(fit)
@@ -308,7 +308,7 @@ test_that("categorical ate kernel balancing produces valid weights", {
     data,
     exposure,
     c(x1, x2),
-    method = cfd_balance(),
+    method = bal_cfd(),
     estimand = "ate"
   )
   w <- as.numeric(stats::weights(fit))
@@ -325,7 +325,7 @@ test_that("categorical att kernel balancing produces valid weights", {
     data,
     exposure,
     c(x1, x2),
-    method = cfd_balance(),
+    method = bal_cfd(),
     estimand = "att",
     focal_level = "b"
   )
@@ -341,11 +341,11 @@ test_that("every kernel converges to valid, floored weights", {
     balance(data, exposure, c(x1, x2), method = method, estimand = "ate")
   }
   methods <- list(
-    gaussian = cfd_balance(kernel = "gaussian"),
-    matern05 = cfd_balance(kernel = "matern", smoothness = 0.5),
-    matern15 = cfd_balance(kernel = "matern", smoothness = 1.5),
-    matern25 = cfd_balance(kernel = "matern", smoothness = 2.5),
-    laplace = cfd_balance(kernel = "laplace")
+    gaussian = bal_cfd(kernel = "gaussian"),
+    matern05 = bal_cfd(kernel = "matern", smoothness = 0.5),
+    matern15 = bal_cfd(kernel = "matern", smoothness = 1.5),
+    matern25 = bal_cfd(kernel = "matern", smoothness = 2.5),
+    laplace = bal_cfd(kernel = "laplace")
   )
   for (method in methods) {
     fit <- fit_of(method)
@@ -366,9 +366,9 @@ test_that("distinct kernels produce distinct weight sets", {
       data$exposure
     )
   }
-  w_gaussian <- weights_for(cfd_balance(kernel = "gaussian"))
-  w_laplace <- weights_for(cfd_balance(kernel = "laplace"))
-  w_energy <- weights_for(cfd_balance(kernel = "energy"))
+  w_gaussian <- weights_for(bal_cfd(kernel = "gaussian"))
+  w_laplace <- weights_for(bal_cfd(kernel = "laplace"))
+  w_energy <- weights_for(bal_cfd(kernel = "energy"))
   expect_true(weights_differ(w_gaussian, w_laplace))
   expect_true(weights_differ(w_gaussian, w_energy))
   expect_true(weights_differ(w_laplace, w_energy))
@@ -383,7 +383,7 @@ test_that("the Matern smoothness values produce distinct weight sets", {
           data,
           exposure,
           c(x1, x2),
-          method = cfd_balance(kernel = "matern", smoothness = smoothness),
+          method = bal_cfd(kernel = "matern", smoothness = smoothness),
           estimand = "ate"
         )
       )),
@@ -412,7 +412,7 @@ test_that("a distance-based kernel is invariant to a uniform covariate rescaling
       df,
       exposure,
       c(x1, x2),
-      method = cfd_balance(kernel = "gaussian"),
+      method = bal_cfd(kernel = "gaussian"),
       estimand = "ate"
     )
   }
@@ -441,7 +441,7 @@ test_that("t-kernel weights are reproducible under a fixed seed", {
           data,
           exposure,
           c(x1, x2),
-          method = cfd_balance(kernel = "t"),
+          method = bal_cfd(kernel = "t"),
           estimand = "ate"
         )
       ))
@@ -460,7 +460,7 @@ test_that("t-kernel weights respond to the number of simulation draws", {
           data,
           exposure,
           c(x1, x2),
-          method = cfd_balance(kernel = "t", simulation_draws = draws),
+          method = bal_cfd(kernel = "t", simulation_draws = draws),
           estimand = "ate"
         )
       ))
@@ -481,7 +481,7 @@ test_that("the improved variant differs from the plain variant and both converge
       data,
       exposure,
       c(x1, x2),
-      method = cfd_balance(improved = improved),
+      method = bal_cfd(improved = improved),
       estimand = "ate"
     )
   }
@@ -509,7 +509,7 @@ test_that("a binary ate balances under non-uniform sampling weights", {
     data,
     exposure,
     c(x1, x2),
-    method = cfd_balance(),
+    method = bal_cfd(),
     estimand = "ate",
     sampling_weights = sw
   )
@@ -532,7 +532,7 @@ test_that("moment constraints are satisfied within tolerance", {
     data,
     exposure,
     c(x1, x2),
-    method = cfd_balance(),
+    method = bal_cfd(),
     estimand = "ate",
     constraints = balance_terms(moments = 1L)
   )
@@ -545,7 +545,7 @@ test_that("a positive tolerance relaxes the moment constraints", {
     data,
     exposure,
     c(x1, x2),
-    method = cfd_balance(),
+    method = bal_cfd(),
     estimand = "ate",
     constraints = balance_terms(moments = 1L, tolerance = 0.1)
   )
@@ -562,7 +562,7 @@ test_that("a tolerance without moment constraints warns and is ignored", {
       data,
       exposure,
       c(x1, x2),
-      method = cfd_balance(),
+      method = bal_cfd(),
       estimand = "ate",
       constraints = balance_terms(tolerance = 0.1)
     ),
@@ -572,7 +572,7 @@ test_that("a tolerance without moment constraints warns and is ignored", {
     data,
     exposure,
     c(x1, x2),
-    method = cfd_balance(),
+    method = bal_cfd(),
     estimand = "ate"
   )
   expect_equal(
@@ -590,7 +590,7 @@ test_that("the fit reports dual variables and the quadratic-program backend", {
     data,
     exposure,
     c(x1, x2),
-    method = cfd_balance(),
+    method = bal_cfd(),
     estimand = "ate"
   )
   expect_s3_class(fit@duals, "data.frame")
@@ -605,7 +605,7 @@ test_that("a kernel balancing fit has no estimating equations", {
     data,
     exposure,
     c(x1, x2),
-    method = cfd_balance(),
+    method = bal_cfd(),
     estimand = "ate"
   )
   expect_null(fit@estimating_equations)
@@ -621,7 +621,7 @@ test_that("ipw() rejects a kernel balancing fit", {
     data,
     exposure,
     c(x1, x2),
-    method = cfd_balance(),
+    method = bal_cfd(),
     estimand = "ate"
   )
   outcome <- stats::lm(x1 ~ exposure, data = data)
@@ -642,7 +642,7 @@ test_that("an explicit clarabel backend solves and records itself", {
     data,
     exposure,
     c(x1, x2),
-    method = cfd_balance(),
+    method = bal_cfd(),
     estimand = "ate"
   )
   expect_identical(fit@solver_status, "clarabel")
@@ -660,7 +660,7 @@ test_that("a continuous exposure raises balancing_exposure_type_error", {
       data,
       exposure,
       c(x1, x2),
-      method = cfd_balance(),
+      method = bal_cfd(),
       estimand = "ate"
     ),
     class = "balancing_exposure_type_error"
@@ -680,7 +680,7 @@ test_that("the ato estimand raises balancing_estimand_error for a binary exposur
       data,
       exposure,
       c(x1, x2),
-      method = cfd_balance(),
+      method = bal_cfd(),
       estimand = "ato"
     ),
     class = "balancing_estimand_error"
@@ -694,7 +694,7 @@ test_that("the ato estimand raises balancing_estimand_error for a categorical ex
       data,
       exposure,
       c(x1, x2),
-      method = cfd_balance(),
+      method = bal_cfd(),
       estimand = "ato"
     ),
     class = "balancing_estimand_error"
@@ -711,7 +711,7 @@ test_that("a kernel balancing fit prints its summary block", {
       data,
       exposure,
       c(x1, x2),
-      method = cfd_balance(),
+      method = bal_cfd(),
       estimand = "ate"
     )
     fit

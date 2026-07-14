@@ -3,7 +3,7 @@
     Code
       expr
     Condition <balancing_ignored_argument_warning>
-      Warning in `method(fit_method, balancing::energy_balance)`:
+      Warning in `method(fit_method, balancing::bal_energy)`:
       `tolerance` relaxes added moment constraints, but this fit has none to relax.
       i Drop `tolerance` from `balance_terms()`, or add moment constraints with `moments`, `quantiles`, or `interactions` for a discrete exposure.
     Output
@@ -22,7 +22,7 @@
     Code
       expr
     Condition <balancing_ignored_argument_warning>
-      Warning in `method(fit_method, balancing::energy_balance)`:
+      Warning in `method(fit_method, balancing::bal_energy)`:
       `tolerance` relaxes added moment constraints, but this fit has none to relax.
       i Drop `tolerance` from `balance_terms()`, or add moment constraints with `moments`, `quantiles`, or `interactions` for a discrete exposure.
     Output
@@ -49,7 +49,7 @@
 # an energy fit prints its summary block
 
     Code
-      fit <- balance(data, exposure, c(x1, x2), method = energy_balance(), estimand = "ate")
+      fit <- balance(data, exposure, c(x1, x2), method = bal_energy(), estimand = "ate")
       fit
     Output
       

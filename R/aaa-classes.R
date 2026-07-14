@@ -15,7 +15,7 @@ cat_cli <- function(expr) {
 
 #' The balancing method specification classes
 #'
-#' The method constructors ([entropy_balance()] and its siblings) return small
+#' The method constructors ([bal_entropy()] and its siblings) return small
 #' S7 objects that carry tuning parameters and never touch data. They share an
 #' abstract hierarchy so that [balance()] can query a method's capabilities
 #' uniformly. `balance_method` is the abstract root. The estimating-equation
@@ -448,7 +448,7 @@ method(glance, balancing) <- function(x, ...) {
 #' n <- 200
 #' x1 <- rnorm(n)
 #' df <- data.frame(exposure = rbinom(n, 1, plogis(0.5 * x1)), x1 = x1)
-#' fit <- balance(df, exposure, x1, method = entropy_balance())
+#' fit <- balance(df, exposure, x1, method = bal_entropy())
 #' estimating_equations(fit)
 #'
 #' @export

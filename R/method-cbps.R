@@ -12,7 +12,7 @@
 
 #' Covariate balancing propensity score
 #'
-#' `cbps()` specifies the covariate balancing propensity score for [balance()]. A
+#' `bal_cbps()` specifies the covariate balancing propensity score for [balance()]. A
 #' propensity model is fit so that its parameters satisfy covariate balancing
 #' moment conditions rather than the maximum-likelihood score alone. In the
 #' just-identified form the moment conditions equal the parameter count, so
@@ -65,7 +65,7 @@
 #' @param ... Reserved for future extensions; must be empty. Tuning parameters
 #'   must be passed by name.
 #'
-#' @return A `cbps` specification, a [balance_method].
+#' @return A `bal_cbps` specification, a [balance_method].
 #'
 #' @references
 #' Imai, K. and Ratkovic, M. (2014). Covariate balancing propensity score.
@@ -85,12 +85,12 @@
 #'   x1 = x1,
 #'   x2 = x2
 #' )
-#' fit <- balance(df, exposure, c(x1, x2), method = cbps())
+#' fit <- balance(df, exposure, c(x1, x2), method = bal_cbps())
 #' fit
 #'
 #' @export
-cbps <- new_class(
-  "cbps",
+bal_cbps <- new_class(
+  "bal_cbps",
   parent = estimating_equation_method,
   properties = list(
     over_identified = class_logical,
@@ -141,15 +141,15 @@ cbps <- new_class(
   }
 )
 
-method(method_label, cbps) <- function(method) {
+method(method_label, bal_cbps) <- function(method) {
   "Covariate balancing propensity score"
 }
 
-method(supported_exposure_types, cbps) <- function(method) {
+method(supported_exposure_types, bal_cbps) <- function(method) {
   c("binary", "categorical", "continuous")
 }
 
-method(supported_estimands, cbps) <- function(method, exposure_type) {
+method(supported_estimands, bal_cbps) <- function(method, exposure_type) {
   switch(
     exposure_type,
     # The overlap estimand is legal only for a binary exposure.
@@ -163,7 +163,7 @@ method(supported_estimands, cbps) <- function(method, exposure_type) {
 # over-identified form minimizes a generalized-method-of-moments criterion and a
 # continuous exposure balances the exposure-covariate covariance through an
 # exponential tilt, so neither carries estimating equations.
-method(supports_estimating_equations, cbps) <- function(
+method(supports_estimating_equations, bal_cbps) <- function(
   method,
   ...,
   exposure_type = NULL,
@@ -193,7 +193,7 @@ cbps_options <- function(method) {
   options
 }
 
-method(fit_method, cbps) <- function(method, prepared) {
+method(fit_method, bal_cbps) <- function(method, prepared) {
   # The two-step weighting matrix belongs to the over-identified criterion.
   # Setting it while the fit is just-identified has no effect, so warn and
   # proceed rather than fail validation.
@@ -201,7 +201,7 @@ method(fit_method, cbps) <- function(method, prepared) {
     warn(
       c(
         "{.arg two_step} applies only to the over-identified fit and is ignored.",
-        i = "Set {.code over_identified = TRUE} in {.fn cbps} to use the two-step weighting matrix."
+        i = "Set {.code over_identified = TRUE} in {.fn bal_cbps} to use the two-step weighting matrix."
       ),
       warning_class = "balancing_ignored_argument_warning"
     )

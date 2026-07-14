@@ -8,7 +8,7 @@ test_that("glance() of a binary fit reports the max absolute SMD", {
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "ate"
   )
   glanced <- generics::glance(fit)
@@ -28,7 +28,7 @@ test_that("glance() of a continuous fit reports the max absolute correlation", {
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "ate"
   )
   glanced <- generics::glance(fit)

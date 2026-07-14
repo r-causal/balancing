@@ -1,4 +1,4 @@
-# sbw() is the method spec; balance(..., method = sbw()) fits it. Stable
+# bal_sbw() is the method spec; balance(..., method = bal_sbw()) fits it. Stable
 # balancing weights (Zubizarreta) minimize the dispersion of the weights subject
 # to approximate covariate balance: the weighted covariate means are held within
 # a tolerance band rather than balanced exactly, and among all weightings that
@@ -92,9 +92,9 @@ per_column_smd <- function(fit, .data) {
 
 # ---- Constructor ----------------------------------------------------------
 
-test_that("sbw() carries its documented defaults", {
-  spec <- sbw()
-  expect_true(S7::S7_inherits(spec, sbw))
+test_that("bal_sbw() carries its documented defaults", {
+  spec <- bal_sbw()
+  expect_true(S7::S7_inherits(spec, bal_sbw))
   expect_true(S7::S7_inherits(spec, quadratic_program_method))
   expect_true(S7::S7_inherits(spec, balance_method))
   expect_identical(spec@norm, "l2")
@@ -103,8 +103,8 @@ test_that("sbw() carries its documented defaults", {
   expect_null(spec@max_iterations)
 })
 
-test_that("sbw() stores supplied tuning parameters", {
-  spec <- sbw(
+test_that("bal_sbw() stores supplied tuning parameters", {
+  spec <- bal_sbw(
     norm = "l1",
     min_weight = 1e-6,
     convergence_tolerance = 1e-8,
@@ -116,81 +116,81 @@ test_that("sbw() stores supplied tuning parameters", {
   expect_identical(spec@max_iterations, 500L)
 })
 
-test_that("sbw() matches the norm argument", {
-  expect_identical(sbw(norm = "l2")@norm, "l2")
-  expect_identical(sbw(norm = "l1")@norm, "l1")
-  expect_identical(sbw(norm = "linf")@norm, "linf")
-  expect_error(sbw(norm = "huber"))
+test_that("bal_sbw() matches the norm argument", {
+  expect_identical(bal_sbw(norm = "l2")@norm, "l2")
+  expect_identical(bal_sbw(norm = "l1")@norm, "l1")
+  expect_identical(bal_sbw(norm = "linf")@norm, "linf")
+  expect_error(bal_sbw(norm = "huber"))
 })
 
-test_that("sbw() rejects unnamed and unknown extra arguments", {
-  expect_true(S7::S7_inherits(sbw(), balance_method))
-  expect_error(sbw(1e-8))
-  expect_error(sbw(bogus = 1))
+test_that("bal_sbw() rejects unnamed and unknown extra arguments", {
+  expect_true(S7::S7_inherits(bal_sbw(), balance_method))
+  expect_error(bal_sbw(1e-8))
+  expect_error(bal_sbw(bogus = 1))
 })
 
 # ---- Validators -----------------------------------------------------------
 
-test_that("sbw() rejects a negative minimum weight", {
-  expect_identical(sbw(min_weight = 1e-6)@min_weight, 1e-6)
-  expect_error(sbw(min_weight = -1e-8))
+test_that("bal_sbw() rejects a negative minimum weight", {
+  expect_identical(bal_sbw(min_weight = 1e-6)@min_weight, 1e-6)
+  expect_error(bal_sbw(min_weight = -1e-8))
 })
 
-test_that("sbw() rejects a non-positive convergence tolerance", {
-  expect_null(sbw()@convergence_tolerance)
-  expect_error(sbw(convergence_tolerance = -1e-8))
+test_that("bal_sbw() rejects a non-positive convergence tolerance", {
+  expect_null(bal_sbw()@convergence_tolerance)
+  expect_error(bal_sbw(convergence_tolerance = -1e-8))
 })
 
-test_that("sbw() rejects a negative iteration cap", {
-  expect_null(sbw()@max_iterations)
-  expect_error(sbw(max_iterations = -5L))
+test_that("bal_sbw() rejects a negative iteration cap", {
+  expect_null(bal_sbw()@max_iterations)
+  expect_error(bal_sbw(max_iterations = -5L))
 })
 
 # ---- Capability methods ---------------------------------------------------
 
 test_that("supported_exposure_types() lists every exposure type", {
   expect_setequal(
-    supported_exposure_types(sbw()),
+    supported_exposure_types(bal_sbw()),
     c("binary", "categorical", "continuous")
   )
 })
 
 test_that("supported_estimands() depends on the exposure type", {
-  binary <- supported_estimands(sbw(), "binary")
+  binary <- supported_estimands(bal_sbw(), "binary")
   expect_true(all(c("ate", "att") %in% binary))
   expect_true(any(c("atc", "atu") %in% binary))
   expect_false("ato" %in% binary)
 
   expect_setequal(
-    supported_estimands(sbw(), "categorical"),
+    supported_estimands(bal_sbw(), "categorical"),
     c("ate", "att")
   )
   expect_setequal(
-    supported_estimands(sbw(), "continuous"),
+    supported_estimands(bal_sbw(), "continuous"),
     "ate"
   )
 })
 
-test_that("supports_estimating_equations() is always FALSE for sbw", {
+test_that("supports_estimating_equations() is always FALSE for bal_sbw", {
   # The quadratic-program family has no estimating equations, whatever the
   # constraints or exposure type.
-  expect_false(supports_estimating_equations(sbw()))
+  expect_false(supports_estimating_equations(bal_sbw()))
   expect_false(supports_estimating_equations(
-    sbw(),
+    bal_sbw(),
     constraints = balance_terms(tolerance = 0.05)
   ))
   expect_false(supports_estimating_equations(
-    sbw(),
+    bal_sbw(),
     exposure_type = "binary"
   ))
   expect_false(supports_estimating_equations(
-    sbw(),
+    bal_sbw(),
     exposure_type = "continuous"
   ))
 })
 
 test_that("method_label() names the method", {
-  expect_identical(method_label(sbw()), "Stable balancing weights")
+  expect_identical(method_label(bal_sbw()), "Stable balancing weights")
 })
 
 # ---- Property tests: minimum variance under constraints -------------------
@@ -201,7 +201,7 @@ test_that("a binary ate fit meets the tolerance and floors the weights", {
     data,
     exposure,
     c(x1, x2),
-    method = sbw(),
+    method = bal_sbw(),
     estimand = "ate",
     constraints = balance_terms(tolerance = 0.05)
   )
@@ -217,7 +217,7 @@ test_that("a binary ate normalizes each group to its size", {
     data,
     exposure,
     c(x1, x2),
-    method = sbw(),
+    method = bal_sbw(),
     estimand = "ate",
     constraints = balance_terms(tolerance = 0.05)
   )
@@ -233,7 +233,7 @@ test_that("a binary att targets the treated total in both groups", {
     data,
     exposure,
     c(x1, x2),
-    method = sbw(),
+    method = bal_sbw(),
     estimand = "att",
     constraints = balance_terms(tolerance = 0.05)
   )
@@ -252,7 +252,7 @@ test_that("a binary atc fit produces non-negative floored weights", {
     data,
     exposure,
     c(x1, x2),
-    method = sbw(),
+    method = bal_sbw(),
     estimand = "atc",
     constraints = balance_terms(tolerance = 0.05)
   )
@@ -274,7 +274,7 @@ test_that("tightening the tolerance cannot lower the weight dispersion", {
       data,
       exposure,
       c(x1, x2),
-      method = sbw(),
+      method = bal_sbw(),
       estimand = "ate",
       constraints = balance_terms(tolerance = tolerance)
     )
@@ -301,7 +301,7 @@ test_that("the minimum-weight floor holds on the reported scale", {
     data,
     exposure,
     c(x1, x2),
-    method = sbw(min_weight = 1e-3),
+    method = bal_sbw(min_weight = 1e-3),
     estimand = "ate",
     constraints = balance_terms(tolerance = 0.05)
   )
@@ -318,7 +318,7 @@ test_that("a binary ate balances under non-uniform sampling weights", {
     data,
     exposure,
     c(x1, x2),
-    method = sbw(),
+    method = bal_sbw(),
     estimand = "ate",
     constraints = balance_terms(tolerance = 0.05),
     sampling_weights = sw
@@ -340,7 +340,7 @@ test_that("a continuous ate meets the correlation tolerance under sampling weigh
     data,
     exposure,
     c(x1, x2),
-    method = sbw(),
+    method = bal_sbw(),
     estimand = "ate",
     constraints = balance_terms(tolerance = 0.05),
     sampling_weights = sw
@@ -359,7 +359,7 @@ test_that("the effective sample size is bounded by n within each group", {
     data,
     exposure,
     c(x1, x2),
-    method = sbw(),
+    method = bal_sbw(),
     estimand = "ate",
     constraints = balance_terms(tolerance = 0.05)
   )
@@ -376,7 +376,7 @@ test_that("categorical ate stable balancing produces valid weights", {
     data,
     exposure,
     c(x1, x2),
-    method = sbw(),
+    method = bal_sbw(),
     estimand = "ate",
     constraints = balance_terms(tolerance = 0.05)
   )
@@ -395,7 +395,7 @@ test_that("categorical att stable balancing produces valid weights", {
     data,
     exposure,
     c(x1, x2),
-    method = sbw(),
+    method = bal_sbw(),
     estimand = "att",
     focal_level = "b",
     constraints = balance_terms(tolerance = 0.05)
@@ -413,7 +413,7 @@ test_that("continuous ate stable balancing meets the correlation tolerance", {
     data,
     exposure,
     c(x1, x2),
-    method = sbw(),
+    method = bal_sbw(),
     estimand = "ate",
     constraints = balance_terms(tolerance = 0.05)
   )
@@ -436,7 +436,7 @@ test_that("a fit without a positive tolerance raises balancing_constraints_error
       data,
       exposure,
       c(x1, x2),
-      method = sbw(),
+      method = bal_sbw(),
       estimand = "ate"
     ),
     class = "balancing_constraints_error"
@@ -446,7 +446,7 @@ test_that("a fit without a positive tolerance raises balancing_constraints_error
       data,
       exposure,
       c(x1, x2),
-      method = sbw(),
+      method = bal_sbw(),
       estimand = "ate",
       constraints = balance_terms(tolerance = 0)
     ),
@@ -461,7 +461,7 @@ test_that("the required-tolerance message names the tuning parameter", {
       data,
       exposure,
       c(x1, x2),
-      method = sbw(),
+      method = bal_sbw(),
       estimand = "ate"
     )
   )
@@ -480,7 +480,7 @@ test_that("a fit with an unsupported norm raises balancing_method_error", {
         data,
         exposure,
         c(x1, x2),
-        method = sbw(norm = norm),
+        method = bal_sbw(norm = norm),
         estimand = "ate",
         constraints = balance_terms(tolerance = 0.05)
       ),
@@ -496,7 +496,7 @@ test_that("the unsupported-norm message points to the least-squares norm", {
       data,
       exposure,
       c(x1, x2),
-      method = sbw(norm = "l1"),
+      method = bal_sbw(norm = "l1"),
       estimand = "ate",
       constraints = balance_terms(tolerance = 0.05)
     )
@@ -509,7 +509,7 @@ test_that("a per-covariate tolerance binds each covariate to its own band", {
     data,
     exposure,
     c(x1, x2),
-    method = sbw(),
+    method = bal_sbw(),
     estimand = "ate",
     constraints = balance_terms(tolerance = c(x1 = 0.01, x2 = 0.2))
   )
@@ -527,7 +527,7 @@ test_that("derived columns inherit the source covariate tolerance", {
     data,
     exposure,
     c(x1, x2),
-    method = sbw(),
+    method = bal_sbw(),
     estimand = "ate",
     constraints = balance_terms(moments = 2L, tolerance = 0.05)
   )
@@ -562,7 +562,7 @@ test_that("an infeasible constraint set raises balancing_infeasible_error", {
       data,
       exposure,
       c(x1, x2),
-      method = sbw(),
+      method = bal_sbw(),
       estimand = "ate",
       constraints = balance_terms(tolerance = 0.01)
     )
@@ -585,7 +585,7 @@ test_that("the clarabel fallback does not mask genuine infeasibility", {
       data,
       exposure,
       c(x1, x2),
-      method = sbw(),
+      method = bal_sbw(),
       estimand = "ate",
       constraints = balance_terms(tolerance = 0.01)
     ),
@@ -695,7 +695,7 @@ test_that("an explicit osqp backend surfaces the false infeasibility through bal
       data,
       exposure,
       c(x1, x2),
-      method = sbw(),
+      method = bal_sbw(),
       estimand = "ate",
       constraints = balance_terms(tolerance = 0.01)
     ),
@@ -710,7 +710,7 @@ test_that("an explicit clarabel backend solves and records itself", {
     data,
     exposure,
     c(x1, x2),
-    method = sbw(),
+    method = bal_sbw(),
     estimand = "ate",
     constraints = balance_terms(tolerance = 0.05)
   )
@@ -732,7 +732,7 @@ test_that("the fit reports dual variables and the quadratic-program backend", {
     data,
     exposure,
     c(x1, x2),
-    method = sbw(),
+    method = bal_sbw(),
     estimand = "ate",
     constraints = balance_terms(tolerance = 0.05)
   )
@@ -748,7 +748,7 @@ test_that("a stable balancing fit has no estimating equations", {
     data,
     exposure,
     c(x1, x2),
-    method = sbw(),
+    method = bal_sbw(),
     estimand = "ate",
     constraints = balance_terms(tolerance = 0.05)
   )
@@ -765,7 +765,7 @@ test_that("ipw() rejects a stable balancing fit", {
     data,
     exposure,
     c(x1, x2),
-    method = sbw(),
+    method = bal_sbw(),
     estimand = "ate",
     constraints = balance_terms(tolerance = 0.05)
   )
@@ -790,7 +790,7 @@ test_that("the ato estimand raises balancing_estimand_error for a binary exposur
       data,
       exposure,
       c(x1, x2),
-      method = sbw(),
+      method = bal_sbw(),
       estimand = "ato",
       constraints = balance_terms(tolerance = 0.05)
     ),
@@ -805,7 +805,7 @@ test_that("the ato estimand raises balancing_estimand_error for a categorical ex
       data,
       exposure,
       c(x1, x2),
-      method = sbw(),
+      method = bal_sbw(),
       estimand = "ato",
       constraints = balance_terms(tolerance = 0.05)
     ),
@@ -829,7 +829,7 @@ test_that("stable balancing weights meet the objective tolerance against optweig
     data,
     exposure,
     c(x1, x2),
-    method = sbw(),
+    method = bal_sbw(),
     estimand = "ate",
     constraints = balance_terms(tolerance = 0.05)
   )
@@ -855,7 +855,7 @@ test_that("stable balancing weights meet the objective tolerance against optweig
     data,
     exposure,
     c(x1, x2),
-    method = sbw(),
+    method = bal_sbw(),
     estimand = "att",
     constraints = balance_terms(tolerance = 0.05)
   )
@@ -883,7 +883,7 @@ test_that("a stable balancing fit prints its summary block", {
       data,
       exposure,
       c(x1, x2),
-      method = sbw(),
+      method = bal_sbw(),
       estimand = "ate",
       constraints = balance_terms(tolerance = 0.05)
     )

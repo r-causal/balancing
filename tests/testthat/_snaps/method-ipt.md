@@ -1,7 +1,7 @@
-# an ipt fit prints its summary block
+# an bal_ipt fit prints its summary block
 
     Code
-      fit <- balance(data, exposure, c(x1, x2), method = ipt(), estimand = "ate")
+      fit <- balance(data, exposure, c(x1, x2), method = bal_ipt(), estimand = "ate")
       fit
     Output
       

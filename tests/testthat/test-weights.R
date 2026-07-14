@@ -283,7 +283,7 @@ test_that("ess() returns a group, n, ess tibble", {
     data,
     exposure,
     c(x1, x2),
-    method = entropy_balance(),
+    method = bal_entropy(),
     estimand = "ate"
   )
   ess_tbl <- ess(fit)

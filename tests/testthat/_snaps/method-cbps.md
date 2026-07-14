@@ -1,7 +1,7 @@
-# a cbps fit prints its summary block
+# a bal_cbps fit prints its summary block
 
     Code
-      fit <- balance(data, exposure, c(x1, x2), method = cbps(), estimand = "ate")
+      fit <- balance(data, exposure, c(x1, x2), method = bal_cbps(), estimand = "ate")
       fit
     Output
       
