@@ -22,3 +22,5 @@
 ^src/rust/target$
 ^src/Makevars$
 ^src/Makevars\.win$
+^doc$
+^Meta$

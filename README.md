@@ -1,0 +1,138 @@
+
+<!-- README.md is generated from README.Rmd. Please edit that file -->
+
+# balancing
+
+<!-- badges: start -->
+
+[![R-CMD-check](https://github.com/r-causal/balancing/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/r-causal/balancing/actions/workflows/R-CMD-check.yaml)
+[![Codecov test
+coverage](https://codecov.io/gh/r-causal/balancing/graph/badge.svg)](https://app.codecov.io/gh/r-causal/balancing)
+[![Lifecycle:
+experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](https://lifecycle.r-lib.org/articles/stages.html#experimental)
+<!-- badges: end -->
+
+balancing calculates optimization-based balancing weights for causal
+inference. Rather than modeling the probability of exposure and then
+hoping the resulting weights balance the covariates, these methods make
+covariate balance the objective of a convex optimization problem and
+solve for the weights that achieve it directly. The package covers six
+methods (entropy balancing, inverse probability tilting, the covariate
+balancing propensity score, energy balancing, characteristic function
+distance balancing, and stable balancing weights) across binary,
+categorical, and continuous exposures and a range of estimands. A Rust
+core provides the numerical solvers.
+
+## Installation
+
+You can install the development version of balancing from
+[GitHub](https://github.com/r-causal/balancing) with:
+
+``` r
+# install.packages("pak")
+pak::pak("r-causal/balancing")
+```
+
+Installing from source requires a Rust toolchain (`rustc` 1.85 or newer
+and Cargo).
+
+## Usage
+
+`balance()` is the entry point. You give it a data frame, name the
+exposure and covariates with tidyselect, choose a method and an
+estimand, and it returns a fitted object carrying the weights and a
+balance table.
+
+``` r
+library(balancing)
+
+# Simulate data with two confounders and a binary exposure
+set.seed(1)
+n <- 500
+x1 <- rnorm(n)
+x2 <- rnorm(n)
+z <- rbinom(n, 1, plogis(0.4 * x1 - 0.5 * x2))
+y <- 1 + 0.9 * z + 0.6 * x1 - 0.4 * x2 + rnorm(n)
+study <- data.frame(exposure = z, age = x1, score = x2, outcome = y)
+
+# Fit entropy balancing weights for the ATT
+fit <- balance(
+  study,
+  exposure,
+  c(age, score),
+  method = bw_entropy(),
+  estimand = "att"
+)
+
+fit
+#> 
+#> ── Entropy balancing ───────────────────────────────────────────────────────────
+#> Exposure: "exposure" (binary)
+#> Estimand: "att" (focal level "1")
+#> Observations: 500
+#> Effective sample size (0: 138.6 and 1: 267.0)
+#> Solver: converged in 3 iterations
+#> Constraints: 2 terms (tolerance 0)
+#> Largest imbalance: 0.0000 (standardized mean difference)
+```
+
+The printed summary reports the effective sample size, the solver
+status, and the largest imbalance the weights leave behind. `tidy()`
+returns the full balance table, one row per constraint term, with the
+standardized mean difference before and after weighting.
+
+``` r
+tidy(fit)
+#>    term   kind statistic group unweighted     weighted tolerance
+#> 1   age moment       smd     0  0.4523254 4.451137e-11         0
+#> 2 score moment       smd     0  0.4901850 1.810707e-11         0
+#>   within_tolerance
+#> 1             TRUE
+#> 2             TRUE
+```
+
+The weights are a `bw` vector, a sibling of `propensity::psw`. Pass them
+to a weighted outcome model to estimate the effect.
+
+``` r
+study$w <- as.numeric(weights(fit))
+outcome_mod <- lm(outcome ~ exposure, data = study, weights = w)
+coef(outcome_mod)[["exposure"]]
+#> [1] 1.131677
+```
+
+For the estimating-equation methods with a binary exposure,
+`propensity::ipw()` returns effect estimates with standard errors that
+account for having estimated the weights.
+
+## How balancing relates to the other r-causal packages
+
+balancing is part of the [r-causal](https://github.com/r-causal) family
+and shares its design language with three sibling packages.
+
+- [propensity](https://r-causal.github.io/propensity/) calculates
+  inverse probability weights from a fitted propensity score model and
+  estimates effects with `ipw()`. balancing produces a different kind of
+  weight, one that targets balance directly rather than through a
+  modeled score, but it plugs into the same effect-estimation workflow:
+  the weights share the `causal_wts` vocabulary, and `ipw()` dispatches
+  on a balancing fit just as it does on a propensity model.
+- [halfmoon](https://r-causal.github.io/halfmoon/) assesses covariate
+  balance. balancing reports the balance achieved on its own constraint
+  terms, but a full balance-assessment workflow, including variables the
+  weights were not asked to balance, lives in halfmoon. Extract the
+  weights with `weights()` and pass them to `halfmoon::check_balance()`
+  and `halfmoon::plot_balance()`.
+- [positively](https://github.com/r-causal/positively) contributes the
+  shared design language: the S7 method specifications, the orchestrator
+  API, and the exposure-type handling follow its conventions.
+
+## Learn more
+
+- `vignette("balancing")` walks through a binary exposure workflow from
+  weights to effects.
+- `vignette("choosing-a-method")` compares the six methods and the
+  constraint options.
+- `vignette("inference")` covers standard errors after balancing.
+- [Causal Inference in R](https://www.r-causal.org/) is a book on causal
+  inference methods in R.

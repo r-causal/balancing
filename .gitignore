@@ -8,3 +8,5 @@ tests/testthat/testthat-problems.rds
 scratch/
 docs
 inst/doc
+/doc/
+/Meta/

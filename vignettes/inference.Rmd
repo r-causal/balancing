@@ -1,0 +1,158 @@
+---
+title: "Inference after balancing"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Inference after balancing}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+options(balancing.quiet = TRUE)
+set.seed(2024)
+```
+
+Balancing weights are estimated, not fixed. A weighted outcome model treats its weights as known constants, so the standard errors it reports do not account for the uncertainty in the weights themselves. This article explains why that matters and shows two ways to get honest standard errors: linearization through `propensity::ipw()` for the estimating-equation methods, and a bootstrap for the quadratic-program methods.
+
+```{r setup}
+library(balancing)
+```
+
+## Why the weights' uncertainty matters
+
+Consider a binary exposure with a binary outcome and two confounders.
+
+```{r data}
+n <- 1500
+age <- rnorm(n)
+score <- rnorm(n)
+exposure <- rbinom(n, 1, plogis(0.5 * age - 0.5 * score))
+event <- rbinom(n, 1, plogis(-0.4 + 0.7 * exposure + 0.4 * age - 0.3 * score))
+
+study <- data.frame(exposure, age, score, event)
+```
+
+We fit entropy balancing weights for the ATE and a weighted outcome model.
+
+```{r fit}
+fit <- balance(
+  study,
+  exposure,
+  c(age, score),
+  method = bw_entropy(),
+  estimand = "ate"
+)
+study$w <- as.numeric(weights(fit))
+
+outcome_mod <- glm(
+  event ~ exposure,
+  data = study,
+  family = quasibinomial(),
+  weights = w
+)
+```
+
+The outcome model reports a standard error for the exposure coefficient, but it is conditional on the weights. It treats the reweighting as given and so leaves out one of the sources of variation in the estimate.
+
+```{r naive}
+naive <- summary(outcome_mod)$coefficients["exposure", ]
+naive
+```
+
+The right standard error propagates the uncertainty from estimating the weights into the effect estimate. Whether it is larger or smaller than the naive value depends on the estimand and the design, but it is generally not the same, and using the naive value can give intervals with the wrong coverage.
+
+## Linearization with `ipw()`
+
+The estimating-equation methods (`bw_entropy()`, `bw_ipt()`, and the just-identified `bw_cbps()`) fit weights that solve smooth estimating equations. That structure lets the uncertainty be propagated analytically: `propensity::ipw()` stacks the weight-parameter estimating equations, the outcome-model score equations, and the marginal-mean equations into one system and takes its sandwich variance. The result is a standard error that accounts for having estimated the weights.
+
+```{r ipw}
+result <- propensity::ipw(fit, outcome_mod)
+result
+```
+
+The `rd` row is the risk difference on the same scale as the outcome model's marginal effect. Comparing its standard error to the naive one shows the correction.
+
+```{r compare}
+rd <- as.data.frame(result$estimates)
+rd <- rd[rd$effect == "rd", ]
+
+data.frame(
+  source = c("naive (weights fixed)", "ipw (weights estimated)"),
+  std.err = c(naive[["Std. Error"]], rd$std.err)
+)
+```
+
+`ipw()` requires a marginal outcome model, one whose only predictor is the exposure, because the stacked variance is derived for that form. It is available for binary exposures with the estimating-equation methods at exact balance. A tolerance-relaxed fit, an over-identified covariate balancing propensity score fit, or any quadratic-program fit carries no estimating equations, and `ipw()` raises an error pointing here.
+
+```{r unsupported, error = TRUE}
+sbw_fit <- balance(
+  study,
+  exposure,
+  c(age, score),
+  method = bw_sbw(),
+  constraints = balance_terms(tolerance = 0.02)
+)
+propensity::ipw(sbw_fit, outcome_mod)
+```
+
+## Bootstrapping the quadratic-program methods
+
+The quadratic-program methods (`bw_energy()`, `bw_cfd()`, and `bw_sbw()`) do not carry estimating equations, so their inference uses resampling. The recipe is a standard nonparametric bootstrap: resample the rows with replacement, refit the weights and the outcome model on each resample, and take the spread of the effect estimates across resamples as the standard error. The important detail is that the reweighting is refit inside the loop, so every source of variation, including the estimation of the weights, is captured.
+
+We keep the example small so it runs quickly: a few hundred resamples on a modest sample.
+
+```{r bootstrap}
+boot_study <- study[seq_len(400), ]
+
+fit_effect <- function(data) {
+  fit <- balance(
+    data,
+    exposure,
+    c(age, score),
+    method = bw_sbw(),
+    constraints = balance_terms(tolerance = 0.02)
+  )
+  data$w <- as.numeric(weights(fit))
+  model <- glm(
+    event ~ exposure,
+    data = data,
+    family = quasibinomial(),
+    weights = w
+  )
+  # The marginal risk difference by g-computation
+  p1 <- predict(model, transform(data, exposure = 1), type = "response")
+  p0 <- predict(model, transform(data, exposure = 0), type = "response")
+  mean(p1) - mean(p0)
+}
+
+set.seed(1)
+point_estimate <- fit_effect(boot_study)
+
+n_boot <- 200
+boot_estimates <- vapply(seq_len(n_boot), function(b) {
+  rows <- sample(nrow(boot_study), replace = TRUE)
+  fit_effect(boot_study[rows, ])
+}, numeric(1))
+```
+
+The bootstrap standard error is the standard deviation of the resampled estimates, and a percentile interval comes from their quantiles.
+
+```{r bootstrap-summary}
+data.frame(
+  estimate = point_estimate,
+  std.err = sd(boot_estimates),
+  ci.lower = quantile(boot_estimates, 0.025),
+  ci.upper = quantile(boot_estimates, 0.975),
+  row.names = NULL
+)
+```
+
+A production analysis would use more resamples, typically at least one or two thousand, and might use the bias-corrected and accelerated interval rather than the percentile one. The structure stays the same: refit the weights inside every resample.
+
+## Choosing an approach
+
+Use `ipw()` when the method carries estimating equations, which is the estimating-equation family with a binary exposure and exact balance. It is faster and needs no tuning. Use the bootstrap for the quadratic-program methods, for tolerance-relaxed fits, for covariate-adjusted outcome models, and for exposure types beyond binary. The bootstrap is more general but more expensive, and its precision improves with the number of resamples.
