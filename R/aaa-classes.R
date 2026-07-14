@@ -383,6 +383,17 @@ method(summary, balancing) <- function(object, ...) {
   w <- as.numeric(weights(object))
   mean_w <- mean(w)
   cv <- stats::sd(w) / mean_w
+  # The quadratic-program family reports how many weights rest on the
+  # minimum-weight floor. The floor is applied to the reported balancing weights
+  # after each group is renormalized, so the count is taken there, on the
+  # `@weights` scale rather than the sampling-weight-composed scale, with a tight
+  # relative tolerance around the floor value.
+  report_floor <- S7_inherits(object@method, quadratic_program_method)
+  if (report_floor) {
+    floor <- object@method@min_weight
+    raw <- as.numeric(object@weights)
+    at_floor <- sum(raw <= floor * (1 + 1e-6) + 1e-12)
+  }
   cat_cli({
     cli::cli_h2("Weights")
     cli::cli_text(
@@ -392,6 +403,11 @@ method(summary, balancing) <- function(object, ...) {
     cli::cli_text(
       "Coefficient of variation: {formatC(cv, format = 'f', digits = 3)}"
     )
+    if (report_floor) {
+      cli::cli_text(
+        "Weights at the minimum-weight floor: {at_floor} of {object@n}"
+      )
+    }
     cli::cli_h2("Balance")
   })
   # Print the head as a base data frame so the display does not depend on

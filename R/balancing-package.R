@@ -7,6 +7,7 @@
 #' @importFrom generics glance
 #' @importFrom generics tidy
 #' @importFrom rlang %||%
+#' @importFrom rlang .data
 #' @importFrom stats sd
 #' @importFrom stats weights
 #' @importFrom tidyselect eval_select

@@ -290,3 +290,45 @@ test_that("ess() returns a group, n, ess tibble", {
   expect_true(all(c("group", "n", "ess") %in% names(ess_tbl)))
   expect_true(all(ess_tbl$ess <= ess_tbl$n + 1e-8))
 })
+
+test_that("ess() computes sum(w)^2 / sum(w^2) within each exposure group", {
+  data <- sim_binary(n = 200)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bal_entropy(),
+    estimand = "ate"
+  )
+  ess_tbl <- ess(fit)
+  w <- as.numeric(weights(fit))
+  exposure_vec <- as.character(data$exposure)
+
+  # Recompute the effective sample size for each level directly from the
+  # extracted weights and compare against the reported value.
+  for (level in ess_tbl$group) {
+    idx <- exposure_vec == level
+    expected <- sum(w[idx])^2 / sum(w[idx]^2)
+    reported <- ess_tbl$ess[ess_tbl$group == level]
+    expect_equal(reported, expected)
+    expect_identical(ess_tbl$n[ess_tbl$group == level], sum(idx))
+  }
+})
+
+test_that("ess() of a continuous fit reports a single overall row", {
+  data <- sim_continuous(n = 200)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bal_entropy(),
+    estimand = "ate"
+  )
+  ess_tbl <- ess(fit)
+  w <- as.numeric(weights(fit))
+
+  expect_identical(nrow(ess_tbl), 1L)
+  expect_identical(ess_tbl$group, "overall")
+  expect_identical(ess_tbl$n, nrow(data))
+  expect_equal(ess_tbl$ess, sum(w)^2 / sum(w^2))
+})
