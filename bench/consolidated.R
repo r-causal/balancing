@@ -39,8 +39,12 @@ RAW_DIR <- file.path("scratch", "bench", "raw")
 # Binary exposure with p standard-normal covariates whose propensity depends on
 # a handful of them. The seed and coefficients match the per-slice scripts so a
 # given (n, p) reproduces the workload behind the locked baselines.
-make_binary <- function(n, p, seed = 20240711L,
-                        coefs = c(0.3, -0.3, 0.2, -0.2)) {
+make_binary <- function(
+  n,
+  p,
+  seed = 20240711L,
+  coefs = c(0.3, -0.3, 0.2, -0.2)
+) {
   set.seed(seed)
   X <- matrix(stats::rnorm(n * p), n, p)
   colnames(X) <- paste0("x", seq_len(p))
@@ -97,11 +101,23 @@ fit_weights <- function(...) {
 # thousands of units, while the dense quadratic-program family (energy, cfd)
 # stays in the low thousands where the n by n solve is tractable.
 
-bench_esteq_method <- function(label, method_fn, data, covs, estimand = "ate",
-                               iterations = 5L, check_precision = TRUE) {
+bench_esteq_method <- function(
+  label,
+  method_fn,
+  data,
+  covs,
+  estimand = "ate",
+  iterations = 5L,
+  check_precision = TRUE
+) {
   df <- data$df
-  fit <- balance(df, exposure, all_of(covs), method = method_fn(),
-                 estimand = estimand)
+  fit <- balance(
+    df,
+    exposure,
+    all_of(covs),
+    method = method_fn(),
+    estimand = estimand
+  )
   w <- as.numeric(weights(fit))
   stopifnot(isTRUE(fit@converged))
   if (check_precision && is.numeric(data$tr)) {
@@ -109,19 +125,39 @@ bench_esteq_method <- function(label, method_fn, data, covs, estimand = "ate",
     stopifnot(prec < 1e-6)
   }
   mk <- bench::mark(
-    fit = fit_weights(df, exposure, all_of(covs), method = method_fn(),
-                      estimand = estimand),
-    check = FALSE, min_iterations = iterations, max_iterations = iterations,
+    fit = fit_weights(
+      df,
+      exposure,
+      all_of(covs),
+      method = method_fn(),
+      estimand = estimand
+    ),
+    check = FALSE,
+    min_iterations = iterations,
+    max_iterations = iterations,
     filter_gc = FALSE
   )
   list(label = label, median = as.numeric(mk$median), mark = mk)
 }
 
-bench_qp_method <- function(label, method_call, df, covs, estimand = "ate",
-                            constraints = NULL, iterations = 5L) {
+bench_qp_method <- function(
+  label,
+  method_call,
+  df,
+  covs,
+  estimand = "ate",
+  constraints = NULL,
+  iterations = 5L
+) {
   do_fit <- function() {
-    balance(df, exposure, all_of(covs), method = method_call(),
-            estimand = estimand, constraints = constraints)
+    balance(
+      df,
+      exposure,
+      all_of(covs),
+      method = method_call(),
+      estimand = estimand,
+      constraints = constraints
+    )
   }
   fit <- do_fit()
   stopifnot(isTRUE(fit@converged))
@@ -129,11 +165,17 @@ bench_qp_method <- function(label, method_call, df, covs, estimand = "ate",
   stopifnot(all(is.finite(w)))
   mk <- bench::mark(
     fit = as.numeric(weights(do_fit())),
-    check = FALSE, min_iterations = iterations, max_iterations = iterations,
+    check = FALSE,
+    min_iterations = iterations,
+    max_iterations = iterations,
     filter_gc = FALSE
   )
-  list(label = label, median = as.numeric(mk$median), mark = mk,
-       solver_status = fit@solver_status)
+  list(
+    label = label,
+    median = as.numeric(mk$median),
+    mark = mk,
+    solver_status = fit@solver_status
+  )
 }
 
 run_internal_grid <- function() {
@@ -153,8 +195,15 @@ run_internal_grid <- function() {
     # conditions rather than exact mean balance, so it is checked by convergence
     # only, not by the exact first-moment precision the tilt methods reach.
     out[[sprintf("cbps_binary_ate_n%d", n)]] <-
-      bench_esteq_method("cbps", bal_cbps, d, covs, "ate", iters,
-                         check_precision = FALSE)
+      bench_esteq_method(
+        "cbps",
+        bal_cbps,
+        d,
+        covs,
+        "ate",
+        iters,
+        check_precision = FALSE
+      )
   }
 
   # Categorical entropy and ipt at n = 10000, p = 10 (no exact-precision check;
@@ -162,39 +211,70 @@ run_internal_grid <- function() {
   dc <- make_categorical(10000L, 10L)
   covsc <- paste0("x", 1:10)
   out[["entropy_categorical_ate_n10000"]] <-
-    bench_esteq_method("entropy", bal_entropy, dc, covsc, "ate", 5L,
-                       check_precision = FALSE)
+    bench_esteq_method(
+      "entropy",
+      bal_entropy,
+      dc,
+      covsc,
+      "ate",
+      5L,
+      check_precision = FALSE
+    )
   out[["ipt_categorical_ate_n10000"]] <-
-    bench_esteq_method("ipt", bal_ipt, dc, covsc, "ate", 5L,
-                       check_precision = FALSE)
+    bench_esteq_method(
+      "ipt",
+      bal_ipt,
+      dc,
+      covsc,
+      "ate",
+      5L,
+      check_precision = FALSE
+    )
 
   # Continuous entropy at n = 10000, p = 10.
   dk <- make_continuous(10000L, 10L)
   out[["entropy_continuous_ate_n10000"]] <-
-    bench_esteq_method("entropy", bal_entropy, dk, covsc,
-                       "ate", 5L, check_precision = FALSE)
+    bench_esteq_method(
+      "entropy",
+      bal_entropy,
+      dk,
+      covsc,
+      "ate",
+      5L,
+      check_precision = FALSE
+    )
 
   # Energy balancing, binary ate, n = 500 and 2000, p = 4 (matches the energy
   # baseline workload).
   for (n in c(500L, 2000L)) {
-    de <- make_binary(n, 4L, seed = 20240713L,
-                      coefs = c(0.4, -0.3, 0.2, -0.2))
+    de <- make_binary(n, 4L, seed = 20240713L, coefs = c(0.4, -0.3, 0.2, -0.2))
     iters <- if (n >= 2000L) 3L else 5L
     out[[sprintf("energy_binary_ate_n%d", n)]] <-
-      bench_qp_method("energy", bal_energy, de$df, paste0("x", 1:4), "ate",
-                      iterations = iters)
+      bench_qp_method(
+        "energy",
+        bal_energy,
+        de$df,
+        paste0("x", 1:4),
+        "ate",
+        iterations = iters
+      )
   }
 
   # Stable balancing weights, binary ate at tol 0.05, n = 500, 2000, 5000, p = 4
   # (matches the sbw baseline workload).
   for (n in c(500L, 2000L, 5000L)) {
-    ds <- make_binary(n, 4L, seed = 20240714L,
-                      coefs = c(0.4, -0.3, 0.2, -0.2))
+    ds <- make_binary(n, 4L, seed = 20240714L, coefs = c(0.4, -0.3, 0.2, -0.2))
     iters <- if (n >= 5000L) 5L else 10L
     out[[sprintf("sbw_binary_ate_n%d", n)]] <-
-      bench_qp_method("sbw", bal_sbw, ds$df, paste0("x", 1:4), "ate",
-                      constraints = balance_terms(tolerance = 0.05),
-                      iterations = iters)
+      bench_qp_method(
+        "sbw",
+        bal_sbw,
+        ds$df,
+        paste0("x", 1:4),
+        "ate",
+        constraints = balance_terms(tolerance = 0.05),
+        iterations = iters
+      )
   }
 
   out
@@ -221,15 +301,25 @@ run_entropy_gate <- function(n = 50000L, p = 200L, iterations = 3L) {
   f <- stats::as.formula(paste("exposure ~", paste(covs, collapse = " + ")))
 
   fit_ours_default <- function() {
-    as.numeric(weights(balance(df, exposure, all_of(covs),
-                               method = bal_entropy(), estimand = "ate")))
+    as.numeric(weights(balance(
+      df,
+      exposure,
+      all_of(covs),
+      method = bal_entropy(),
+      estimand = "ate"
+    )))
   }
   fit_ours_1t <- function() {
     old <- getOption("balancing.threads")
     options(balancing.threads = 1L)
     on.exit(options(balancing.threads = old))
-    as.numeric(weights(balance(df, exposure, all_of(covs),
-                               method = bal_entropy(), estimand = "ate")))
+    as.numeric(weights(balance(
+      df,
+      exposure,
+      all_of(covs),
+      method = bal_entropy(),
+      estimand = "ate"
+    )))
   }
   fit_wi <- function() {
     WeightIt::weightit(f, data = df, method = "ebal", estimand = "ATE")$weights
@@ -238,12 +328,21 @@ run_entropy_gate <- function(n = 50000L, p = 200L, iterations = 3L) {
   results <- list()
   for (estimand in c("ate", "att")) {
     ours_default <- function() {
-      as.numeric(weights(balance(df, exposure, all_of(covs),
-                                 method = bal_entropy(), estimand = estimand)))
+      as.numeric(weights(balance(
+        df,
+        exposure,
+        all_of(covs),
+        method = bal_entropy(),
+        estimand = estimand
+      )))
     }
     wi <- function() {
-      WeightIt::weightit(f, data = df, method = "ebal",
-                         estimand = toupper(estimand))$weights
+      WeightIt::weightit(
+        f,
+        data = df,
+        method = "ebal",
+        estimand = toupper(estimand)
+      )$weights
     }
     # As-shipped: automatic threads for ours.
     options(balancing.threads = NULL)
@@ -262,30 +361,51 @@ run_entropy_gate <- function(n = 50000L, p = 200L, iterations = 3L) {
     stopifnot(prec_ours < 1e-6, prec_wi < 1e-6)
 
     options(balancing.threads = NULL)
-    mk_default <- bench::mark(x = ours_default(), check = FALSE,
-                              min_iterations = iterations,
-                              max_iterations = iterations, filter_gc = FALSE)
+    mk_default <- bench::mark(
+      x = ours_default(),
+      check = FALSE,
+      min_iterations = iterations,
+      max_iterations = iterations,
+      filter_gc = FALSE
+    )
     options(balancing.threads = 1L)
-    mk_1t <- bench::mark(x = ours_default(), check = FALSE,
-                         min_iterations = iterations,
-                         max_iterations = iterations, filter_gc = FALSE)
+    mk_1t <- bench::mark(
+      x = ours_default(),
+      check = FALSE,
+      min_iterations = iterations,
+      max_iterations = iterations,
+      filter_gc = FALSE
+    )
     options(balancing.threads = NULL)
-    mk_wi <- bench::mark(x = wi(), check = FALSE, min_iterations = iterations,
-                         max_iterations = iterations, filter_gc = FALSE)
+    mk_wi <- bench::mark(
+      x = wi(),
+      check = FALSE,
+      min_iterations = iterations,
+      max_iterations = iterations,
+      filter_gc = FALSE
+    )
 
     med_default <- as.numeric(mk_default$median)
     med_1t <- as.numeric(mk_1t$median)
     med_wi <- as.numeric(mk_wi$median)
     results[[estimand]] <- list(
-      ours_default = med_default, ours_1thread = med_1t, weightit = med_wi,
-      prec_ours = prec_ours, prec_weightit = prec_wi,
+      ours_default = med_default,
+      ours_1thread = med_1t,
+      weightit = med_wi,
+      prec_ours = prec_ours,
+      prec_weightit = prec_wi,
       ratio_asshipped = med_wi / med_default,
       ratio_1thread = med_wi / med_1t
     )
     cat(sprintf(
       "[entropy gate %s] ours_default=%.3fs ours_1t=%.3fs weightit=%.3fs | as-shipped %.2fx | 1-thread %.2fx\n",
-      estimand, med_default, med_1t, med_wi,
-      med_wi / med_default, med_wi / med_1t))
+      estimand,
+      med_default,
+      med_1t,
+      med_wi,
+      med_wi / med_default,
+      med_wi / med_1t
+    ))
   }
   results
 }
@@ -304,38 +424,82 @@ run_cfd_overhead <- function(sizes = c(500L, 2000L), iterations = 3L) {
     d <- make_binary(n, 4L, seed = 20240713L, coefs = c(0.4, -0.3, 0.2, -0.2))
     df <- d$df
     covs <- paste0("x", 1:4)
-    w_energy <- as.numeric(weights(balance(df, exposure, all_of(covs),
-                                           method = bal_energy(),
-                                           estimand = "ate")))
-    w_cfd_energy <- as.numeric(weights(balance(df, exposure, all_of(covs),
-                                               method = bal_cfd(kernel = "energy"),
-                                               estimand = "ate")))
+    w_energy <- as.numeric(weights(balance(
+      df,
+      exposure,
+      all_of(covs),
+      method = bal_energy(),
+      estimand = "ate"
+    )))
+    w_cfd_energy <- as.numeric(weights(balance(
+      df,
+      exposure,
+      all_of(covs),
+      method = bal_cfd(kernel = "energy"),
+      estimand = "ate"
+    )))
     rel <- max(abs(w_cfd_energy - w_energy) / pmax(abs(w_energy), 1e-8))
     corr <- stats::cor(w_energy, w_cfd_energy)
-    cat(sprintf("[cfd overhead n=%d] energy-kernel vs bal_energy max_rel=%.2e corr=%.6f\n",
-                n, rel, corr))
+    cat(sprintf(
+      "[cfd overhead n=%d] energy-kernel vs bal_energy max_rel=%.2e corr=%.6f\n",
+      n,
+      rel,
+      corr
+    ))
 
     iters <- if (n >= 2000L) 3L else 5L
-    mk_energy <- bench::mark(x = as.numeric(weights(balance(df, exposure,
-      all_of(covs), method = bal_energy(), estimand = "ate"))),
-      check = FALSE, min_iterations = iters, max_iterations = iters,
-      filter_gc = FALSE)
-    mk_cfd_e <- bench::mark(x = as.numeric(weights(balance(df, exposure,
-      all_of(covs), method = bal_cfd(kernel = "energy"), estimand = "ate"))),
-      check = FALSE, min_iterations = iters, max_iterations = iters,
-      filter_gc = FALSE)
-    mk_cfd_g <- bench::mark(x = as.numeric(weights(balance(df, exposure,
-      all_of(covs), method = bal_cfd(kernel = "gaussian"), estimand = "ate"))),
-      check = FALSE, min_iterations = iters, max_iterations = iters,
-      filter_gc = FALSE)
+    mk_energy <- bench::mark(
+      x = as.numeric(weights(balance(
+        df,
+        exposure,
+        all_of(covs),
+        method = bal_energy(),
+        estimand = "ate"
+      ))),
+      check = FALSE,
+      min_iterations = iters,
+      max_iterations = iters,
+      filter_gc = FALSE
+    )
+    mk_cfd_e <- bench::mark(
+      x = as.numeric(weights(balance(
+        df,
+        exposure,
+        all_of(covs),
+        method = bal_cfd(kernel = "energy"),
+        estimand = "ate"
+      ))),
+      check = FALSE,
+      min_iterations = iters,
+      max_iterations = iters,
+      filter_gc = FALSE
+    )
+    mk_cfd_g <- bench::mark(
+      x = as.numeric(weights(balance(
+        df,
+        exposure,
+        all_of(covs),
+        method = bal_cfd(kernel = "gaussian"),
+        estimand = "ate"
+      ))),
+      check = FALSE,
+      min_iterations = iters,
+      max_iterations = iters,
+      filter_gc = FALSE
+    )
     out[[as.character(n)]] <- list(
       energy = as.numeric(mk_energy$median),
       cfd_energy = as.numeric(mk_cfd_e$median),
       cfd_gaussian = as.numeric(mk_cfd_g$median),
-      max_rel_weight_diff = rel, correlation = corr)
-    cat(sprintf("  medians: bal_energy=%.4fs cfd_energy=%.4fs cfd_gaussian=%.4fs\n",
-                as.numeric(mk_energy$median), as.numeric(mk_cfd_e$median),
-                as.numeric(mk_cfd_g$median)))
+      max_rel_weight_diff = rel,
+      correlation = corr
+    )
+    cat(sprintf(
+      "  medians: bal_energy=%.4fs cfd_energy=%.4fs cfd_gaussian=%.4fs\n",
+      as.numeric(mk_energy$median),
+      as.numeric(mk_cfd_e$median),
+      as.numeric(mk_cfd_g$median)
+    ))
   }
   out
 }
@@ -357,8 +521,13 @@ run_cfd_backends <- function(sizes = c(500L, 1000L, 2000L), iterations = 5L) {
       old <- getOption("balancing.qp_backend")
       options(balancing.qp_backend = backend)
       on.exit(options(balancing.qp_backend = old))
-      balance(df, exposure, all_of(covs), method = bal_cfd(kernel = "gaussian"),
-              estimand = "ate")
+      balance(
+        df,
+        exposure,
+        all_of(covs),
+        method = bal_cfd(kernel = "gaussian"),
+        estimand = "ate"
+      )
     }
     fo <- fit_be("osqp")
     fc <- fit_be("clarabel")
@@ -368,33 +537,66 @@ run_cfd_backends <- function(sizes = c(500L, 1000L, 2000L), iterations = 5L) {
     rel <- max(abs(wo - wc) / pmax(abs(wo), 1e-8))
     obj_gap <- abs(fo@objective - fc@objective) /
       max(abs(fo@objective), 1e-8)
-    cat(sprintf("[cfd backend n=%d] osqp vs clarabel weight_rel=%.2e obj_gap=%.2e (osqp obj=%.6e)\n",
-                n, rel, obj_gap, fo@objective))
+    cat(sprintf(
+      "[cfd backend n=%d] osqp vs clarabel weight_rel=%.2e obj_gap=%.2e (osqp obj=%.6e)\n",
+      n,
+      rel,
+      obj_gap,
+      fo@objective
+    ))
     stopifnot(obj_gap < 1e-4)
 
     iters <- if (n >= 2000L) 3L else iterations
-    mk_o <- bench::mark(x = {
-      options(balancing.qp_backend = "osqp")
-      as.numeric(weights(balance(df, exposure, all_of(covs),
-        method = bal_cfd(kernel = "gaussian"), estimand = "ate")))
-    }, check = FALSE, min_iterations = iters, max_iterations = iters,
-    filter_gc = FALSE)
-    mk_c <- bench::mark(x = {
-      options(balancing.qp_backend = "clarabel")
-      as.numeric(weights(balance(df, exposure, all_of(covs),
-        method = bal_cfd(kernel = "gaussian"), estimand = "ate")))
-    }, check = FALSE, min_iterations = iters, max_iterations = iters,
-    filter_gc = FALSE)
+    mk_o <- bench::mark(
+      x = {
+        options(balancing.qp_backend = "osqp")
+        as.numeric(weights(balance(
+          df,
+          exposure,
+          all_of(covs),
+          method = bal_cfd(kernel = "gaussian"),
+          estimand = "ate"
+        )))
+      },
+      check = FALSE,
+      min_iterations = iters,
+      max_iterations = iters,
+      filter_gc = FALSE
+    )
+    mk_c <- bench::mark(
+      x = {
+        options(balancing.qp_backend = "clarabel")
+        as.numeric(weights(balance(
+          df,
+          exposure,
+          all_of(covs),
+          method = bal_cfd(kernel = "gaussian"),
+          estimand = "ate"
+        )))
+      },
+      check = FALSE,
+      min_iterations = iters,
+      max_iterations = iters,
+      filter_gc = FALSE
+    )
     options(balancing.qp_backend = "auto")
     mo <- as.numeric(mk_o$median)
     mc <- as.numeric(mk_c$median)
-    out[[as.character(n)]] <- list(osqp = mo, clarabel = mc,
-                                   ratio_clarabel_over_osqp = mc / mo,
-                                   weight_rel = rel, obj_gap = obj_gap,
-                                   osqp_iters = as.integer(fo@iterations),
-                                   clarabel_iters = as.integer(fc@iterations))
-    cat(sprintf("  medians: osqp=%.5fs clarabel=%.5fs clarabel/osqp=%.2fx\n",
-                mo, mc, mc / mo))
+    out[[as.character(n)]] <- list(
+      osqp = mo,
+      clarabel = mc,
+      ratio_clarabel_over_osqp = mc / mo,
+      weight_rel = rel,
+      obj_gap = obj_gap,
+      osqp_iters = as.integer(fo@iterations),
+      clarabel_iters = as.integer(fc@iterations)
+    )
+    cat(sprintf(
+      "  medians: osqp=%.5fs clarabel=%.5fs clarabel/osqp=%.2fx\n",
+      mo,
+      mc,
+      mc / mo
+    ))
   }
   out
 }
@@ -415,9 +617,16 @@ run_sbw_fallback <- function(n = 20000L) {
 
   options(balancing.qp_backend = "auto")
   fit_auto <- tryCatch(
-    balance(df, exposure, all_of(covs), method = bal_sbw(), estimand = "ate",
-            constraints = ctrl),
-    error = function(e) e)
+    balance(
+      df,
+      exposure,
+      all_of(covs),
+      method = bal_sbw(),
+      estimand = "ate",
+      constraints = ctrl
+    ),
+    error = function(e) e
+  )
   auto_ok <- !inherits(fit_auto, "error") && isTRUE(fit_auto@converged)
   auto_status <- if (inherits(fit_auto, "error")) {
     paste("error:", conditionMessage(fit_auto))
@@ -427,23 +636,48 @@ run_sbw_fallback <- function(n = 20000L) {
 
   options(balancing.qp_backend = "osqp")
   fit_osqp <- tryCatch(
-    balance(df, exposure, all_of(covs), method = bal_sbw(), estimand = "ate",
-            constraints = ctrl),
-    error = function(e) e)
+    balance(
+      df,
+      exposure,
+      all_of(covs),
+      method = bal_sbw(),
+      estimand = "ate",
+      constraints = ctrl
+    ),
+    error = function(e) e
+  )
   osqp_errored <- inherits(fit_osqp, "error") || !isTRUE(fit_osqp@converged)
 
   options(balancing.qp_backend = "clarabel")
   fit_clar <- tryCatch(
-    balance(df, exposure, all_of(covs), method = bal_sbw(), estimand = "ate",
-            constraints = ctrl),
-    error = function(e) e)
+    balance(
+      df,
+      exposure,
+      all_of(covs),
+      method = bal_sbw(),
+      estimand = "ate",
+      constraints = ctrl
+    ),
+    error = function(e) e
+  )
   clar_ok <- !inherits(fit_clar, "error") && isTRUE(fit_clar@converged)
 
   options(balancing.qp_backend = "auto")
-  cat(sprintf("[sbw fallback n=%d] auto_ok=%s status=%s | osqp_errored=%s | clarabel_ok=%s\n",
-              n, auto_ok, auto_status, osqp_errored, clar_ok))
-  list(n = n, auto_ok = auto_ok, auto_status = auto_status,
-       osqp_errored = osqp_errored, clarabel_ok = clar_ok)
+  cat(sprintf(
+    "[sbw fallback n=%d] auto_ok=%s status=%s | osqp_errored=%s | clarabel_ok=%s\n",
+    n,
+    auto_ok,
+    auto_status,
+    osqp_errored,
+    clar_ok
+  ))
+  list(
+    n = n,
+    auto_ok = auto_ok,
+    auto_status = auto_status,
+    osqp_errored = osqp_errored,
+    clarabel_ok = clar_ok
+  )
 }
 
 # ---- Driver ----------------------------------------------------------------
@@ -470,9 +704,14 @@ if (sys.nframe() == 0L) {
   entropy_gate <- run_entropy_gate()
 
   saveRDS(
-    list(internal = internal, cfd_overhead = cfd_overhead,
-         cfd_backends = cfd_backends, sbw_fallback = sbw_fallback,
-         entropy_gate = entropy_gate),
-    file.path(RAW_DIR, "consolidated.rds"))
+    list(
+      internal = internal,
+      cfd_overhead = cfd_overhead,
+      cfd_backends = cfd_backends,
+      sbw_fallback = sbw_fallback,
+      entropy_gate = entropy_gate
+    ),
+    file.path(RAW_DIR, "consolidated.rds")
+  )
   cat("\nsaved: ", file.path(RAW_DIR, "consolidated.rds"), "\n", sep = "")
 }
