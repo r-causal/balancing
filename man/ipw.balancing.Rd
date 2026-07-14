@@ -68,7 +68,7 @@ z <- rbinom(n, 1, plogis(0.5 * x1))
 y <- rbinom(n, 1, plogis(-0.5 + 0.8 * z + 0.3 * x1))
 df <- data.frame(exposure = z, x1 = x1, y = y)
 
-fit <- balance(df, exposure, x1, method = bal_entropy(), estimand = "ate")
+fit <- balance(df, exposure, x1, method = bw_entropy(), estimand = "ate")
 df$.wts <- as.numeric(weights(fit))
 outcome_mod <- glm(y ~ exposure, data = df, family = binomial(), weights = .wts)
 

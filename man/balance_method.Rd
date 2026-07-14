@@ -33,7 +33,7 @@ An abstract class object. Constructing a concrete subclass returns a
 \code{balance_method}.
 }
 \description{
-The method constructors (\code{\link[=bal_entropy]{bal_entropy()}} and its siblings) return small
+The method constructors (\code{\link[=bw_entropy]{bw_entropy()}} and its siblings) return small
 S7 objects that carry tuning parameters and never touch data. They share an
 abstract hierarchy so that \code{\link[=balance]{balance()}} can query a method's capabilities
 uniformly. \code{balance_method} is the abstract root. The estimating-equation

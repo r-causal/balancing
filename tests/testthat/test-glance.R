@@ -8,7 +8,7 @@ test_that("glance() of a binary fit reports the max absolute SMD", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   )
   glanced <- generics::glance(fit)
@@ -28,7 +28,7 @@ test_that("glance() of a continuous fit reports the max absolute correlation", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   )
   glanced <- generics::glance(fit)
@@ -44,7 +44,7 @@ test_that("glance() reports exactly the documented columns", {
     sim_binary(200),
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   ))
   expect_identical(
@@ -67,7 +67,7 @@ test_that("glance() reports exactly the documented columns", {
     sim_continuous(200),
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   ))
   expect_identical(
@@ -92,32 +92,32 @@ test_that("glance() reports exactly the documented columns", {
 glance_specs <- list(
   list(
     label = "entropy",
-    method = quote(bal_entropy()),
+    method = quote(bw_entropy()),
     constraints = quote(balance_terms())
   ),
   list(
     label = "ipt",
-    method = quote(bal_ipt()),
+    method = quote(bw_ipt()),
     constraints = quote(balance_terms())
   ),
   list(
     label = "cbps",
-    method = quote(bal_cbps()),
+    method = quote(bw_cbps()),
     constraints = quote(balance_terms())
   ),
   list(
     label = "energy",
-    method = quote(bal_energy()),
+    method = quote(bw_energy()),
     constraints = quote(balance_terms())
   ),
   list(
     label = "cfd",
-    method = quote(bal_cfd()),
+    method = quote(bw_cfd()),
     constraints = quote(balance_terms())
   ),
   list(
     label = "sbw",
-    method = quote(bal_sbw()),
+    method = quote(bw_sbw()),
     constraints = quote(balance_terms(tolerance = 0.05))
   )
 )

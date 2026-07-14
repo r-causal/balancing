@@ -48,7 +48,7 @@ df <- data.frame(
   x1 = x1,
   x2 = x2
 )
-fit <- balance(df, exposure, c(x1, x2), method = bal_entropy())
+fit <- balance(df, exposure, c(x1, x2), method = bw_entropy())
 
 # Requires ggplot2.
 if (rlang::is_installed("ggplot2")) {

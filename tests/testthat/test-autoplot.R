@@ -18,7 +18,7 @@ test_that("autoplot() draws a love plot with points and a tolerance line", {
     sim_binary(200),
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   )
   plot <- ggplot2::autoplot(fit, type = "balance")
@@ -36,7 +36,7 @@ test_that("autoplot() defaults to the balance view", {
     sim_binary(200),
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   )
   plot <- ggplot2::autoplot(fit)
@@ -51,7 +51,7 @@ test_that("the love plot contrasts unweighted and weighted balance", {
     sim_binary(200),
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   )
   plot <- ggplot2::autoplot(fit, type = "balance")
@@ -94,7 +94,7 @@ test_that("the love plot tolerance line sits at the requested tolerance", {
     sim_binary(200),
     exposure,
     c(x1, x2),
-    method = bal_sbw(),
+    method = bw_sbw(),
     estimand = "ate",
     constraints = balance_terms(tolerance = 0.05)
   )
@@ -116,7 +116,7 @@ test_that("autoplot() draws a weight distribution grouped by exposure", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   )
   plot <- ggplot2::autoplot(fit, type = "weights")
@@ -137,17 +137,17 @@ test_that("autoplot() draws a weight distribution grouped by exposure", {
 for (spec in list(
   list(
     label = "energy",
-    method = quote(bal_energy()),
+    method = quote(bw_energy()),
     constraints = quote(balance_terms())
   ),
   list(
     label = "cfd",
-    method = quote(bal_cfd()),
+    method = quote(bw_cfd()),
     constraints = quote(balance_terms())
   ),
   list(
     label = "sbw",
-    method = quote(bal_sbw()),
+    method = quote(bw_sbw()),
     constraints = quote(balance_terms(tolerance = 0.05))
   )
 )) {
@@ -181,7 +181,7 @@ test_that("the dual-variable view raises a classed error without duals", {
     sim_binary(200),
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   )
   expect_null(fit@duals)
@@ -197,7 +197,7 @@ test_that("autoplot() rejects an unknown view", {
     sim_binary(200),
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   )
   expect_error(ggplot2::autoplot(fit, type = "nonsense"))
@@ -211,7 +211,7 @@ test_that("plot() draws and returns the autoplot invisibly", {
     sim_binary(200),
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   )
   # Draw to a null device so the test leaves no Rplots.pdf behind.
@@ -232,17 +232,17 @@ test_that("plot() draws and returns the autoplot invisibly", {
 for (spec in list(
   list(
     label = "energy",
-    method = quote(bal_energy()),
+    method = quote(bw_energy()),
     constraints = quote(balance_terms())
   ),
   list(
     label = "cfd",
-    method = quote(bal_cfd()),
+    method = quote(bw_cfd()),
     constraints = quote(balance_terms())
   ),
   list(
     label = "sbw",
-    method = quote(bal_sbw()),
+    method = quote(bw_sbw()),
     constraints = quote(balance_terms(tolerance = 0.05))
   )
 )) {
@@ -273,7 +273,7 @@ test_that("the estimating-equation family carries no dual table", {
     sim_binary(200),
     exposure,
     c(x1, x2),
-    method = bal_ipt(),
+    method = bw_ipt(),
     estimand = "ate"
   )
   expect_null(fit@duals)

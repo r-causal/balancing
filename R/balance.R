@@ -9,7 +9,7 @@
 #' `balance()` is the entry point to the package. It fits a balancing method to a
 #' data frame, returning weights that target covariate balance directly. The
 #' exposure and covariates are chosen with tidyselect, the method is one of the
-#' method specifications such as [bal_entropy()], and the estimand and
+#' method specifications such as [bw_entropy()], and the estimand and
 #' constraints control what balance the weights achieve.
 #'
 #' @details
@@ -31,7 +31,7 @@
 #' @param .covariates The covariate columns, selected with tidyselect. At least
 #'   one column, with no default.
 #' @param method A [balance_method] specification from one of the method
-#'   constructors, such as [bal_entropy()].
+#'   constructors, such as [bw_entropy()].
 #' @param estimand The target estimand: `"ate"`, `"att"`, `"atc"` (stored as
 #'   `"atu"`), or `"ato"`. Defaults to `"ate"`.
 #' @param ... Reserved; must be empty.
@@ -55,7 +55,7 @@
 #'   x1 = x1,
 #'   x2 = x2
 #' )
-#' fit <- balance(df, exposure, c(x1, x2), method = bal_entropy())
+#' fit <- balance(df, exposure, c(x1, x2), method = bw_entropy())
 #' fit
 #' weights(fit)
 #'
@@ -64,7 +64,7 @@ balance <- function(
   .data,
   .exposure,
   .covariates,
-  method = bal_entropy(),
+  method = bw_entropy(),
   estimand = c("ate", "att", "atc", "ato"),
   ...,
   constraints = NULL,
@@ -82,7 +82,7 @@ balance <- function(
       c(
         "{.arg method} must be a balancing method specification.",
         x = "You supplied {.obj_type_friendly {method}}.",
-        i = "Construct one with a method constructor, for example {.code bal_entropy()}."
+        i = "Construct one with a method constructor, for example {.code bw_entropy()}."
       ),
       error_class = "balancing_method_error"
     )

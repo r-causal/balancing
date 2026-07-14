@@ -5,7 +5,7 @@
     Condition <balancing_convergence_warning>
       Warning in `balance()`:
       The solver did not reach its convergence tolerance.
-      i Increase `max_iterations` or loosen `convergence_tolerance` in `balancing::bal_entropy()`.
+      i Increase `max_iterations` or loosen `convergence_tolerance` in `balancing::bw_entropy()`.
     Output
       
       -- Entropy balancing -----------------------------------------------------------
@@ -42,9 +42,9 @@
     Code
       expr
     Condition <balancing_ignored_argument_warning>
-      Warning in `method(fit_method, balancing::bal_cbps)`:
+      Warning in `method(fit_method, balancing::bw_cbps)`:
       `two_step` applies only to the over-identified fit and is ignored.
-      i Set `over_identified = TRUE` in `bal_cbps()` to use the two-step weighting matrix.
+      i Set `over_identified = TRUE` in `bw_cbps()` to use the two-step weighting matrix.
     Output
       
       -- Covariate balancing propensity score ----------------------------------------
@@ -71,14 +71,14 @@
 # alert: the detected exposure type is announced
 
     Code
-      invisible(balance(data, exposure, c(x1, x2), method = bal_entropy(), estimand = "ate"))
+      invisible(balance(data, exposure, c(x1, x2), method = bw_entropy(), estimand = "ate"))
     Message
       i Treating `.exposure` as binary.
 
 # alert: aliased constraint columns are dropped
 
     Code
-      invisible(balance(data, exposure, c(x1, x1_copy, x2), method = bal_entropy(),
+      invisible(balance(data, exposure, c(x1, x1_copy, x2), method = bw_entropy(),
       estimand = "ate", exposure_type = "binary"))
     Message
       i Dropping aliased constraint "x1_copy".
@@ -86,9 +86,8 @@
 # alert: moments above one on a binary covariate are ignored
 
     Code
-      invisible(balance(data, exposure, c(x2, flag), method = bal_entropy(),
-      estimand = "ate", exposure_type = "binary", constraints = balance_terms(
-        moments = 2L)))
+      invisible(balance(data, exposure, c(x2, flag), method = bw_entropy(), estimand = "ate",
+      exposure_type = "binary", constraints = balance_terms(moments = 2L)))
     Message
       i Ignoring moments above one for the binary covariate "flag".
 

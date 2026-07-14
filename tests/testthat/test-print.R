@@ -7,7 +7,7 @@ test_that("print() of a binary ate fit is stable", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   )
   expect_snapshot(print(fit))
@@ -19,7 +19,7 @@ test_that("summary() of a binary ate fit is stable", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   )
   expect_snapshot(summary(fit))
@@ -31,7 +31,7 @@ test_that("print() of a binary att fit renders the focal level", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "att"
   )
   expect_snapshot(print(fit))
@@ -43,7 +43,7 @@ test_that("print() of a continuous ate fit is stable", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   )
   expect_snapshot(print(fit))
@@ -55,7 +55,7 @@ test_that("tidy() of a binary ate fit returns one row per constraint term", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   )
   tidied <- generics::tidy(fit)
@@ -82,7 +82,7 @@ test_that("print() of a categorical ate fit lists every level", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   )
   expect_snapshot(print(fit))
@@ -97,7 +97,7 @@ test_that("print() of an energy fit is stable", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_energy(),
+    method = bw_energy(),
     estimand = "ate"
   )
   expect_snapshot(print(fit))
@@ -109,7 +109,7 @@ test_that("summary() of an energy fit reports the weight floor count", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_energy(),
+    method = bw_energy(),
     estimand = "ate"
   )
   expect_snapshot(summary(fit))
@@ -121,7 +121,7 @@ test_that("summary() of a stable balancing fit reports the weight floor count", 
     data,
     exposure,
     c(x1, x2),
-    method = bal_sbw(),
+    method = bw_sbw(),
     estimand = "ate",
     constraints = balance_terms(tolerance = 0.05)
   )
@@ -134,7 +134,7 @@ test_that("summary() of a cfd fit reports the weight floor count", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_cfd(),
+    method = bw_cfd(),
     estimand = "ate"
   )
   expect_snapshot(summary(fit))
@@ -146,7 +146,7 @@ test_that("summary() returns the fit invisibly", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   )
   returned <- withr::with_output_sink(tempfile(), summary(fit))

@@ -22,98 +22,98 @@ tidy_specs <- list(
   list(
     label = "entropy binary",
     data = quote(sim_binary(200)),
-    method = quote(bal_entropy()),
+    method = quote(bw_entropy()),
     estimand = "ate",
     statistic = "smd"
   ),
   list(
     label = "entropy categorical",
     data = quote(sim_categorical(200)),
-    method = quote(bal_entropy()),
+    method = quote(bw_entropy()),
     estimand = "ate",
     statistic = "smd"
   ),
   list(
     label = "entropy continuous",
     data = quote(sim_continuous(200)),
-    method = quote(bal_entropy()),
+    method = quote(bw_entropy()),
     estimand = "ate",
     statistic = "correlation"
   ),
   list(
     label = "ipt binary",
     data = quote(sim_binary(200)),
-    method = quote(bal_ipt()),
+    method = quote(bw_ipt()),
     estimand = "ate",
     statistic = "smd"
   ),
   list(
     label = "ipt categorical",
     data = quote(sim_categorical(200)),
-    method = quote(bal_ipt()),
+    method = quote(bw_ipt()),
     estimand = "ate",
     statistic = "smd"
   ),
   list(
     label = "cbps binary",
     data = quote(sim_binary(200)),
-    method = quote(bal_cbps()),
+    method = quote(bw_cbps()),
     estimand = "ate",
     statistic = "smd"
   ),
   list(
     label = "cbps categorical",
     data = quote(sim_categorical(200)),
-    method = quote(bal_cbps()),
+    method = quote(bw_cbps()),
     estimand = "ate",
     statistic = "smd"
   ),
   list(
     label = "cbps continuous",
     data = quote(sim_continuous(200)),
-    method = quote(bal_cbps()),
+    method = quote(bw_cbps()),
     estimand = "ate",
     statistic = "correlation"
   ),
   list(
     label = "energy binary",
     data = quote(sim_binary(200)),
-    method = quote(bal_energy()),
+    method = quote(bw_energy()),
     estimand = "ate",
     statistic = "smd"
   ),
   list(
     label = "energy categorical",
     data = quote(sim_categorical(200)),
-    method = quote(bal_energy()),
+    method = quote(bw_energy()),
     estimand = "ate",
     statistic = "smd"
   ),
   list(
     label = "energy continuous",
     data = quote(sim_continuous(200)),
-    method = quote(bal_energy()),
+    method = quote(bw_energy()),
     estimand = "ate",
     statistic = "correlation"
   ),
   list(
     label = "cfd binary",
     data = quote(sim_binary(200)),
-    method = quote(bal_cfd()),
+    method = quote(bw_cfd()),
     estimand = "ate",
     statistic = "smd"
   ),
   list(
     label = "cfd categorical",
     data = quote(sim_categorical(200)),
-    method = quote(bal_cfd()),
+    method = quote(bw_cfd()),
     estimand = "ate",
     statistic = "smd"
   ),
   list(
     label = "sbw binary",
     data = quote(sim_binary(200)),
-    method = quote(bal_sbw()),
+    method = quote(bw_sbw()),
     estimand = "ate",
     statistic = "smd",
     tolerance = 0.05
@@ -121,7 +121,7 @@ tidy_specs <- list(
   list(
     label = "sbw categorical",
     data = quote(sim_categorical(200)),
-    method = quote(bal_sbw()),
+    method = quote(bw_sbw()),
     estimand = "ate",
     statistic = "smd",
     tolerance = 0.05
@@ -129,7 +129,7 @@ tidy_specs <- list(
   list(
     label = "sbw continuous",
     data = quote(sim_continuous(200)),
-    method = quote(bal_sbw()),
+    method = quote(bw_sbw()),
     estimand = "ate",
     statistic = "correlation",
     tolerance = 0.05
@@ -182,7 +182,7 @@ test_that("tidy() labels higher moments as power terms", {
     sim_binary(200),
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate",
     constraints = balance_terms(moments = 2)
   )
@@ -196,7 +196,7 @@ test_that("tidy() labels pairwise products as interaction terms", {
     sim_binary(200),
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate",
     constraints = balance_terms(interactions = TRUE)
   )
@@ -208,7 +208,7 @@ test_that("tidy() labels quantile indicators as quantile terms", {
     sim_binary(200),
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate",
     constraints = balance_terms(quantiles = c(0.25, 0.75))
   )
@@ -223,7 +223,7 @@ test_that("tidy() of a continuous fit labels the group as overall", {
     sim_continuous(200),
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   )
   tidied <- tidy(fit)

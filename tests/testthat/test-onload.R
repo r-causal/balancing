@@ -12,7 +12,7 @@ test_that("S7 generics dispatch on balancing results after loading", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   )
   # print() dispatches through the registered S7 method rather than erroring.

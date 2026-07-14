@@ -1,6 +1,6 @@
 # End-to-end energy balancing benchmark against WeightIt's energy method.
 #
-# Measures balance(method = bal_energy()) against the equivalent
+# Measures balance(method = bw_energy()) against the equivalent
 # WeightIt::weightit(method = "energy") call for a binary exposure and the
 # average treatment effect. Both packages default to the same specification:
 # a scaled-Euclidean covariate distance, an L2 weight penalty of 1e-4, a
@@ -86,7 +86,7 @@ fit_ours <- function(df, covs) {
     df,
     exposure,
     all_of(covs),
-    method = bal_energy(),
+    method = bw_energy(),
     estimand = "ate"
   )))
 }

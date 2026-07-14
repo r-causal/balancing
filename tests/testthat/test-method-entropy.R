@@ -1,4 +1,4 @@
-# bal_entropy() is the method spec; balance(..., method = bal_entropy())
+# bw_entropy() is the method spec; balance(..., method = bw_entropy())
 # fits it. These specs cover the constructor, the capability methods, and the
 # statistical promises: achieved balance through expect_balanced(), non-negative
 # weights, estimand-correct group sums, ESS bounded by n, the fixed points where
@@ -11,9 +11,9 @@
 
 # ---- Constructor ----------------------------------------------------------
 
-test_that("bal_entropy() carries its documented defaults", {
-  spec <- bal_entropy()
-  expect_true(S7::S7_inherits(spec, bal_entropy))
+test_that("bw_entropy() carries its documented defaults", {
+  spec <- bw_entropy()
+  expect_true(S7::S7_inherits(spec, bw_entropy))
   expect_true(S7::S7_inherits(spec, balance_method))
   expect_null(spec@base_weights)
   expect_null(spec@distribution_moments)
@@ -21,8 +21,8 @@ test_that("bal_entropy() carries its documented defaults", {
   expect_null(spec@max_iterations)
 })
 
-test_that("bal_entropy() stores supplied tuning parameters", {
-  spec <- bal_entropy(
+test_that("bw_entropy() stores supplied tuning parameters", {
+  spec <- bw_entropy(
     base_weights = rep(1, 5),
     convergence_tolerance = 1e-8,
     max_iterations = 200L
@@ -32,50 +32,50 @@ test_that("bal_entropy() stores supplied tuning parameters", {
   expect_identical(spec@max_iterations, 200L)
 })
 
-test_that("bal_entropy() rejects unnamed extra arguments", {
-  expect_true(S7::S7_inherits(bal_entropy(), balance_method))
-  expect_error(bal_entropy(1e-8))
+test_that("bw_entropy() rejects unnamed extra arguments", {
+  expect_true(S7::S7_inherits(bw_entropy(), balance_method))
+  expect_error(bw_entropy(1e-8))
 })
 
 # ---- Capability methods ---------------------------------------------------
 
 test_that("supported_exposure_types() lists every exposure type", {
   expect_setequal(
-    supported_exposure_types(bal_entropy()),
+    supported_exposure_types(bw_entropy()),
     c("binary", "categorical", "continuous")
   )
 })
 
 test_that("supported_estimands() depends on the exposure type", {
-  binary <- supported_estimands(bal_entropy(), "binary")
+  binary <- supported_estimands(bw_entropy(), "binary")
   expect_true(all(c("ate", "att") %in% binary))
   expect_true(any(c("atc", "atu") %in% binary))
   expect_false("ato" %in% binary)
 
   expect_setequal(
-    supported_estimands(bal_entropy(), "categorical"),
+    supported_estimands(bw_entropy(), "categorical"),
     c("ate", "att")
   )
   expect_setequal(
-    supported_estimands(bal_entropy(), "continuous"),
+    supported_estimands(bw_entropy(), "continuous"),
     "ate"
   )
 })
 
 test_that("supports_estimating_equations() follows the tolerance rule", {
-  expect_true(supports_estimating_equations(bal_entropy()))
+  expect_true(supports_estimating_equations(bw_entropy()))
   expect_true(supports_estimating_equations(
-    bal_entropy(),
+    bw_entropy(),
     constraints = balance_terms(tolerance = 0)
   ))
   expect_false(supports_estimating_equations(
-    bal_entropy(),
+    bw_entropy(),
     constraints = balance_terms(tolerance = 0.05)
   ))
 })
 
 test_that("method_label() names the method", {
-  expect_identical(method_label(bal_entropy()), "Entropy balancing")
+  expect_identical(method_label(bw_entropy()), "Entropy balancing")
 })
 
 # ---- Statistical promises: binary -----------------------------------------
@@ -86,7 +86,7 @@ test_that("entropy balancing balances a binary ate", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   )
   expect_balanced(fit, data)
@@ -99,7 +99,7 @@ test_that("entropy balancing balances a binary att", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "att"
   )
   expect_balanced(fit, data)
@@ -112,7 +112,7 @@ test_that("entropy balancing balances a binary atc", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "atc"
   )
   expect_balanced(fit, data)
@@ -125,7 +125,7 @@ test_that("a binary ate normalizes each group to its size", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   )
   w <- as.numeric(stats::weights(fit))
@@ -140,7 +140,7 @@ test_that("a binary att keeps treated base weights and matches the control sum",
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "att"
   )
   w <- as.numeric(stats::weights(fit))
@@ -158,7 +158,7 @@ test_that("entropy balancing balances a categorical ate", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   )
   expect_balanced(fit, data)
@@ -171,7 +171,7 @@ test_that("entropy balancing balances a categorical att", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "att",
     focal_level = "b"
   )
@@ -187,7 +187,7 @@ test_that("entropy balancing balances a continuous ate", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   )
   expect_balanced(fit, data)
@@ -202,7 +202,7 @@ test_that("the effective sample size is bounded by n within each group", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   )
   ess_tbl <- ess(fit)
@@ -223,7 +223,7 @@ test_that("weights reduce to the base weights when balance already holds", {
     data,
     exposure,
     x1,
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   )
   w <- as.numeric(stats::weights(fit))
@@ -240,7 +240,7 @@ test_that("base weights anchor the solution when balance already holds", {
     data,
     exposure,
     x1,
-    method = bal_entropy(base_weights = base),
+    method = bw_entropy(base_weights = base),
     estimand = "ate"
   )
   w <- as.numeric(stats::weights(fit))
@@ -258,7 +258,7 @@ test_that("a positive tolerance balances within tolerance", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate",
     constraints = balance_terms(tolerance = 0.05)
   )
@@ -271,7 +271,7 @@ test_that("a positive tolerance disables the estimating equations", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate",
     constraints = balance_terms(tolerance = 0.05)
   )
@@ -284,7 +284,7 @@ test_that("the exact problem produces estimating equations", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "att"
   )
   expect_false(is.null(fit@estimating_equations))
@@ -302,7 +302,7 @@ test_that("the estimating equations satisfy the moment-condition identity", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   )
   ee <- estimating_equations(fit)
@@ -322,7 +322,7 @@ test_that("an att fit reports estimating equations only for the control group", 
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "att"
   )
   ee <- estimating_equations(fit)
@@ -342,7 +342,7 @@ test_that("the entropy solver option routes the solver and holds the solution", 
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   )
   expect_identical(fit_newton@solver_status, "newton")
@@ -355,7 +355,7 @@ test_that("the entropy solver option routes the solver and holds the solution", 
         data,
         exposure,
         c(x1, x2),
-        method = bal_entropy(),
+        method = bw_entropy(),
         estimand = "ate"
       )
     )
@@ -376,14 +376,14 @@ test_that("distribution_moments holds the exposure variance", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   )
   fit_moments <- balance(
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(distribution_moments = 2L),
+    method = bw_entropy(distribution_moments = 2L),
     estimand = "ate"
   )
 
@@ -416,7 +416,7 @@ test_that("distribution_moments is raised to the constraint moments with an aler
       data,
       exposure,
       c(x1, x2),
-      method = bal_entropy(distribution_moments = 1L),
+      method = bw_entropy(distribution_moments = 1L),
       estimand = "ate",
       constraints = balance_terms(moments = 2L)
     ),
@@ -432,7 +432,7 @@ test_that("a continuous tolerance relaxes correlations but holds the marginals",
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(distribution_moments = 2L),
+    method = bw_entropy(distribution_moments = 2L),
     estimand = "ate",
     constraints = balance_terms(tolerance = 0.1)
   )
@@ -464,7 +464,7 @@ test_that("entropy balancing balances a binary ate under sampling weights", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate",
     sampling_weights = sw
   )
@@ -482,7 +482,7 @@ test_that("entropy balancing balances a binary att under sampling weights", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "att",
     sampling_weights = sw
   )
@@ -497,7 +497,7 @@ test_that("entropy balancing balances a binary ate under base weights", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(base_weights = base),
+    method = bw_entropy(base_weights = base),
     estimand = "ate"
   )
   # The base measure moves the pooled target; expect_balanced() reads the base
@@ -514,7 +514,7 @@ test_that("entropy balancing balances a binary atu under base weights", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(base_weights = base),
+    method = bw_entropy(base_weights = base),
     estimand = "atc"
   )
   expect_balanced(fit, data)
@@ -531,7 +531,7 @@ test_that("entropy weights match WeightIt for a binary ate", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   )
   reference <- WeightIt::weightit(
@@ -565,7 +565,7 @@ test_that("entropy weights match WeightIt for a binary att", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "att"
   )
   reference <- WeightIt::weightit(

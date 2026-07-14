@@ -12,7 +12,7 @@
 
 #' Characteristic function distance balancing
 #'
-#' `bal_cfd()` specifies characteristic function distance balancing, also
+#' `bw_cfd()` specifies characteristic function distance balancing, also
 #' called kernel balancing, for [balance()]. The weights minimize a kernel
 #' measure of the distance between the reweighted exposure groups and a target
 #' sample, following Wong and Chan. Each supported kernel is positive
@@ -37,7 +37,7 @@
 #' one another as well as against the sample.
 #'
 #' Setting `kernel = "energy"` uses the negative pairwise distance, which
-#' reproduces [bal_energy()] with its `"scaled_euclidean"` distance on the
+#' reproduces [bw_energy()] with its `"scaled_euclidean"` distance on the
 #' same data and constraints. That equivalence is the reference point for the
 #' method, since the energy kernel has an external implementation while the other
 #' kernels do not.
@@ -71,7 +71,7 @@
 #' @param ... Reserved for future extensions; must be empty. Tuning parameters
 #'   must be passed by name.
 #'
-#' @return A `bal_cfd` specification, a [balance_method].
+#' @return A `bw_cfd` specification, a [balance_method].
 #'
 #' @references
 #' Wong, R. K. W. and Chan, K. C. G. (2018). Kernel-based covariate functional
@@ -89,12 +89,12 @@
 #'   x1 = x1,
 #'   x2 = x2
 #' )
-#' fit <- balance(df, exposure, c(x1, x2), method = bal_cfd())
+#' fit <- balance(df, exposure, c(x1, x2), method = bw_cfd())
 #' fit
 #'
 #' @export
-bal_cfd <- new_class(
-  "bal_cfd",
+bw_cfd <- new_class(
+  "bw_cfd",
   parent = quadratic_program_method,
   properties = list(
     kernel = class_character,
@@ -207,15 +207,15 @@ bal_cfd <- new_class(
   }
 )
 
-method(method_label, bal_cfd) <- function(method) {
+method(method_label, bw_cfd) <- function(method) {
   "Characteristic function distance balancing"
 }
 
-method(supported_exposure_types, bal_cfd) <- function(method) {
+method(supported_exposure_types, bw_cfd) <- function(method) {
   c("binary", "categorical")
 }
 
-method(supported_estimands, bal_cfd) <- function(method, exposure_type) {
+method(supported_estimands, bw_cfd) <- function(method, exposure_type) {
   switch(
     exposure_type,
     # The overlap estimand is legal only for the covariate balancing propensity
@@ -229,7 +229,7 @@ method(supported_estimands, bal_cfd) <- function(method, exposure_type) {
 # The quadratic-program family has no estimating equations for any exposure type
 # or constraint set, so the answer is always FALSE. The context arguments are
 # accepted so the generic call shape matches the estimating-equation family.
-method(supports_estimating_equations, bal_cfd) <- function(
+method(supports_estimating_equations, bw_cfd) <- function(
   method,
   ...,
   exposure_type = NULL,
@@ -273,7 +273,7 @@ cfd_projection <- function(method, p) {
   as.numeric(sweep(normals, 2, radial, "*"))
 }
 
-method(fit_method, bal_cfd) <- function(method, prepared) {
+method(fit_method, bw_cfd) <- function(method, prepared) {
   enforce <- requests_moments(prepared$constraints)
   if (!enforce && has_positive_tolerance(prepared$constraints)) {
     warn_ignored_tolerance()

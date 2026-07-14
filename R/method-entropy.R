@@ -6,7 +6,7 @@
 
 #' Entropy balancing
 #'
-#' `bal_entropy()` specifies entropy balancing for [balance()]. The weights
+#' `bw_entropy()` specifies entropy balancing for [balance()]. The weights
 #' minimize the Kullback-Leibler divergence from a set of base weights subject to
 #' the covariate constraints, so among all reweightings that achieve balance the
 #' solution stays as close as possible to the base weights. Entropy balancing
@@ -36,7 +36,7 @@
 #' @param ... Reserved for future extensions; must be empty. Tuning parameters
 #'   must be passed by name.
 #'
-#' @return An `bal_entropy` specification, a [balance_method].
+#' @return An `bw_entropy` specification, a [balance_method].
 #'
 #' @references
 #' Hainmueller, J. (2012). Entropy balancing for causal effects: A multivariate
@@ -52,12 +52,12 @@
 #'   x1 = x1,
 #'   x2 = x2
 #' )
-#' fit <- balance(df, exposure, c(x1, x2), method = bal_entropy())
+#' fit <- balance(df, exposure, c(x1, x2), method = bw_entropy())
 #' fit
 #'
 #' @export
-bal_entropy <- new_class(
-  "bal_entropy",
+bw_entropy <- new_class(
+  "bw_entropy",
   parent = estimating_equation_method,
   properties = list(
     base_weights = NULL | class_double,
@@ -100,15 +100,15 @@ bal_entropy <- new_class(
   }
 )
 
-method(method_label, bal_entropy) <- function(method) {
+method(method_label, bw_entropy) <- function(method) {
   "Entropy balancing"
 }
 
-method(supported_exposure_types, bal_entropy) <- function(method) {
+method(supported_exposure_types, bw_entropy) <- function(method) {
   c("binary", "categorical", "continuous")
 }
 
-method(supported_estimands, bal_entropy) <- function(
+method(supported_estimands, bw_entropy) <- function(
   method,
   exposure_type
 ) {
@@ -120,7 +120,7 @@ method(supported_estimands, bal_entropy) <- function(
   )
 }
 
-method(supports_estimating_equations, bal_entropy) <- function(
+method(supports_estimating_equations, bw_entropy) <- function(
   method,
   ...,
   constraints = NULL
@@ -176,7 +176,7 @@ target_means <- function(z, idx, s) {
   as.numeric(crossprod(z[idx, , drop = FALSE], weights))
 }
 
-method(fit_method, bal_entropy) <- function(method, prepared) {
+method(fit_method, bw_entropy) <- function(method, prepared) {
   if (identical(prepared$exposure_type, "continuous")) {
     fit_entropy_continuous(method, prepared)
   } else {

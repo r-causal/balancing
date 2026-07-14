@@ -1,4 +1,4 @@
-# bal_energy() is the method spec; balance(..., method = bal_energy())
+# bw_energy() is the method spec; balance(..., method = bw_energy())
 # fits it. Energy balancing (Huling and Mak) chooses weights that minimize the
 # energy distance between the weighted exposure groups and the target sample; the
 # improved variant adds the between-group energy term for the average treatment
@@ -92,9 +92,9 @@ normalize_by_group <- function(w, g) {
 
 # ---- Constructor ----------------------------------------------------------
 
-test_that("bal_energy() carries its documented defaults", {
-  spec <- bal_energy()
-  expect_true(S7::S7_inherits(spec, bal_energy))
+test_that("bw_energy() carries its documented defaults", {
+  spec <- bw_energy()
+  expect_true(S7::S7_inherits(spec, bw_energy))
   expect_true(S7::S7_inherits(spec, quadratic_program_method))
   expect_true(S7::S7_inherits(spec, balance_method))
   expect_identical(spec@distance, "scaled_euclidean")
@@ -107,8 +107,8 @@ test_that("bal_energy() carries its documented defaults", {
   expect_null(spec@max_iterations)
 })
 
-test_that("bal_energy() stores supplied tuning parameters", {
-  spec <- bal_energy(
+test_that("bw_energy() stores supplied tuning parameters", {
+  spec <- bw_energy(
     distance = "mahalanobis",
     improved = FALSE,
     weight_penalty = 1e-3,
@@ -128,60 +128,60 @@ test_that("bal_energy() stores supplied tuning parameters", {
   expect_identical(spec@max_iterations, 500L)
 })
 
-test_that("bal_energy() matches the distance argument", {
-  expect_identical(bal_energy(distance = "euclidean")@distance, "euclidean")
-  expect_error(bal_energy(distance = "manhattan"))
+test_that("bw_energy() matches the distance argument", {
+  expect_identical(bw_energy(distance = "euclidean")@distance, "euclidean")
+  expect_error(bw_energy(distance = "manhattan"))
 })
 
-test_that("bal_energy() rejects unnamed and unknown extra arguments", {
-  expect_true(S7::S7_inherits(bal_energy(), balance_method))
-  expect_error(bal_energy(1e-4))
-  expect_error(bal_energy(bogus = 1))
+test_that("bw_energy() rejects unnamed and unknown extra arguments", {
+  expect_true(S7::S7_inherits(bw_energy(), balance_method))
+  expect_error(bw_energy(1e-4))
+  expect_error(bw_energy(bogus = 1))
 })
 
 # ---- Validators -----------------------------------------------------------
 
-test_that("bal_energy() rejects a negative weight penalty", {
-  expect_identical(bal_energy(weight_penalty = 1e-3)@weight_penalty, 1e-3)
-  expect_error(bal_energy(weight_penalty = -1e-4))
+test_that("bw_energy() rejects a negative weight penalty", {
+  expect_identical(bw_energy(weight_penalty = 1e-3)@weight_penalty, 1e-3)
+  expect_error(bw_energy(weight_penalty = -1e-4))
 })
 
-test_that("bal_energy() rejects a negative minimum weight", {
-  expect_identical(bal_energy(min_weight = 1e-6)@min_weight, 1e-6)
-  expect_error(bal_energy(min_weight = -1e-8))
+test_that("bw_energy() rejects a negative minimum weight", {
+  expect_identical(bw_energy(min_weight = 1e-6)@min_weight, 1e-6)
+  expect_error(bw_energy(min_weight = -1e-8))
 })
 
-test_that("bal_energy() rejects a non-positive convergence tolerance", {
-  expect_null(bal_energy()@convergence_tolerance)
-  expect_error(bal_energy(convergence_tolerance = -1e-8))
+test_that("bw_energy() rejects a non-positive convergence tolerance", {
+  expect_null(bw_energy()@convergence_tolerance)
+  expect_error(bw_energy(convergence_tolerance = -1e-8))
 })
 
-test_that("bal_energy() rejects a negative iteration cap", {
-  expect_null(bal_energy()@max_iterations)
-  expect_error(bal_energy(max_iterations = -5L))
+test_that("bw_energy() rejects a negative iteration cap", {
+  expect_null(bw_energy()@max_iterations)
+  expect_error(bw_energy(max_iterations = -5L))
 })
 
 # ---- Capability methods ---------------------------------------------------
 
 test_that("supported_exposure_types() lists every exposure type", {
   expect_setequal(
-    supported_exposure_types(bal_energy()),
+    supported_exposure_types(bw_energy()),
     c("binary", "categorical", "continuous")
   )
 })
 
 test_that("supported_estimands() depends on the exposure type", {
-  binary <- supported_estimands(bal_energy(), "binary")
+  binary <- supported_estimands(bw_energy(), "binary")
   expect_true(all(c("ate", "att") %in% binary))
   expect_true(any(c("atc", "atu") %in% binary))
   expect_false("ato" %in% binary)
 
   expect_setequal(
-    supported_estimands(bal_energy(), "categorical"),
+    supported_estimands(bw_energy(), "categorical"),
     c("ate", "att")
   )
   expect_setequal(
-    supported_estimands(bal_energy(), "continuous"),
+    supported_estimands(bw_energy(), "continuous"),
     "ate"
   )
 })
@@ -189,27 +189,27 @@ test_that("supported_estimands() depends on the exposure type", {
 test_that("supports_estimating_equations() is always FALSE for energy", {
   # The quadratic-program family has no estimating equations, whatever the
   # constraints or exposure type.
-  expect_false(supports_estimating_equations(bal_energy()))
+  expect_false(supports_estimating_equations(bw_energy()))
   expect_false(supports_estimating_equations(
-    bal_energy(),
+    bw_energy(),
     constraints = balance_terms(moments = 1L)
   ))
   expect_false(supports_estimating_equations(
-    bal_energy(),
+    bw_energy(),
     constraints = balance_terms(tolerance = 0.05)
   ))
   expect_false(supports_estimating_equations(
-    bal_energy(),
+    bw_energy(),
     exposure_type = "binary"
   ))
   expect_false(supports_estimating_equations(
-    bal_energy(),
+    bw_energy(),
     exposure_type = "continuous"
   ))
 })
 
 test_that("method_label() names the method", {
-  expect_identical(method_label(bal_energy()), "Energy balancing")
+  expect_identical(method_label(bw_energy()), "Energy balancing")
 })
 
 # ---- Property tests: binary energy distance -------------------------------
@@ -220,7 +220,7 @@ test_that("energy balancing reduces the binary ate energy distance", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_energy(),
+    method = bw_energy(),
     estimand = "ate"
   )
   w <- as.numeric(stats::weights(fit))
@@ -240,7 +240,7 @@ test_that("a binary ate normalizes each group to its size", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_energy(),
+    method = bw_energy(),
     estimand = "ate"
   )
   w <- as.numeric(stats::weights(fit))
@@ -255,7 +255,7 @@ test_that("a binary att targets the treated total in both groups", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_energy(),
+    method = bw_energy(),
     estimand = "att"
   )
   w <- as.numeric(stats::weights(fit))
@@ -272,7 +272,7 @@ test_that("a binary atc fit produces non-negative weights", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_energy(),
+    method = bw_energy(),
     estimand = "atc"
   )
   w <- as.numeric(stats::weights(fit))
@@ -288,7 +288,7 @@ test_that("the effective sample size is bounded by n within each group", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_energy(),
+    method = bw_energy(),
     estimand = "ate"
   )
   ess_tbl <- ess(fit)
@@ -304,7 +304,7 @@ test_that("categorical ate energy balancing produces valid weights", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_energy(),
+    method = bw_energy(),
     estimand = "ate"
   )
   w <- as.numeric(stats::weights(fit))
@@ -321,7 +321,7 @@ test_that("categorical att energy balancing produces valid weights", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_energy(),
+    method = bw_energy(),
     estimand = "att",
     focal_level = "b"
   )
@@ -340,7 +340,7 @@ test_that("moment constraints are satisfied within tolerance", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_energy(),
+    method = bw_energy(),
     estimand = "ate",
     constraints = balance_terms(moments = 1L)
   )
@@ -353,7 +353,7 @@ test_that("a positive tolerance relaxes the moment constraints", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_energy(),
+    method = bw_energy(),
     estimand = "ate",
     constraints = balance_terms(moments = 1L, tolerance = 0.1)
   )
@@ -370,7 +370,7 @@ test_that("a tolerance without moment constraints warns and is ignored", {
       data,
       exposure,
       c(x1, x2),
-      method = bal_energy(),
+      method = bw_energy(),
       estimand = "ate",
       constraints = balance_terms(tolerance = 0.1)
     ),
@@ -380,7 +380,7 @@ test_that("a tolerance without moment constraints warns and is ignored", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_energy(),
+    method = bw_energy(),
     estimand = "ate"
   )
   expect_equal(
@@ -396,7 +396,7 @@ test_that("quantile constraints balance a discrete exposure", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_energy(),
+    method = bw_energy(),
     estimand = "ate",
     constraints = balance_terms(moments = 1L, quantiles = 0.5)
   )
@@ -412,7 +412,7 @@ test_that("the distance definitions produce different weights", {
       data,
       exposure,
       c(x1, x2),
-      method = bal_energy(distance = distance),
+      method = bw_energy(distance = distance),
       estimand = "ate"
     )
   }
@@ -430,14 +430,14 @@ test_that("the improved variant differs from the plain variant for a binary ate"
     data,
     exposure,
     c(x1, x2),
-    method = bal_energy(improved = TRUE),
+    method = bw_energy(improved = TRUE),
     estimand = "ate"
   )
   fit_plain <- balance(
     data,
     exposure,
     c(x1, x2),
-    method = bal_energy(improved = FALSE),
+    method = bw_energy(improved = FALSE),
     estimand = "ate"
   )
   w_improved <- normalize_by_group(
@@ -459,7 +459,7 @@ test_that("the fit reports dual variables and the quadratic-program backend", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_energy(),
+    method = bw_energy(),
     estimand = "ate"
   )
   expect_s3_class(fit@duals, "data.frame")
@@ -474,7 +474,7 @@ test_that("an energy fit has no estimating equations", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_energy(),
+    method = bw_energy(),
     estimand = "ate"
   )
   expect_null(fit@estimating_equations)
@@ -490,7 +490,7 @@ test_that("ipw() rejects an energy fit", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_energy(),
+    method = bw_energy(),
     estimand = "ate"
   )
   outcome <- stats::lm(x1 ~ exposure, data = data)
@@ -508,7 +508,7 @@ test_that("continuous energy balancing reduces the distance covariance", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_energy(),
+    method = bw_energy(),
     estimand = "ate"
   )
   w <- as.numeric(stats::weights(fit))
@@ -533,14 +533,14 @@ test_that("distribution_moments changes the continuous weights and holds the exp
     data,
     exposure,
     c(x1, x2),
-    method = bal_energy(),
+    method = bw_energy(),
     estimand = "ate"
   )
   fit_moments <- balance(
     data,
     exposure,
     c(x1, x2),
-    method = bal_energy(distribution_moments = 2L),
+    method = bw_energy(distribution_moments = 2L),
     estimand = "ate"
   )
   w_default <- as.numeric(stats::weights(fit_default))
@@ -562,14 +562,14 @@ test_that("dimension_adjustment toggles the continuous solution", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_energy(dimension_adjustment = TRUE),
+    method = bw_energy(dimension_adjustment = TRUE),
     estimand = "ate"
   )
   fit_off <- balance(
     data,
     exposure,
     c(x1, x2),
-    method = bal_energy(dimension_adjustment = FALSE),
+    method = bw_energy(dimension_adjustment = FALSE),
     estimand = "ate"
   )
   expect_false(isTRUE(all.equal(
@@ -592,7 +592,7 @@ test_that("the ato estimand raises balancing_estimand_error for a binary exposur
       data,
       exposure,
       c(x1, x2),
-      method = bal_energy(),
+      method = bw_energy(),
       estimand = "ato"
     ),
     class = "balancing_estimand_error"
@@ -606,7 +606,7 @@ test_that("the ato estimand raises balancing_estimand_error for a categorical ex
       data,
       exposure,
       c(x1, x2),
-      method = bal_energy(),
+      method = bw_energy(),
       estimand = "ato"
     ),
     class = "balancing_estimand_error"
@@ -622,7 +622,7 @@ test_that("the ignored-tolerance warning records its class and message", {
       data,
       exposure,
       c(x1, x2),
-      method = bal_energy(),
+      method = bw_energy(),
       estimand = "ate",
       constraints = balance_terms(tolerance = 0.1)
     )
@@ -638,7 +638,7 @@ test_that("a continuous tolerance warns and is ignored", {
       data,
       exposure,
       c(x1, x2),
-      method = bal_energy(),
+      method = bw_energy(),
       estimand = "ate",
       constraints = balance_terms(tolerance = 0.1)
     )
@@ -664,7 +664,7 @@ test_that("an infeasible constraint set raises balancing_infeasible_error", {
       data,
       exposure,
       c(x1, x2),
-      method = bal_energy(),
+      method = bw_energy(),
       estimand = "ate",
       constraints = balance_terms(moments = 1L)
     )
@@ -686,7 +686,7 @@ test_that("energy weights meet the objective tolerance against WeightIt for a bi
     data,
     exposure,
     c(x1, x2),
-    method = bal_energy(),
+    method = bw_energy(),
     estimand = "ate"
   )
   reference <- WeightIt::weightit(
@@ -716,7 +716,7 @@ test_that("energy weights meet the objective tolerance against WeightIt for a bi
     data,
     exposure,
     c(x1, x2),
-    method = bal_energy(),
+    method = bw_energy(),
     estimand = "att"
   )
   reference <- WeightIt::weightit(
@@ -752,7 +752,7 @@ test_that("an energy fit prints its summary block", {
       data,
       exposure,
       c(x1, x2),
-      method = bal_energy(),
+      method = bw_energy(),
       estimand = "ate"
     )
     fit

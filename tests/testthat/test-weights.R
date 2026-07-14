@@ -283,7 +283,7 @@ test_that("ess() returns a group, n, ess tibble", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   )
   ess_tbl <- ess(fit)
@@ -297,7 +297,7 @@ test_that("ess() computes sum(w)^2 / sum(w^2) within each exposure group", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   )
   ess_tbl <- ess(fit)
@@ -321,7 +321,7 @@ test_that("ess() of a continuous fit reports a single overall row", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   )
   ess_tbl <- ess(fit)

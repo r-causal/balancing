@@ -1,4 +1,4 @@
-# bal_ipt() is the method spec; balance(..., method = bal_ipt()) fits it. Inverse
+# bw_ipt() is the method spec; balance(..., method = bw_ipt()) fits it. Inverse
 # probability tilting fits a propensity model whose tilted score equations force
 # the weighted covariate means to their estimand targets, so the achieved
 # balance is exact on the requested moments. These specs cover the constructor,
@@ -22,9 +22,9 @@ normalize_by_group <- function(w, g) {
 
 # ---- Constructor ----------------------------------------------------------
 
-test_that("bal_ipt() carries its documented defaults", {
-  spec <- bal_ipt()
-  expect_true(S7::S7_inherits(spec, bal_ipt))
+test_that("bw_ipt() carries its documented defaults", {
+  spec <- bw_ipt()
+  expect_true(S7::S7_inherits(spec, bw_ipt))
   expect_true(S7::S7_inherits(spec, estimating_equation_method))
   expect_true(S7::S7_inherits(spec, balance_method))
   expect_identical(spec@link, "logit")
@@ -32,8 +32,8 @@ test_that("bal_ipt() carries its documented defaults", {
   expect_null(spec@max_iterations)
 })
 
-test_that("bal_ipt() stores supplied tuning parameters", {
-  spec <- bal_ipt(
+test_that("bw_ipt() stores supplied tuning parameters", {
+  spec <- bw_ipt(
     link = "probit",
     convergence_tolerance = 1e-8,
     max_iterations = 200L
@@ -43,103 +43,103 @@ test_that("bal_ipt() stores supplied tuning parameters", {
   expect_identical(spec@max_iterations, 200L)
 })
 
-test_that("bal_ipt() matches the link argument", {
-  expect_identical(bal_ipt(link = "cloglog")@link, "cloglog")
-  expect_error(bal_ipt(link = "identity"))
+test_that("bw_ipt() matches the link argument", {
+  expect_identical(bw_ipt(link = "cloglog")@link, "cloglog")
+  expect_error(bw_ipt(link = "identity"))
 })
 
-test_that("bal_ipt() rejects unnamed extra arguments", {
-  expect_true(S7::S7_inherits(bal_ipt(), balance_method))
-  expect_error(bal_ipt(bogus = 1))
+test_that("bw_ipt() rejects unnamed extra arguments", {
+  expect_true(S7::S7_inherits(bw_ipt(), balance_method))
+  expect_error(bw_ipt(bogus = 1))
 })
 
 # ---- Validators -----------------------------------------------------------
 
-test_that("bal_ipt() rejects a non-positive convergence tolerance", {
-  expect_identical(bal_ipt()@convergence_tolerance, 1e-10)
-  expect_error(bal_ipt(convergence_tolerance = -1e-10))
+test_that("bw_ipt() rejects a non-positive convergence tolerance", {
+  expect_identical(bw_ipt()@convergence_tolerance, 1e-10)
+  expect_error(bw_ipt(convergence_tolerance = -1e-10))
 })
 
-test_that("bal_ipt() rejects a negative iteration cap", {
-  expect_null(bal_ipt()@max_iterations)
-  expect_error(bal_ipt(max_iterations = -5L))
+test_that("bw_ipt() rejects a negative iteration cap", {
+  expect_null(bw_ipt()@max_iterations)
+  expect_error(bw_ipt(max_iterations = -5L))
 })
 
 # ---- Capability methods ---------------------------------------------------
 
 test_that("supported_exposure_types() excludes continuous", {
   expect_setequal(
-    supported_exposure_types(bal_ipt()),
+    supported_exposure_types(bw_ipt()),
     c("binary", "categorical")
   )
-  expect_false("continuous" %in% supported_exposure_types(bal_ipt()))
+  expect_false("continuous" %in% supported_exposure_types(bw_ipt()))
 })
 
 test_that("supported_estimands() depends on the exposure type", {
-  binary <- supported_estimands(bal_ipt(), "binary")
+  binary <- supported_estimands(bw_ipt(), "binary")
   expect_true(all(c("ate", "att") %in% binary))
   expect_true(any(c("atc", "atu") %in% binary))
   expect_false("ato" %in% binary)
 
   expect_setequal(
-    supported_estimands(bal_ipt(), "categorical"),
+    supported_estimands(bw_ipt(), "categorical"),
     c("ate", "att")
   )
 })
 
-test_that("supports_estimating_equations() is always TRUE for bal_ipt", {
-  expect_true(supports_estimating_equations(bal_ipt()))
+test_that("supports_estimating_equations() is always TRUE for bw_ipt", {
+  expect_true(supports_estimating_equations(bw_ipt()))
   expect_true(supports_estimating_equations(
-    bal_ipt(),
+    bw_ipt(),
     constraints = balance_terms(tolerance = 0)
   ))
   # Unlike entropy balancing, inverse probability tilting keeps its estimating
   # equations regardless of the requested tolerance.
   expect_true(supports_estimating_equations(
-    bal_ipt(),
+    bw_ipt(),
     constraints = balance_terms(tolerance = 0.05)
   ))
 })
 
 test_that("method_label() names the method", {
-  expect_identical(method_label(bal_ipt()), "Inverse probability tilting")
+  expect_identical(method_label(bw_ipt()), "Inverse probability tilting")
 })
 
 # ---- Statistical promises: binary -----------------------------------------
 
-test_that("bal_ipt balances a binary ate", {
+test_that("bw_ipt balances a binary ate", {
   data <- sim_binary()
   fit <- balance(
     data,
     exposure,
     c(x1, x2),
-    method = bal_ipt(),
+    method = bw_ipt(),
     estimand = "ate"
   )
   expect_balanced(fit, data)
   expect_true(all(stats::weights(fit) >= 0))
 })
 
-test_that("bal_ipt balances a binary att", {
+test_that("bw_ipt balances a binary att", {
   data <- sim_binary()
   fit <- balance(
     data,
     exposure,
     c(x1, x2),
-    method = bal_ipt(),
+    method = bw_ipt(),
     estimand = "att"
   )
   expect_balanced(fit, data)
   expect_true(all(stats::weights(fit) >= 0))
 })
 
-test_that("bal_ipt balances a binary atc", {
+test_that("bw_ipt balances a binary atc", {
   data <- sim_binary()
   fit <- balance(
     data,
     exposure,
     c(x1, x2),
-    method = bal_ipt(),
+    method = bw_ipt(),
     estimand = "atc"
   )
   expect_balanced(fit, data)
@@ -148,26 +148,26 @@ test_that("bal_ipt balances a binary atc", {
 
 # ---- Statistical promises: categorical ------------------------------------
 
-test_that("bal_ipt balances a categorical ate", {
+test_that("bw_ipt balances a categorical ate", {
   data <- sim_categorical()
   fit <- balance(
     data,
     exposure,
     c(x1, x2),
-    method = bal_ipt(),
+    method = bw_ipt(),
     estimand = "ate"
   )
   expect_balanced(fit, data)
   expect_true(all(stats::weights(fit) >= 0))
 })
 
-test_that("bal_ipt balances a categorical att", {
+test_that("bw_ipt balances a categorical att", {
   data <- sim_categorical()
   fit <- balance(
     data,
     exposure,
     c(x1, x2),
-    method = bal_ipt(),
+    method = bw_ipt(),
     estimand = "att",
     focal_level = "b"
   )
@@ -183,7 +183,7 @@ test_that("a binary ate normalizes each group to its size", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_ipt(),
+    method = bw_ipt(),
     estimand = "ate"
   )
   w <- as.numeric(stats::weights(fit))
@@ -198,7 +198,7 @@ test_that("a binary att keeps treated base weights and matches the control sum",
     data,
     exposure,
     c(x1, x2),
-    method = bal_ipt(),
+    method = bw_ipt(),
     estimand = "att"
   )
   w <- as.numeric(stats::weights(fit))
@@ -210,7 +210,7 @@ test_that("a binary att keeps treated base weights and matches the control sum",
 
 # ---- Property tests under sampling weights --------------------------------
 
-test_that("bal_ipt balances a binary ate under sampling weights", {
+test_that("bw_ipt balances a binary ate under sampling weights", {
   data <- sim_binary()
   withr::local_seed(21)
   data$sw <- stats::runif(nrow(data), 0.3, 3)
@@ -218,7 +218,7 @@ test_that("bal_ipt balances a binary ate under sampling weights", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_ipt(),
+    method = bw_ipt(),
     estimand = "ate",
     sampling_weights = sw
   )
@@ -235,7 +235,7 @@ test_that("bal_ipt balances a binary ate under sampling weights", {
   expect_equal(sum(w[!treated]), sum(data$sw[!treated]), tolerance = 1e-4)
 })
 
-test_that("bal_ipt balances a binary att under sampling weights", {
+test_that("bw_ipt balances a binary att under sampling weights", {
   data <- sim_binary()
   withr::local_seed(22)
   data$sw <- stats::runif(nrow(data), 0.3, 3)
@@ -243,7 +243,7 @@ test_that("bal_ipt balances a binary att under sampling weights", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_ipt(),
+    method = bw_ipt(),
     estimand = "att",
     sampling_weights = sw
   )
@@ -258,7 +258,7 @@ test_that("bal_ipt balances a binary att under sampling weights", {
   expect_equal(sum(w[!treated]), sum(data$sw[treated]), tolerance = 1e-4)
 })
 
-test_that("bal_ipt balances a categorical att under sampling weights", {
+test_that("bw_ipt balances a categorical att under sampling weights", {
   data <- sim_categorical()
   withr::local_seed(23)
   data$sw <- stats::runif(nrow(data), 0.3, 3)
@@ -266,7 +266,7 @@ test_that("bal_ipt balances a categorical att under sampling weights", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_ipt(),
+    method = bw_ipt(),
     estimand = "att",
     focal_level = "b",
     sampling_weights = sw
@@ -294,7 +294,7 @@ test_that("the effective sample size is bounded by n within each group", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_ipt(),
+    method = bw_ipt(),
     estimand = "ate"
   )
   ess_tbl <- ess(fit)
@@ -312,7 +312,7 @@ test_that("the fit stores the link coefficients", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_ipt(),
+    method = bw_ipt(),
     estimand = "ate"
   )
   expect_false(is.null(fit@coefficients))
@@ -332,7 +332,7 @@ test_that("the estimating equations are populated with consistent dimensions", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_ipt(),
+    method = bw_ipt(),
     estimand = "ate"
   )
   ee <- estimating_equations(fit)
@@ -354,7 +354,7 @@ test_that("each link function fits and balances a binary ate", {
       data,
       exposure,
       c(x1, x2),
-      method = bal_ipt(link = link),
+      method = bw_ipt(link = link),
       estimand = "ate"
     )
     expect_balanced(fit, data)
@@ -368,14 +368,14 @@ test_that("the link changes the weights", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_ipt(link = "logit"),
+    method = bw_ipt(link = "logit"),
     estimand = "ate"
   )
   fit_probit <- balance(
     data,
     exposure,
     c(x1, x2),
-    method = bal_ipt(link = "probit"),
+    method = bw_ipt(link = "probit"),
     estimand = "ate"
   )
   w_logit <- as.numeric(stats::weights(fit_logit))
@@ -385,7 +385,7 @@ test_that("the link changes the weights", {
 
 # ---- Cross-method identity ------------------------------------------------
 
-test_that("bal_ipt att weights equal entropy balancing att weights (binary)", {
+test_that("bw_ipt att weights equal entropy balancing att weights (binary)", {
   # With mean balance and the logit link, inverse probability tilting and
   # entropy balancing solve the same treated-target problem, so their
   # average-treatment-effect-on-the-treated weights agree.
@@ -394,14 +394,14 @@ test_that("bal_ipt att weights equal entropy balancing att weights (binary)", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_ipt(),
+    method = bw_ipt(),
     estimand = "att"
   )
   fit_ebal <- balance(
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "att"
   )
   w_ipt <- normalize_by_group(
@@ -424,7 +424,7 @@ test_that("a continuous exposure raises balancing_exposure_type_error", {
       data,
       exposure,
       c(x1, x2),
-      method = bal_ipt(),
+      method = bw_ipt(),
       estimand = "ate"
     ),
     class = "balancing_exposure_type_error"
@@ -438,7 +438,7 @@ test_that("the ato estimand raises balancing_estimand_error", {
       data,
       exposure,
       c(x1, x2),
-      method = bal_ipt(),
+      method = bw_ipt(),
       estimand = "ato"
     ),
     class = "balancing_estimand_error"
@@ -447,7 +447,7 @@ test_that("the ato estimand raises balancing_estimand_error", {
 
 # ---- Live consistency against WeightIt ------------------------------------
 
-test_that("bal_ipt weights match WeightIt for a binary ate", {
+test_that("bw_ipt weights match WeightIt for a binary ate", {
   skip_on_cran()
   skip_if_not_installed("WeightIt")
   # WeightIt's ipt method solves its moment equations through rootSolve, a
@@ -459,7 +459,7 @@ test_that("bal_ipt weights match WeightIt for a binary ate", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_ipt(),
+    method = bw_ipt(),
     estimand = "ate"
   )
   reference <- WeightIt::weightit(
@@ -477,7 +477,7 @@ test_that("bal_ipt weights match WeightIt for a binary ate", {
   expect_equal(ours, theirs, tolerance = 1e-6)
 })
 
-test_that("bal_ipt weights match WeightIt for a binary att", {
+test_that("bw_ipt weights match WeightIt for a binary att", {
   skip_on_cran()
   skip_if_not_installed("WeightIt")
   # WeightIt's ipt method solves its moment equations through rootSolve, a
@@ -489,7 +489,7 @@ test_that("bal_ipt weights match WeightIt for a binary att", {
     data,
     exposure,
     c(x1, x2),
-    method = bal_ipt(),
+    method = bw_ipt(),
     estimand = "att"
   )
   reference <- WeightIt::weightit(
@@ -510,7 +510,7 @@ test_that("bal_ipt weights match WeightIt for a binary att", {
 
 # ---- Print snapshot -------------------------------------------------------
 
-test_that("an bal_ipt fit prints its summary block", {
+test_that("an bw_ipt fit prints its summary block", {
   # Records on the first successful run once the fit path exists.
   data <- sim_binary()
   expect_snapshot({
@@ -518,7 +518,7 @@ test_that("an bal_ipt fit prints its summary block", {
       data,
       exposure,
       c(x1, x2),
-      method = bal_ipt(),
+      method = bw_ipt(),
       estimand = "ate"
     )
     fit

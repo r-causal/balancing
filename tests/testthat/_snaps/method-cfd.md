@@ -1,7 +1,7 @@
 # a kernel balancing fit prints its summary block
 
     Code
-      fit <- balance(data, exposure, c(x1, x2), method = bal_cfd(), estimand = "ate")
+      fit <- balance(data, exposure, c(x1, x2), method = bw_cfd(), estimand = "ate")
       fit
     Output
       

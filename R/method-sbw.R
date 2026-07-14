@@ -11,7 +11,7 @@
 
 #' Stable balancing weights
 #'
-#' `bal_sbw()` specifies stable balancing weights for [balance()]. Among all
+#' `bw_sbw()` specifies stable balancing weights for [balance()]. Among all
 #' weightings that hold each reweighted exposure group's covariate means inside a
 #' tolerance band, stable balancing weights select the one of least dispersion,
 #' following Zubizarreta. The default `"l2"` norm minimizes the sum of squared
@@ -66,7 +66,7 @@
 #' @param ... Reserved for future extensions; must be empty. Tuning parameters
 #'   must be passed by name.
 #'
-#' @return An `bal_sbw` specification, a [balance_method].
+#' @return An `bw_sbw` specification, a [balance_method].
 #'
 #' @references
 #' Zubizarreta, J. R. (2015). Stable weights that balance covariates for
@@ -86,14 +86,14 @@
 #'   df,
 #'   exposure,
 #'   c(x1, x2),
-#'   method = bal_sbw(),
+#'   method = bw_sbw(),
 #'   constraints = balance_terms(tolerance = 0.05)
 #' )
 #' fit
 #'
 #' @export
-bal_sbw <- new_class(
-  "bal_sbw",
+bw_sbw <- new_class(
+  "bw_sbw",
   parent = quadratic_program_method,
   properties = list(
     norm = class_character
@@ -147,15 +147,15 @@ bal_sbw <- new_class(
   }
 )
 
-method(method_label, bal_sbw) <- function(method) {
+method(method_label, bw_sbw) <- function(method) {
   "Stable balancing weights"
 }
 
-method(supported_exposure_types, bal_sbw) <- function(method) {
+method(supported_exposure_types, bw_sbw) <- function(method) {
   c("binary", "categorical", "continuous")
 }
 
-method(supported_estimands, bal_sbw) <- function(method, exposure_type) {
+method(supported_estimands, bw_sbw) <- function(method, exposure_type) {
   switch(
     exposure_type,
     # The overlap estimand is legal only for the covariate balancing propensity
@@ -169,7 +169,7 @@ method(supported_estimands, bal_sbw) <- function(method, exposure_type) {
 # The quadratic-program family has no estimating equations for any exposure type
 # or constraint set, so the answer is always FALSE. The context arguments are
 # accepted so the generic call shape matches the estimating-equation family.
-method(supports_estimating_equations, bal_sbw) <- function(
+method(supports_estimating_equations, bw_sbw) <- function(
   method,
   ...,
   exposure_type = NULL,
@@ -182,7 +182,7 @@ method(supports_estimating_equations, bal_sbw) <- function(
 # Stable balancing weights need explicit balance constraints, so their default is
 # first-moment balance rather than the empty set the objective-driven
 # quadratic-program methods use.
-method(default_constraints, bal_sbw) <- function(method) {
+method(default_constraints, bw_sbw) <- function(method) {
   balance_terms(moments = 1L)
 }
 
@@ -234,7 +234,7 @@ enforce_positive_tolerance <- function(prepared, call = rlang::caller_env()) {
       c(
         "Stable balancing weights require a positive balance tolerance.",
         x = "No constraint carries a tolerance above zero.",
-        i = "Set {.arg tolerance} in {.fn balance_terms} to a positive value, the central tuning parameter for {.fn bal_sbw}."
+        i = "Set {.arg tolerance} in {.fn balance_terms} to a positive value, the central tuning parameter for {.fn bw_sbw}."
       ),
       error_class = "balancing_constraints_error",
       call = call
@@ -250,7 +250,7 @@ enforce_supported_norm <- function(method, call = rlang::caller_env()) {
     abort(
       c(
         "The {.val {method@norm}} norm is not yet available for stable balancing weights.",
-        i = "Set {.code norm = \"l2\"} in {.fn bal_sbw}; only the least-squares norm is solved in this version."
+        i = "Set {.code norm = \"l2\"} in {.fn bw_sbw}; only the least-squares norm is solved in this version."
       ),
       error_class = "balancing_method_error",
       call = call
@@ -258,7 +258,7 @@ enforce_supported_norm <- function(method, call = rlang::caller_env()) {
   }
 }
 
-method(fit_method, bal_sbw) <- function(method, prepared) {
+method(fit_method, bw_sbw) <- function(method, prepared) {
   enforce_positive_tolerance(prepared)
   enforce_supported_norm(method)
 

@@ -5,14 +5,14 @@
 
 test_that("balancing_type_error: non-data-frame input", {
   expect_balancing_error(
-    balance(list(a = 1), exposure, c(x1, x2), method = bal_entropy())
+    balance(list(a = 1), exposure, c(x1, x2), method = bw_entropy())
   )
 })
 
 test_that("balancing_selection_error: exposure selects two columns", {
   data <- sim_binary(n = 100)
   expect_balancing_error(
-    balance(data, c(x1, x2), c(x1, x2), method = bal_entropy())
+    balance(data, c(x1, x2), c(x1, x2), method = bw_entropy())
   )
 })
 
@@ -20,7 +20,7 @@ test_that("balancing_missing_error: missing covariate values", {
   data <- sim_binary(n = 100)
   data$x1[1] <- NA
   expect_balancing_error(
-    balance(data, exposure, c(x1, x2), method = bal_entropy())
+    balance(data, exposure, c(x1, x2), method = bw_entropy())
   )
 })
 
@@ -38,7 +38,7 @@ test_that("balancing_estimand_error: an unsupported estimand", {
       data,
       exposure,
       c(x1, x2),
-      method = bal_entropy(),
+      method = bw_entropy(),
       estimand = "ato"
     )
   )
@@ -51,7 +51,7 @@ test_that("balancing_exposure_type_error: a method rejects an exposure type", {
       data,
       exposure,
       c(x1, x2),
-      method = bal_ipt(),
+      method = bw_ipt(),
       estimand = "ate"
     )
   )
@@ -64,7 +64,7 @@ test_that("balancing_estimand_error: a categorical att without focal_level", {
       data,
       exposure,
       c(x1, x2),
-      method = bal_entropy(),
+      method = bw_entropy(),
       estimand = "att"
     )
   )
@@ -77,7 +77,7 @@ test_that("balancing_exposure_type_error: a forced type contradicts the data", {
       data,
       exposure,
       c(x1, x2),
-      method = bal_entropy(),
+      method = bw_entropy(),
       exposure_type = "binary"
     )
   )
@@ -90,7 +90,7 @@ test_that("balancing_constraints_error: quantiles with a continuous exposure", {
       data,
       exposure,
       c(x1, x2),
-      method = bal_entropy(),
+      method = bw_entropy(),
       estimand = "ate",
       constraints = balance_terms(quantiles = 0.5)
     )
@@ -104,7 +104,7 @@ test_that("balancing_constraints_error: an unnamed multi-element tolerance", {
       data,
       exposure,
       c(x1, x2),
-      method = bal_entropy(),
+      method = bw_entropy(),
       constraints = balance_terms(tolerance = c(0.1, 0.2))
     )
   )
@@ -117,7 +117,7 @@ test_that("balancing_constraints_error: a tolerance named for a non-covariate", 
       data,
       exposure,
       c(x1, x2),
-      method = bal_entropy(),
+      method = bw_entropy(),
       constraints = balance_terms(tolerance = c(nonesuch = 0.1))
     )
   )
@@ -130,7 +130,7 @@ test_that("balancing_range_error: base weights of the wrong length", {
       data,
       exposure,
       c(x1, x2),
-      method = bal_entropy(base_weights = rep(1, 3))
+      method = bw_entropy(base_weights = rep(1, 3))
     )
   )
 })
@@ -139,7 +139,7 @@ test_that("balancing_range_error: an invalid entropy solver option", {
   data <- sim_binary(n = 100)
   withr::local_options(balancing.entropy_solver = "nope")
   expect_balancing_error(
-    balance(data, exposure, c(x1, x2), method = bal_entropy())
+    balance(data, exposure, c(x1, x2), method = bw_entropy())
   )
 })
 
@@ -151,7 +151,7 @@ test_that("balancing_range_error: an invalid quadratic-program backend option", 
       data,
       exposure,
       c(x1, x2),
-      method = bal_sbw(),
+      method = bw_sbw(),
       constraints = balance_terms(tolerance = 0.05)
     )
   )
@@ -163,7 +163,7 @@ test_that("balancing_ipw_unsupported_error: estimating_equations() when absent",
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate",
     constraints = balance_terms(tolerance = 0.05)
   )
@@ -176,7 +176,7 @@ test_that("balancing_autoplot_duals_error: the duals view without dual variables
     data,
     exposure,
     c(x1, x2),
-    method = bal_entropy(),
+    method = bw_entropy(),
     estimand = "ate"
   )
   # The estimating-equation family carries no dual variables, so the dual view

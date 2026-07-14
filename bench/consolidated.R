@@ -188,16 +188,16 @@ run_internal_grid <- function() {
     covs <- paste0("x", 1:10)
     iters <- if (n >= 10000L) 5L else 10L
     out[[sprintf("entropy_binary_ate_n%d", n)]] <-
-      bench_esteq_method("entropy", bal_entropy, d, covs, "ate", iters)
+      bench_esteq_method("entropy", bw_entropy, d, covs, "ate", iters)
     out[[sprintf("ipt_binary_ate_n%d", n)]] <-
-      bench_esteq_method("ipt", bal_ipt, d, covs, "ate", iters)
+      bench_esteq_method("ipt", bw_ipt, d, covs, "ate", iters)
     # The covariate balancing propensity score satisfies score-weighted moment
     # conditions rather than exact mean balance, so it is checked by convergence
     # only, not by the exact first-moment precision the tilt methods reach.
     out[[sprintf("cbps_binary_ate_n%d", n)]] <-
       bench_esteq_method(
         "cbps",
-        bal_cbps,
+        bw_cbps,
         d,
         covs,
         "ate",
@@ -213,7 +213,7 @@ run_internal_grid <- function() {
   out[["entropy_categorical_ate_n10000"]] <-
     bench_esteq_method(
       "entropy",
-      bal_entropy,
+      bw_entropy,
       dc,
       covsc,
       "ate",
@@ -223,7 +223,7 @@ run_internal_grid <- function() {
   out[["ipt_categorical_ate_n10000"]] <-
     bench_esteq_method(
       "ipt",
-      bal_ipt,
+      bw_ipt,
       dc,
       covsc,
       "ate",
@@ -236,7 +236,7 @@ run_internal_grid <- function() {
   out[["entropy_continuous_ate_n10000"]] <-
     bench_esteq_method(
       "entropy",
-      bal_entropy,
+      bw_entropy,
       dk,
       covsc,
       "ate",
@@ -252,7 +252,7 @@ run_internal_grid <- function() {
     out[[sprintf("energy_binary_ate_n%d", n)]] <-
       bench_qp_method(
         "energy",
-        bal_energy,
+        bw_energy,
         de$df,
         paste0("x", 1:4),
         "ate",
@@ -268,7 +268,7 @@ run_internal_grid <- function() {
     out[[sprintf("sbw_binary_ate_n%d", n)]] <-
       bench_qp_method(
         "sbw",
-        bal_sbw,
+        bw_sbw,
         ds$df,
         paste0("x", 1:4),
         "ate",
@@ -282,7 +282,7 @@ run_internal_grid <- function() {
 
 # ---- Entropy external reference gate ---------------------------------------
 
-# The performance gate: balance(bal_entropy()) must beat the equivalent
+# The performance gate: balance(bw_entropy()) must beat the equivalent
 # WeightIt ebal call by at least 5x end to end at n = 50000 with 200 first
 # moment constraints, at equal balance precision, judged as-shipped versus
 # as-shipped. As-shipped, our method resolves its worker count automatically;
@@ -305,7 +305,7 @@ run_entropy_gate <- function(n = 50000L, p = 200L, iterations = 3L) {
       df,
       exposure,
       all_of(covs),
-      method = bal_entropy(),
+      method = bw_entropy(),
       estimand = "ate"
     )))
   }
@@ -317,7 +317,7 @@ run_entropy_gate <- function(n = 50000L, p = 200L, iterations = 3L) {
       df,
       exposure,
       all_of(covs),
-      method = bal_entropy(),
+      method = bw_entropy(),
       estimand = "ate"
     )))
   }
@@ -332,7 +332,7 @@ run_entropy_gate <- function(n = 50000L, p = 200L, iterations = 3L) {
         df,
         exposure,
         all_of(covs),
-        method = bal_entropy(),
+        method = bw_entropy(),
         estimand = estimand
       )))
     }
@@ -414,7 +414,7 @@ run_entropy_gate <- function(n = 50000L, p = 200L, iterations = 3L) {
 
 # On the same binary data, the energy kernel of characteristic function distance
 # balancing reproduces energy balancing, so the two fits' weights should agree
-# and the cfd path's overhead over bal_energy() is the difference in medians. A
+# and the cfd path's overhead over bw_energy() is the difference in medians. A
 # gaussian-kernel fit on the same data times a non-trivial kernel build.
 run_cfd_overhead <- function(sizes = c(500L, 2000L), iterations = 3L) {
   options(balancing.threads = 1L)
@@ -428,20 +428,20 @@ run_cfd_overhead <- function(sizes = c(500L, 2000L), iterations = 3L) {
       df,
       exposure,
       all_of(covs),
-      method = bal_energy(),
+      method = bw_energy(),
       estimand = "ate"
     )))
     w_cfd_energy <- as.numeric(weights(balance(
       df,
       exposure,
       all_of(covs),
-      method = bal_cfd(kernel = "energy"),
+      method = bw_cfd(kernel = "energy"),
       estimand = "ate"
     )))
     rel <- max(abs(w_cfd_energy - w_energy) / pmax(abs(w_energy), 1e-8))
     corr <- stats::cor(w_energy, w_cfd_energy)
     cat(sprintf(
-      "[cfd overhead n=%d] energy-kernel vs bal_energy max_rel=%.2e corr=%.6f\n",
+      "[cfd overhead n=%d] energy-kernel vs bw_energy max_rel=%.2e corr=%.6f\n",
       n,
       rel,
       corr
@@ -453,7 +453,7 @@ run_cfd_overhead <- function(sizes = c(500L, 2000L), iterations = 3L) {
         df,
         exposure,
         all_of(covs),
-        method = bal_energy(),
+        method = bw_energy(),
         estimand = "ate"
       ))),
       check = FALSE,
@@ -466,7 +466,7 @@ run_cfd_overhead <- function(sizes = c(500L, 2000L), iterations = 3L) {
         df,
         exposure,
         all_of(covs),
-        method = bal_cfd(kernel = "energy"),
+        method = bw_cfd(kernel = "energy"),
         estimand = "ate"
       ))),
       check = FALSE,
@@ -479,7 +479,7 @@ run_cfd_overhead <- function(sizes = c(500L, 2000L), iterations = 3L) {
         df,
         exposure,
         all_of(covs),
-        method = bal_cfd(kernel = "gaussian"),
+        method = bw_cfd(kernel = "gaussian"),
         estimand = "ate"
       ))),
       check = FALSE,
@@ -495,7 +495,7 @@ run_cfd_overhead <- function(sizes = c(500L, 2000L), iterations = 3L) {
       correlation = corr
     )
     cat(sprintf(
-      "  medians: bal_energy=%.4fs cfd_energy=%.4fs cfd_gaussian=%.4fs\n",
+      "  medians: bw_energy=%.4fs cfd_energy=%.4fs cfd_gaussian=%.4fs\n",
       as.numeric(mk_energy$median),
       as.numeric(mk_cfd_e$median),
       as.numeric(mk_cfd_g$median)
@@ -525,7 +525,7 @@ run_cfd_backends <- function(sizes = c(500L, 1000L, 2000L), iterations = 5L) {
         df,
         exposure,
         all_of(covs),
-        method = bal_cfd(kernel = "gaussian"),
+        method = bw_cfd(kernel = "gaussian"),
         estimand = "ate"
       )
     }
@@ -554,7 +554,7 @@ run_cfd_backends <- function(sizes = c(500L, 1000L, 2000L), iterations = 5L) {
           df,
           exposure,
           all_of(covs),
-          method = bal_cfd(kernel = "gaussian"),
+          method = bw_cfd(kernel = "gaussian"),
           estimand = "ate"
         )))
       },
@@ -570,7 +570,7 @@ run_cfd_backends <- function(sizes = c(500L, 1000L, 2000L), iterations = 5L) {
           df,
           exposure,
           all_of(covs),
-          method = bal_cfd(kernel = "gaussian"),
+          method = bw_cfd(kernel = "gaussian"),
           estimand = "ate"
         )))
       },
@@ -621,7 +621,7 @@ run_sbw_fallback <- function(n = 20000L) {
       df,
       exposure,
       all_of(covs),
-      method = bal_sbw(),
+      method = bw_sbw(),
       estimand = "ate",
       constraints = ctrl
     ),
@@ -640,7 +640,7 @@ run_sbw_fallback <- function(n = 20000L) {
       df,
       exposure,
       all_of(covs),
-      method = bal_sbw(),
+      method = bw_sbw(),
       estimand = "ate",
       constraints = ctrl
     ),
@@ -654,7 +654,7 @@ run_sbw_fallback <- function(n = 20000L) {
       df,
       exposure,
       all_of(covs),
-      method = bal_sbw(),
+      method = bw_sbw(),
       estimand = "ate",
       constraints = ctrl
     ),

@@ -8,7 +8,7 @@
       
       Propensity Score Model:
         Call: balance(.data = data, .exposure = exposure, .covariates = c(x1, 
-          x2), method = bal_entropy(), estimand = "ate") 
+          x2), method = bw_entropy(), estimand = "ate") 
       
       Outcome Model:
         Call: stats::glm(formula = formula, family = family, data = data, weights = .wts) 

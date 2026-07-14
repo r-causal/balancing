@@ -12,7 +12,7 @@
 
 #' Energy balancing
 #'
-#' `bal_energy()` specifies energy balancing for [balance()]. The weights
+#' `bw_energy()` specifies energy balancing for [balance()]. The weights
 #' minimize the energy distance between the reweighted exposure groups and a
 #' target sample, subject to a simplex-type constraint set, so the reweighting
 #' improves multivariate covariate balance without positing a propensity model.
@@ -62,7 +62,7 @@
 #' @param ... Reserved for future extensions; must be empty. Tuning parameters
 #'   must be passed by name.
 #'
-#' @return An `bal_energy` specification, a [balance_method].
+#' @return An `bw_energy` specification, a [balance_method].
 #'
 #' @references
 #' Huling, J. D. and Mak, S. (2024). Energy balancing of covariate distributions.
@@ -81,12 +81,12 @@
 #'   x1 = x1,
 #'   x2 = x2
 #' )
-#' fit <- balance(df, exposure, c(x1, x2), method = bal_energy())
+#' fit <- balance(df, exposure, c(x1, x2), method = bw_energy())
 #' fit
 #'
 #' @export
-bal_energy <- new_class(
-  "bal_energy",
+bw_energy <- new_class(
+  "bw_energy",
   parent = quadratic_program_method,
   properties = list(
     distance = class_character,
@@ -176,15 +176,15 @@ bal_energy <- new_class(
   }
 )
 
-method(method_label, bal_energy) <- function(method) {
+method(method_label, bw_energy) <- function(method) {
   "Energy balancing"
 }
 
-method(supported_exposure_types, bal_energy) <- function(method) {
+method(supported_exposure_types, bw_energy) <- function(method) {
   c("binary", "categorical", "continuous")
 }
 
-method(supported_estimands, bal_energy) <- function(method, exposure_type) {
+method(supported_estimands, bw_energy) <- function(method, exposure_type) {
   switch(
     exposure_type,
     # The overlap estimand is legal only for the covariate balancing propensity
@@ -198,7 +198,7 @@ method(supported_estimands, bal_energy) <- function(method, exposure_type) {
 # The quadratic-program family has no estimating equations for any exposure type
 # or constraint set, so the answer is always FALSE. The context arguments are
 # accepted so the generic call shape matches the estimating-equation family.
-method(supports_estimating_equations, bal_energy) <- function(
+method(supports_estimating_equations, bw_energy) <- function(
   method,
   ...,
   exposure_type = NULL,
@@ -279,7 +279,7 @@ warn_ignored_tolerance <- function(call = rlang::caller_env()) {
   )
 }
 
-method(fit_method, bal_energy) <- function(method, prepared) {
+method(fit_method, bw_energy) <- function(method, prepared) {
   if (identical(prepared$exposure_type, "continuous")) {
     if (has_positive_tolerance(prepared$constraints)) {
       warn_ignored_tolerance()
