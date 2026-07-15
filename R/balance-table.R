@@ -28,11 +28,20 @@ new_balancing_tibble <- function(cols) {
   )
 }
 
-# Standardize a matrix to unweighted mean 0 and unit standard deviation, matching
-# the re-standardization expect_balanced() applies before measuring balance.
-standardize_columns <- function(m) {
-  centers <- colMeans(m)
-  scales <- apply(m, 2, stats::sd)
+# Standardize a matrix to weighted mean 0 and unit weighted standard deviation
+# under the sampling weights, matching the scale the constraint columns cross the
+# boundary on and the denominator the reference implementations report standardized
+# mean differences against. Without sampling weights the weighted statistics reduce
+# to the unweighted ones. The re-standardization expect_balanced() applies uses the
+# same convention.
+standardize_columns <- function(m, sampling_weights = NULL) {
+  if (is.null(sampling_weights)) {
+    centers <- colMeans(m)
+    scales <- apply(m, 2, stats::sd)
+  } else {
+    centers <- apply(m, 2, weighted_center, w = sampling_weights)
+    scales <- apply(m, 2, weighted_scale, w = sampling_weights)
+  }
   scales[scales == 0] <- 1
   sweep(sweep(m, 2, centers, "-"), 2, scales, "/")
 }
@@ -53,14 +62,15 @@ compute_balance_table <- function(
   weights,
   tolerance,
   reference = NULL,
-  constraint_target = c("pooled", "arms")
+  constraint_target = c("pooled", "arms"),
+  sampling_weights = NULL
 ) {
   if (is.null(reference)) {
     reference <- rep(1, length(weights))
   }
   constraint_target <- match.arg(constraint_target)
   matrix <- rebuild_constraint_matrix(recipe, data)
-  z <- standardize_columns(matrix)
+  z <- standardize_columns(matrix, sampling_weights)
   p <- ncol(z)
   terms <- vapply(recipe, function(term) term$term, character(1))
   kinds <- vapply(recipe, function(term) term$kind, character(1))

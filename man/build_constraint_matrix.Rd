@@ -23,8 +23,9 @@ first-moment constraints.}
 
 \item{exposure_type}{One of \code{"binary"}, \code{"categorical"}, or \code{"continuous"}.}
 
-\item{sampling_weights}{Optional sampling weights, reserved for weighted
-standardization.}
+\item{sampling_weights}{Optional sampling weights. When supplied, numeric
+columns are standardized to weighted mean zero and unit weighted standard
+deviation rather than the unweighted sample scale.}
 
 \item{call}{The calling environment, used to build the error's call so a
 constraint error names the user-facing function.}

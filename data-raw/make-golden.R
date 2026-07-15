@@ -68,11 +68,25 @@ sim_continuous <- function(n, seed) {
   data.frame(exposure = exposure, x1 = x1, x2 = x2)
 }
 
-# Standardize a covariate matrix to unweighted mean 0 and unit standard
-# deviation, the representation that crosses the FFI boundary.
-standardize <- function(m) {
-  centers <- colMeans(m)
-  scales <- apply(m, 2, sd)
+# Standardize a covariate matrix to mean 0 and unit standard deviation, the
+# representation that crosses the FFI boundary. With sampling weights `w` the
+# statistics are the sampling-weighted mean and the reliability-weighted standard
+# deviation, matching the scale the quadratic-program family enforces its
+# tolerance box on; the reliability denominator reduces to the unweighted result
+# for equal weights, so `w = NULL` reproduces the plain sample standardization.
+standardize <- function(m, w = NULL) {
+  if (is.null(w)) {
+    centers <- colMeans(m)
+    scales <- apply(m, 2, sd)
+  } else {
+    sw <- sum(w)
+    denom <- sw - sum(w * w) / sw
+    centers <- apply(m, 2, function(col) sum(w * col) / sw)
+    scales <- apply(m, 2, function(col) {
+      mean <- sum(w * col) / sw
+      sqrt(sum(w * (col - mean)^2) / denom)
+    })
+  }
   scales[scales == 0] <- 1
   sweep(sweep(m, 2, centers, "-"), 2, scales, "/")
 }
@@ -1104,24 +1118,42 @@ energy_continuous_fixture <- function(
 sbw_min_weight <- 1e-8
 sbw_tolerance <- 0.05
 
-# Sum of squared weights over the active units on the core's group-sum scale,
-# where each active group's group-normalized total is one. For the average
-# treatment effect every unit is active; for a focal estimand the focal group is
-# held at unit weight and excluded, so only the reweighted groups contribute. This
-# is the objective the core reports for the L2 norm. The group normalization
-# matches the solver's group-sum row exactly, so sampling weights renormalize each
-# group the same way the core does.
-sbw_objective <- function(weights, group_idx, active_levels, s) {
-  total <- 0
+# The small quadratic ridge the core adds to the balancing variables of the
+# absolute-deviation norms so the alternating-direction backend stays strongly
+# convex. It is carried into the reported objective, so the golden objective must
+# add the same term for the L1 and Linf fixtures to keep the one-sided comparison
+# exact. The L2 objective carries no ridge.
+sbw_lp_ridge <- 1e-4
+
+# The dispersion objective the core reports, evaluated on the reference weights at
+# the core's group-sum scale where each active group's group-normalized total is
+# one. For the average treatment effect every unit is active; for a focal estimand
+# the focal group is held at unit weight and excluded, so only the reweighted
+# groups contribute. L2 reports the sum of squared weights; L1 adds the ridge to
+# the summed absolute departure from one; Linf adds the ridge to the single largest
+# departure across every active unit. The group normalization matches the solver's
+# group-sum row exactly, so sampling weights renormalize each group the same way
+# the core does.
+sbw_objective <- function(weights, group_idx, active_levels, s, norm = "l2") {
+  quad <- 0
+  linear <- 0
+  deviations <- numeric(0)
   for (g in active_levels) {
     idx <- group_idx == g
     s_norm <- s[idx] / mean(s[idx])
     swnt <- s_norm / sum(idx)
     scale <- sum(swnt * weights[idx])
     w <- weights[idx] / scale
-    total <- total + sum(w * w)
+    quad <- quad + sum(w * w)
+    linear <- linear + sum(abs(w - 1))
+    deviations <- c(deviations, abs(w - 1))
   }
-  total
+  switch(
+    norm,
+    l2 = quad,
+    l1 = sbw_lp_ridge * quad + linear,
+    linf = sbw_lp_ridge * quad + max(deviations)
+  )
 }
 
 # Build a binary or categorical stable balancing fixture. `estimand` is one of the
@@ -1134,12 +1166,20 @@ sbw_discrete_fixture <- function(
   estimand,
   focal = NULL,
   multi = FALSE,
-  s = NULL
+  s = NULL,
+  norm = "l2"
 ) {
-  z <- standardize(model.matrix(~ x1 + x2 - 1, data))
-  n <- nrow(z)
-  p <- ncol(z)
+  n <- nrow(data)
   s <- s %||% rep(1, n)
+  # The tolerance box is measured on the standardized columns, so with sampling
+  # weights the columns cross the boundary on the sampling-weighted scale; equal
+  # weights reproduce the unweighted standardization exactly.
+  standardizing_weights <- if (any(s != 1)) s else NULL
+  z <- standardize(
+    model.matrix(~ x1 + x2 - 1, data),
+    w = standardizing_weights
+  )
+  p <- ncol(z)
   exposure <- as.character(data$exposure)
   levels_all <- if (is.factor(data$exposure)) {
     levels(data$exposure)
@@ -1161,7 +1201,8 @@ sbw_discrete_fixture <- function(
     form,
     data = zdf,
     tols = sbw_tolerance,
-    estimand = toupper(estimand)
+    estimand = toupper(estimand),
+    norm = norm
   )
   if (!is.null(focal)) {
     args$focal <- as.character(focal)
@@ -1207,7 +1248,7 @@ sbw_discrete_fixture <- function(
     }
   }
 
-  expected_obj <- sbw_objective(wt, group_idx, active_levels, s)
+  expected_obj <- sbw_objective(wt, group_idx, active_levels, s, norm)
   fixture <- list(
     kind = if (multi) "sbw_multi" else "sbw",
     n = n,
@@ -1218,7 +1259,7 @@ sbw_discrete_fixture <- function(
     treat = as.numeric(group_idx),
     s = as.numeric(s),
     estimand = estimand,
-    norm = "l2",
+    norm = norm,
     min_w = sbw_min_weight,
     expected_obj = expected_obj,
     rel_tol = 1e-6
@@ -1232,7 +1273,7 @@ sbw_discrete_fixture <- function(
 # Build a continuous stable balancing fixture. optweight constrains the same
 # linearized weighted correlation the core bounds, so its reference weights are
 # feasible in the core's box and their dispersion bounds the core's from above.
-sbw_continuous_fixture <- function(name, data) {
+sbw_continuous_fixture <- function(name, data, norm = "l2") {
   z <- standardize(model.matrix(~ x1 + x2 - 1, data))
   n <- nrow(z)
   p <- ncol(z)
@@ -1243,7 +1284,12 @@ sbw_continuous_fixture <- function(name, data) {
   names(zdf) <- paste0("z", seq_len(p))
   zdf$exposure <- exposure
   form <- stats::reformulate(paste0("z", seq_len(p)), response = "exposure")
-  reference <- optweight::optweight(form, data = zdf, tols = sbw_tolerance)
+  reference <- optweight::optweight(
+    form,
+    data = zdf,
+    tols = sbw_tolerance,
+    norm = norm
+  )
   wt <- reference$weights * n / sum(reference$weights)
 
   a_mean <- mean(exposure)
@@ -1259,6 +1305,16 @@ sbw_continuous_fixture <- function(name, data) {
     stop(sprintf("reference weights violate the correlation box for %s", name))
   }
 
+  # The single continuous group is normalized to a total of n, so the reference
+  # point of one and the objective evaluation match the discrete helper with a
+  # single active group.
+  expected_obj <- switch(
+    norm,
+    l2 = sum(wt * wt),
+    l1 = sbw_lp_ridge * sum(wt * wt) + sum(abs(wt - 1)),
+    linf = sbw_lp_ridge * sum(wt * wt) + max(abs(wt - 1))
+  )
+
   write_fixture(
     name,
     list(
@@ -1269,9 +1325,9 @@ sbw_continuous_fixture <- function(name, data) {
       treat = as.numeric(exposure),
       tols = rep(sbw_tolerance, p),
       s = as.numeric(s),
-      norm = "l2",
+      norm = norm,
       min_w = sbw_min_weight,
-      expected_obj = sum(wt * wt),
+      expected_obj = expected_obj,
       rel_tol = 1e-6
     )
   )
@@ -1327,7 +1383,8 @@ for (n in c(500L, 5000L)) {
   )
 
   # Inverse probability tilting: binary and categorical, the average treatment
-  # effect and a focal estimand, plus sampling-weight coverage.
+  # effect and a focal estimand, plus sampling-weight coverage for both the
+  # average treatment effect and a focal estimand.
   ipt_fixture(sprintf("ipt_binary_ate_n%d", n), binary, "ate", "logit")
   ipt_fixture(
     sprintf("ipt_binary_att_n%d", n),
@@ -1354,6 +1411,14 @@ for (n in c(500L, 5000L)) {
     binary,
     "ate",
     "logit",
+    s = sampling_weights
+  )
+  ipt_fixture(
+    sprintf("ipt_binary_att_sweights_n%d", n),
+    binary,
+    "att",
+    "logit",
+    focal = 1,
     s = sampling_weights
   )
 
@@ -1463,6 +1528,45 @@ for (n in c(500L, 5000L)) {
     multi = TRUE
   )
   sbw_continuous_fixture(sprintf("sbw_continuous_ate_n%d", n), continuous)
+
+  # The absolute-deviation norms, anchored to optweight the same way. optweight
+  # refuses the supremum norm under non-uniform sampling weights, so the
+  # sampling-weight coverage is generated for the summed-deviation norm only; the
+  # remaining norm-by-estimand cells all use uniform sampling weights.
+  for (norm in c("l1", "linf")) {
+    sbw_discrete_fixture(
+      sprintf("sbw_binary_ate_%s_n%d", norm, n),
+      binary,
+      "ate",
+      norm = norm
+    )
+    sbw_discrete_fixture(
+      sprintf("sbw_binary_att_%s_n%d", norm, n),
+      binary,
+      "att",
+      focal = 1,
+      norm = norm
+    )
+    sbw_discrete_fixture(
+      sprintf("sbw_categorical_ate_%s_n%d", norm, n),
+      categorical,
+      "ate",
+      multi = TRUE,
+      norm = norm
+    )
+    sbw_continuous_fixture(
+      sprintf("sbw_continuous_ate_%s_n%d", norm, n),
+      continuous,
+      norm = norm
+    )
+  }
+  sbw_discrete_fixture(
+    sprintf("sbw_binary_ate_l1_sweights_n%d", n),
+    binary,
+    "ate",
+    s = sampling_weights,
+    norm = "l1"
+  )
 }
 
 message("Golden fixtures written to ", output_dir)

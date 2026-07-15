@@ -116,6 +116,49 @@ test_that("the recipe records the standardization center and scale", {
   expect_equal(stats::sd(built$matrix[, 1]), 1, tolerance = 1e-8)
 })
 
+test_that("constraint columns standardize to the sampling-weighted scale", {
+  # Numeric constraint columns are centered and scaled by the sampling-weighted
+  # mean and standard deviation, matching the scale the reference implementations
+  # measure standardized mean differences on. The reliability-weighted variance
+  # denominator sum(w) - sum(w^2) / sum(w) reduces to n - 1 for equal weights.
+  x <- c(-2, -1, 0, 1, 2, 8)
+  data <- data.frame(x1 = x)
+  weights <- c(5, 5, 5, 1, 1, 1)
+
+  sw <- sum(weights)
+  weighted_mean <- sum(weights * x) / sw
+  denom <- sw - sum(weights^2) / sw
+  weighted_sd <- sqrt(sum(weights * (x - weighted_mean)^2) / denom)
+
+  built <- build_constraint_matrix(
+    data,
+    "x1",
+    balance_terms(),
+    exposure_type = "binary",
+    sampling_weights = weights
+  )
+  record <- built$recipe[[1]]
+
+  expect_equal(record$base_center, weighted_mean)
+  expect_equal(record$scale, weighted_sd)
+  # The weighted scale differs from the unweighted one when the weights are not
+  # equal, so this is a genuine change of convention.
+  expect_false(isTRUE(all.equal(record$scale, stats::sd(x))))
+  # The standardized column has weighted mean zero and unit weighted variance.
+  column <- built$matrix[, 1]
+  expect_equal(sum(weights * column) / sw, 0, tolerance = 1e-12)
+  expect_equal(sum(weights * column^2) / denom, 1, tolerance = 1e-12)
+
+  # Without sampling weights the standardization is the unweighted sample scale.
+  plain <- build_constraint_matrix(
+    data,
+    "x1",
+    balance_terms(),
+    exposure_type = "binary"
+  )
+  expect_equal(plain$recipe[[1]]$scale, stats::sd(x))
+})
+
 # ---- build_constraint_matrix(): interactions ------------------------------
 
 test_that("interactions add pairwise products but skip within-factor pairs", {

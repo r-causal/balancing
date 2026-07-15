@@ -160,12 +160,22 @@ entropy_options <- function(method, inexact = FALSE) {
 }
 
 # Scale each column's SMD-scale tolerance to the raw scale the solver's box
-# constrains. Numeric columns cross standardized to unit scale, so their box
-# equals the SMD tolerance; indicator and quantile columns cross raw, so their
-# box must be multiplied by the column's standard deviation for the achieved
-# standardized mean difference to bind at the requested tolerance.
-solver_box <- function(z, tolerances) {
-  column_sd <- apply(z, 2, stats::sd)
+# constrains, so the achieved standardized mean difference binds at the requested
+# tolerance. The tolerance is measured on the same standardized scale the balance
+# table and `within_tolerance` report on: the sampling-weighted standard deviation
+# when sampling weights are present, the unweighted one otherwise. Multiplying the
+# tolerance by that column standard deviation converts it to the raw units the
+# constraint row uses. A numeric column already standardized to that scale has a
+# unit standard deviation, so its box equals the tolerance; a raw indicator or
+# quantile column is scaled by its own standard deviation.
+solver_box <- function(z, tolerances, sampling_weights = NULL) {
+  weighted <- !is.null(sampling_weights) &&
+    length(unique(sampling_weights)) > 1L
+  column_sd <- if (weighted) {
+    apply(z, 2, weighted_scale, w = sampling_weights)
+  } else {
+    apply(z, 2, stats::sd)
+  }
   column_sd[column_sd == 0] <- 1
   tolerances * column_sd
 }
@@ -200,7 +210,7 @@ fit_entropy_discrete <- function(method, prepared) {
   }
   tolerances <- prepared$tolerances
   inexact <- any(tolerances > 0)
-  tols <- solver_box(z, tolerances)
+  tols <- solver_box(z, tolerances, s)
   levels <- prepared$exposure_levels
   groups <- prepared$groups
   estimand <- prepared$estimand

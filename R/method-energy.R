@@ -322,7 +322,7 @@ fit_energy_discrete <- function(method, prepared, enforce) {
     } else {
       targets <- target_means(z, groups[[focal]], measure)
     }
-    tols <- solver_box(z, prepared$tolerances)
+    tols <- solver_box(z, prepared$tolerances, s)
     moment_covs <- z
   } else {
     targets <- numeric(0)

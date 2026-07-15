@@ -106,6 +106,81 @@ test_that("a forced exposure type that contradicts the data errors", {
   )
 })
 
+# ---- Unused exposure levels -----------------------------------------------
+
+test_that("a binary factor with an unused level fits an estimating-equation method", {
+  withr::local_options(balancing.quiet = TRUE)
+  data <- sim_binary(n = 200)
+  data$exposure <- factor(data$exposure, levels = c(0, 1, 2))
+  fit <- balance(data, exposure, c(x1, x2), method = bw_entropy())
+  expect_equal(names(attr(fit@weights, "groups")), c("0", "1"))
+  expect_true(all(is.finite(as.numeric(stats::weights(fit)))))
+})
+
+test_that("a binary factor with an unused level fits a quadratic-program method", {
+  withr::local_options(balancing.quiet = TRUE)
+  data <- sim_binary(n = 200)
+  data$exposure <- factor(data$exposure, levels = c(0, 1, 2))
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_sbw(),
+    constraints = balance_terms(tolerance = 0.05)
+  )
+  groups <- attr(fit@weights, "groups")
+  w <- as.numeric(weights(fit))
+  expect_equal(names(groups), c("0", "1"))
+  group_ess <- vapply(
+    groups,
+    function(idx) sum(w[idx])^2 / sum(w[idx]^2),
+    numeric(1)
+  )
+  expect_true(all(is.finite(group_ess)))
+})
+
+test_that("a categorical factor with an unused level fits an estimating-equation method", {
+  withr::local_options(balancing.quiet = TRUE)
+  data <- sim_categorical(n = 300)
+  present <- levels(factor(as.character(data$exposure)))
+  data$exposure <- factor(
+    as.character(data$exposure),
+    levels = c(present, "zzz")
+  )
+  fit <- balance(data, exposure, c(x1, x2), method = bw_ipt())
+  expect_false("zzz" %in% names(attr(fit@weights, "groups")))
+  expect_true(all(is.finite(as.numeric(stats::weights(fit)))))
+})
+
+test_that("a categorical factor with an unused level keeps a finite effective sample size", {
+  withr::local_options(balancing.quiet = TRUE)
+  data <- sim_categorical(n = 300)
+  present <- levels(factor(as.character(data$exposure)))
+  data$exposure <- factor(
+    as.character(data$exposure),
+    levels = c(present, "zzz")
+  )
+  fit <- balance(data, exposure, c(x1, x2), method = bw_energy())
+  groups <- attr(fit@weights, "groups")
+  w <- as.numeric(weights(fit))
+  expect_false("zzz" %in% names(groups))
+  group_ess <- vapply(
+    groups,
+    function(idx) sum(w[idx])^2 / sum(w[idx]^2),
+    numeric(1)
+  )
+  expect_true(all(is.finite(group_ess)))
+})
+
+test_that("dropping an unused exposure level announces itself", {
+  withr::local_options(balancing.quiet = FALSE)
+  data <- sim_binary(n = 200)
+  data$exposure <- factor(data$exposure, levels = c(0, 1, 2))
+  expect_snapshot(
+    fit <- balance(data, exposure, c(x1, x2), method = bw_entropy())
+  )
+})
+
 # ---- Estimand validation and synonyms -------------------------------------
 
 test_that("balance() stores the requested estimand for a binary exposure", {

@@ -166,8 +166,9 @@ is_binary_numeric <- function(v) {
 #' @param constraints A [balance_terms] specification, or `NULL` for the default
 #'   first-moment constraints.
 #' @param exposure_type One of `"binary"`, `"categorical"`, or `"continuous"`.
-#' @param sampling_weights Optional sampling weights, reserved for weighted
-#'   standardization.
+#' @param sampling_weights Optional sampling weights. When supplied, numeric
+#'   columns are standardized to weighted mean zero and unit weighted standard
+#'   deviation rather than the unweighted sample scale.
 #' @param call The calling environment, used to build the error's call so a
 #'   constraint error names the user-facing function.
 #'
@@ -204,6 +205,21 @@ build_constraint_matrix <- function(
     .covariates,
     call = call
   )
+
+  # Numeric columns cross the boundary standardized to weighted mean zero and unit
+  # weighted standard deviation, matching the scale the reference implementations
+  # and the core's covariate transform use. Without sampling weights the weighted
+  # statistics reduce to the unweighted ones, so an ordinary fit is unaffected.
+  center_fn <- if (is.null(sampling_weights)) {
+    mean
+  } else {
+    function(x) weighted_center(x, sampling_weights)
+  }
+  scale_fn <- if (is.null(sampling_weights)) {
+    stats::sd
+  } else {
+    function(x) weighted_scale(x, sampling_weights)
+  }
 
   records <- list()
   interaction_bases <- list()
@@ -247,11 +263,11 @@ build_constraint_matrix <- function(
         is_factor = FALSE
       )
     } else {
-      base_center <- mean(v)
+      base_center <- center_fn(v)
       for (power in seq_len(moments[[cov]])) {
         raw <- (v - base_center)^power
-        center <- mean(raw)
-        scale <- stats::sd(raw)
+        center <- center_fn(raw)
+        scale <- scale_fn(raw)
         if (scale == 0) {
           scale <- 1
         }
@@ -278,7 +294,13 @@ build_constraint_matrix <- function(
   if (isTRUE(constraints@interactions)) {
     records <- c(
       records,
-      interaction_records(interaction_bases, .data, tolerances)
+      interaction_records(
+        interaction_bases,
+        .data,
+        tolerances,
+        center_fn,
+        scale_fn
+      )
     )
   }
 
@@ -310,7 +332,7 @@ build_constraint_matrix <- function(
 
 # Build the interaction records: pairwise products of distinct base columns,
 # skipping products of two indicators of the same factor.
-interaction_records <- function(bases, data, tolerances) {
+interaction_records <- function(bases, data, tolerances, center_fn, scale_fn) {
   records <- list()
   n_bases <- length(bases)
   for (i in seq_len(n_bases)) {
@@ -329,8 +351,8 @@ interaction_records <- function(bases, data, tolerances) {
       left_values <- base_values(left$source, left$level, data)
       right_values <- base_values(right$source, right$level, data)
       product <- left_values * right_values
-      center <- mean(product)
-      scale <- stats::sd(product)
+      center <- center_fn(product)
+      scale <- scale_fn(product)
       if (scale == 0) {
         scale <- 1
       }

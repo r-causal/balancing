@@ -142,12 +142,28 @@ balance <- function(
 
   constraints <- constraints %||% default_constraints(method)
 
+  # The quadratic-program family enforces its tolerance box on the standardized
+  # columns, so those columns cross the boundary on the sampling-weighted scale the
+  # reference measures the box on. The estimating-equation family keeps the
+  # unweighted scale, which conditions the Newton step better: its exact problem is
+  # invariant to an affine change of the columns, and its inexact problem's box is
+  # rescaled to the weighted scale in `solver_box()` regardless of the column
+  # scale, so both are unaffected. Either way the balance table reports on the
+  # weighted scale.
+  constraint_sampling_weights <- if (
+    S7::S7_inherits(method, quadratic_program_method)
+  ) {
+    sampling_weights_value
+  } else {
+    NULL
+  }
+
   built <- build_constraint_matrix(
     .data,
     covariate_names,
     constraints,
     exposure_type,
-    sampling_weights = sampling_weights_value
+    sampling_weights = constraint_sampling_weights
   )
 
   groups <- if (identical(exposure_type, "continuous")) {
@@ -212,7 +228,8 @@ balance <- function(
     as.numeric(weights) * prepared$sampling_weights,
     tolerance = 0,
     reference = base_measure,
-    constraint_target = fit$constraint_target %||% "pooled"
+    constraint_target = fit$constraint_target %||% "pooled",
+    sampling_weights = sampling_weights_value
   )
 
   # A fit warns when a constraint sits outside its tolerance box, judged on the
@@ -326,15 +343,25 @@ column_tolerances <- function(recipe) {
 }
 
 # The distinct exposure levels in a stable order: the factor levels when the
-# exposure is a factor, otherwise the sorted unique values as strings.
+# exposure is a factor, otherwise the sorted unique values as strings. A factor
+# may carry levels no observation takes; those empty levels would form groups of
+# size zero that misalign the estimating-equation design and yield an undefined
+# effective sample size, so they are dropped with an informational alert and only
+# the levels present in the data are balanced.
 exposure_levels <- function(exposure_vec, exposure_type) {
   if (identical(exposure_type, "continuous")) {
     return(character(0))
   }
+  present <- unique(as.character(exposure_vec[!is.na(exposure_vec)]))
   if (is.factor(exposure_vec)) {
-    levels(exposure_vec)
+    all_levels <- levels(exposure_vec)
+    unused <- setdiff(all_levels, present)
+    if (length(unused) > 0) {
+      alert_info("Dropping unused exposure level{?s} {.val {unused}}.")
+    }
+    all_levels[all_levels %in% present]
   } else {
-    sort(unique(as.character(exposure_vec)))
+    sort(present)
   }
 }
 

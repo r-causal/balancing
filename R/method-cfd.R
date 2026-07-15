@@ -303,7 +303,7 @@ method(fit_method, bw_cfd) <- function(method, prepared) {
     } else {
       targets <- target_means(z, groups[[focal]], s)
     }
-    tols <- solver_box(z, prepared$tolerances)
+    tols <- solver_box(z, prepared$tolerances, s)
     moment_covs <- z
   } else {
     targets <- numeric(0)

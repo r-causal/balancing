@@ -36,6 +36,25 @@ alert_info <- function(.message, .envir = parent.frame()) {
   }
 }
 
+# Sampling-weighted mean of a numeric vector.
+weighted_center <- function(x, w) {
+  sum(w * x) / sum(w)
+}
+
+# Sampling-weighted standard deviation with the reliability (frequency-free)
+# denominator `sum(w) - sum(w^2) / sum(w)`. This matches the core's covariate
+# transform and reduces exactly to `stats::sd()` when the weights are equal, so a
+# uniform-weight fit is standardized identically to the unweighted convention. A
+# column with no spread reports zero; callers substitute one to leave it
+# unscaled.
+weighted_scale <- function(x, w) {
+  sw <- sum(w)
+  mean <- sum(w * x) / sw
+  denom <- sw - sum(w * w) / sw
+  variance <- if (denom > 0) sum(w * (x - mean)^2) / denom else 0
+  sqrt(max(variance, 0))
+}
+
 # Guard the trailing dots of a method constructor. Each constructor takes only
 # its named tuning parameters, so an unexpected argument, usually a misspelled
 # name, raises a classed `balancing_method_error` naming the offending arguments

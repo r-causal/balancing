@@ -206,9 +206,16 @@ test_that("the effective sample size is bounded by n within each group", {
     method = bw_entropy(),
     estimand = "ate"
   )
-  ess_tbl <- ess(fit)
-  expect_true(all(ess_tbl$ess <= ess_tbl$n + 1e-8))
-  expect_true(all(ess_tbl$ess > 0))
+  # Kish effective sample size computed inline within each exposure group, since
+  # balance assessment moved to halfmoon; each group's figure stays positive and
+  # bounded by that group's size.
+  w <- as.numeric(weights(fit))
+  groups <- attr(fit@weights, "groups")
+  for (idx in groups) {
+    group_ess <- sum(w[idx])^2 / sum(w[idx]^2)
+    expect_gt(group_ess, 0)
+    expect_lte(group_ess, length(idx) + 1e-8)
+  }
 })
 
 # ---- Fixed points ---------------------------------------------------------
@@ -264,6 +271,30 @@ test_that("a positive tolerance balances within tolerance", {
     constraints = balance_terms(tolerance = 0.05)
   )
   expect_balanced(fit, data, tolerance = 0.05)
+})
+
+test_that("the inexact tolerance box binds on the weighted scale under informative sampling weights", {
+  # The inexact entropy path carries a tolerance box like the quadratic-program
+  # family, so its box must bind on the sampling-weighted scale the balance table
+  # reports on. Sampling weights correlated with x1 shrink its weighted spread
+  # below its unweighted one; a box measured on the unweighted scale would bind at
+  # the wrong width and warn against its own converged, in-box solution.
+  data <- sim_binary()
+  sw <- 0.3 + 2 * (abs(data$x1) < 0.5)
+  fit <- expect_no_warning(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(),
+      estimand = "ate",
+      constraints = balance_terms(tolerance = 0.01),
+      sampling_weights = sw
+    ),
+    class = "balancing_balance_warning"
+  )
+  expect_true(all(fit@balance_table$within_tolerance))
+  expect_balanced(fit, data, tolerance = 0.01)
 })
 
 test_that("a positive tolerance disables the estimating equations", {
@@ -412,16 +443,21 @@ test_that("distribution_moments holds the exposure variance", {
 test_that("distribution_moments is raised to the constraint moments with an alert", {
   withr::local_options(balancing.quiet = FALSE)
   data <- sim_continuous()
+  # With alerts on, the fit also announces the detected exposure type; capture
+  # that outer alert so it does not leak into the test console.
   expect_message(
-    balance(
-      data,
-      exposure,
-      c(x1, x2),
-      method = bw_entropy(distribution_moments = 1L),
-      estimand = "ate",
-      constraints = balance_terms(moments = 2L)
+    expect_message(
+      balance(
+        data,
+        exposure,
+        c(x1, x2),
+        method = bw_entropy(distribution_moments = 1L),
+        estimand = "ate",
+        constraints = balance_terms(moments = 2L)
+      ),
+      regexp = "distribution_moments"
     ),
-    regexp = "distribution_moments"
+    regexp = "continuous"
   )
 })
 
@@ -443,8 +479,8 @@ test_that("a continuous tolerance relaxes correlations but holds the marginals",
   # With the marginal variances held, the tolerance binds on the correlation
   # scale the design specifies, up to the small structural gap between the
   # constrained weighted association and the reported Pearson correlation.
-  expect_lte(max(tidy(fit)$weighted), 0.105)
-  expect_true(all(tidy(fit)$within_tolerance))
+  expect_lte(max(fit@balance_table$weighted), 0.105)
+  expect_true(all(fit@balance_table$within_tolerance))
 
   # The exposure marginals stay at the unweighted sample: the mean is preserved.
   w <- as.numeric(stats::weights(fit))

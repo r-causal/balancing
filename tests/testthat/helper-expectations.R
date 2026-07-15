@@ -22,10 +22,10 @@ expect_balanced <- function(x, .data, tolerance = 0) {
   w <- as.numeric(stats::weights(x))
   n <- nrow(.data)
 
-  centers <- colMeans(constraint_matrix)
-  scales <- apply(constraint_matrix, 2, stats::sd)
-  scales[scales == 0] <- 1
-  z <- sweep(sweep(constraint_matrix, 2, centers, "-"), 2, scales, "/")
+  # Standardize on the same scale the constraint columns cross the boundary on:
+  # weighted mean zero and unit weighted standard deviation under the sampling
+  # weights, reducing to the unweighted scale when none are present.
+  z <- standardize_columns(constraint_matrix, x@sampling_weights)
 
   sampling <- x@sampling_weights %||% rep(1, n)
   base <- tryCatch(x@method@base_weights, error = function(e) NULL) %||%
