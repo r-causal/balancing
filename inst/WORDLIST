@@ -2,6 +2,7 @@ ATO
 ATT
 ATU
 Biometrika
+CFD
 CMD
 Codecov
 Egel
@@ -23,7 +24,6 @@ Rachet
 Ratkovic
 Zubizarreta
 al
-benchmarking
 covariate's
 de
 estimand
@@ -32,11 +32,11 @@ et
 halfmoon
 infeasibility
 linearized
-orchestrator
+positivity
 reweight
 reweighting
 reweightings
 reweights
-tibble
 tidyselect
 toolchain
+vendored

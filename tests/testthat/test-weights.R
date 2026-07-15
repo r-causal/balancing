@@ -1,7 +1,7 @@
 # The bw class is a sibling of propensity::psw under the shared causal_wts
 # parent. These specs cover construction, the vctrs prototype labels, the
-# coercion lattice with its classed downgrade warning, arithmetic preservation,
-# and the ess() accessor shape.
+# coercion lattice with its classed downgrade warning, and arithmetic
+# preservation.
 
 # ---- Construction ---------------------------------------------------------
 
@@ -284,62 +284,4 @@ test_that("matrix subsetting drops to the underlying data", {
   picked <- w[index]
   expect_false(is_bw(picked))
   expect_equal(picked, c(10, 30))
-})
-
-# ---- ess() ----------------------------------------------------------------
-
-test_that("ess() returns a group, n, ess tibble", {
-  data <- sim_binary(n = 200)
-  fit <- balance(
-    data,
-    exposure,
-    c(x1, x2),
-    method = bw_entropy(),
-    estimand = "ate"
-  )
-  ess_tbl <- ess(fit)
-  expect_true(all(c("group", "n", "ess") %in% names(ess_tbl)))
-  expect_true(all(ess_tbl$ess <= ess_tbl$n + 1e-8))
-})
-
-test_that("ess() computes sum(w)^2 / sum(w^2) within each exposure group", {
-  data <- sim_binary(n = 200)
-  fit <- balance(
-    data,
-    exposure,
-    c(x1, x2),
-    method = bw_entropy(),
-    estimand = "ate"
-  )
-  ess_tbl <- ess(fit)
-  w <- as.numeric(weights(fit))
-  exposure_vec <- as.character(data$exposure)
-
-  # Recompute the effective sample size for each level directly from the
-  # extracted weights and compare against the reported value.
-  for (level in ess_tbl$group) {
-    idx <- exposure_vec == level
-    expected <- sum(w[idx])^2 / sum(w[idx]^2)
-    reported <- ess_tbl$ess[ess_tbl$group == level]
-    expect_equal(reported, expected)
-    expect_identical(ess_tbl$n[ess_tbl$group == level], sum(idx))
-  }
-})
-
-test_that("ess() of a continuous fit reports a single overall row", {
-  data <- sim_continuous(n = 200)
-  fit <- balance(
-    data,
-    exposure,
-    c(x1, x2),
-    method = bw_entropy(),
-    estimand = "ate"
-  )
-  ess_tbl <- ess(fit)
-  w <- as.numeric(weights(fit))
-
-  expect_identical(nrow(ess_tbl), 1L)
-  expect_identical(ess_tbl$group, "overall")
-  expect_identical(ess_tbl$n, nrow(data))
-  expect_equal(ess_tbl$ess, sum(w)^2 / sum(w^2))
 })

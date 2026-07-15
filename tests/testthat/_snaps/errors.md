@@ -162,13 +162,3 @@
       i Estimating equations are produced by the estimating-equation family with exact balance.
       i Use the bootstrap workflow in the inference vignette for variance instead.
 
-# balancing_autoplot_duals_error: the duals view without dual variables
-
-    Code
-      autoplot_duals(fit)
-    Condition <balancing_autoplot_duals_error>
-      Error in `autoplot_duals()`:
-      ! This fit has no dual variables to plot.
-      i Dual variables are reported by the quadratic-program family (energy, characteristic function distance, and stable balancing weights).
-      i The estimating-equation family carries none.
-

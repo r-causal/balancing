@@ -324,7 +324,7 @@ quantile.bw <- function(x, probs = seq(0, 1, 0.25), na.rm = FALSE, ...) {
   NextMethod()
 }
 
-# ---- weights() and ess() ---------------------------------------------------
+# ---- weights() -------------------------------------------------------------
 
 #' Extract balancing weights
 #'
@@ -350,58 +350,4 @@ method(weights, balancing) <- function(
     w <- w * object@sampling_weights
   }
   w
-}
-
-#' Effective sample size for a balancing fit
-#'
-#' Reports the effective sample size implied by a set of balancing weights. The
-#' effective sample size within a group is `sum(w)^2 / sum(w^2)`, which equals
-#' the group size when the weights are uniform and shrinks as the weights become
-#' more variable. Discrete exposures report one row per exposure level;
-#' continuous exposures report a single overall row.
-#'
-#' This method registers on [causalgenerics::ess()], the shared effective sample
-#' size generic. `library(balancing)` re-exports the generic, so `ess(fit)`
-#' works without a second attachment.
-#'
-#' @param x A [balancing] result.
-#' @param ... Ignored.
-#'
-#' @return A tibble with columns `group`, `n`, and `ess`.
-#'
-#' @examples
-#' n <- 200
-#' x1 <- rnorm(n)
-#' df <- data.frame(exposure = rbinom(n, 1, plogis(0.5 * x1)), x1 = x1)
-#' fit <- balance(df, exposure, x1, method = bw_entropy())
-#' ess(fit)
-#'
-#' @name ess.balancing
-NULL
-
-causalgenerics_ess <- new_external_generic("causalgenerics", "ess", "x")
-
-method(causalgenerics_ess, balancing) <- function(x, ...) {
-  w <- as.numeric(weights(x))
-  effective <- function(weights) sum(weights)^2 / sum(weights^2)
-
-  groups <- attr(x@weights, "groups")
-  if (is.null(groups)) {
-    return(new_balancing_tibble(list(
-      group = "overall",
-      n = x@n,
-      ess = effective(w)
-    )))
-  }
-
-  levels <- names(groups)
-  rows <- lapply(levels, function(level) {
-    idx <- groups[[level]]
-    list(group = level, n = length(idx), ess = effective(w[idx]))
-  })
-  new_balancing_tibble(list(
-    group = vapply(rows, function(r) r$group, character(1)),
-    n = vapply(rows, function(r) as.integer(r$n), integer(1)),
-    ess = vapply(rows, function(r) r$ess, numeric(1))
-  ))
 }

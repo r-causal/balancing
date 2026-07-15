@@ -1,6 +1,7 @@
 .Rproj.user
 .Rhistory
 .DS_Store
+README.html
 tests/testthat/_problems/
 tests/testthat/testthat-problems.rds
 .claude/

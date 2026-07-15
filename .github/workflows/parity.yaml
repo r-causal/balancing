@@ -5,7 +5,9 @@ on:
 
 name: parity.yaml
 
-permissions: read-all
+permissions:
+  contents: read
+  issues: write
 
 jobs:
   parity:
@@ -32,3 +34,13 @@ jobs:
       - name: Run parity tests against WeightIt and optweight
         run: devtools::test(filter = "method-", stop_on_failure = TRUE)
         shell: Rscript {0}
+
+      - name: Open an issue on parity drift
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue create \
+            --title "Parity drift detected in scheduled run ${{ github.run_id }}" \
+            --body "The scheduled parity job failed, which signals that the golden comparisons no longer match current CRAN WeightIt or optweight. This usually means an upstream release changed behavior. Review the run at ${RUN_URL} and update the fixtures or the reference expectations as needed."

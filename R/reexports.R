@@ -1,23 +1,12 @@
-# Re-export the broom-ecosystem generics so that tidy() and glance() are
-# available with `library(balancing)` alone. balancing registers methods on both
-# generics for its result class. The propensity accessors are re-exported so
-# that inspecting a bw weight vector's estimand and causal-weight status needs no
-# second attachment. The causalgenerics generics are re-exported so that ess()
-# and the shared vocabulary keep working with `library(balancing)` alone, while
-# other packages in the ecosystem register their own methods on the same
-# generic without masking.
+# The propensity accessors are re-exported so that inspecting a bw weight
+# vector's estimand and causal-weight status needs no second attachment. The
+# shared ipw() generic is re-exported so that a fitted balancing object drives
+# the effect-estimation workflow with an unqualified call after
+# `library(balancing)`.
 
-#' @importFrom causalgenerics ess
+#' @importFrom causalgenerics ipw
 #' @export
-causalgenerics::ess
-
-#' @importFrom generics tidy
-#' @export
-generics::tidy
-
-#' @importFrom generics glance
-#' @export
-generics::glance
+causalgenerics::ipw
 
 #' @importFrom propensity is_causal_wt
 #' @export

@@ -26,7 +26,7 @@ library(balancing)
 
 Every method solves a convex optimization problem, but the problems come in two shapes.
 
-The **estimating-equation family** fits weights that solve smooth estimating equations. `bw_entropy()` reweights to the maximum-entropy solution that matches the covariate targets; `bw_ipt()` fits a propensity model through a tilted moment condition; `bw_cbps()` chooses propensity parameters to satisfy covariate-balancing moment conditions. Because these weights solve estimating equations, their uncertainty can be propagated analytically into effect standard errors through `propensity::ipw()`. With mean balance and a logit link, all three produce the same ATT weights for a binary exposure.
+The **estimating-equation family** fits weights that solve smooth estimating equations. `bw_entropy()` reweights to the maximum-entropy solution that matches the covariate targets; `bw_ipt()` fits a propensity model through a tilted moment condition; `bw_cbps()` chooses propensity parameters to satisfy covariate-balancing moment conditions. Because these weights solve estimating equations, their uncertainty can be propagated analytically into effect standard errors through `ipw()`. With mean balance and a logit link, all three produce the same ATT weights for a binary exposure.
 
 The **quadratic-program family** minimizes a dispersion or distance objective subject to balance constraints. `bw_energy()` minimizes the energy distance between the reweighted groups; `bw_cfd()` minimizes a kernel distance; `bw_sbw()` minimizes the weight dispersion subject to a balance tolerance. These methods do not carry estimating equations, so inference for them uses resampling rather than linearization.
 
@@ -75,7 +75,7 @@ A dash marks an unsupported exposure type. The estimand vocabulary follows prope
 
 The families also differ in the balance they guarantee.
 
-The estimating-equation methods achieve **exact** balance on the requested moments. Their weighted covariate means equal the target means to solver precision, which is why the balance table reports weighted standardized mean differences at the level of numerical noise.
+The estimating-equation methods achieve **exact** balance on the requested moments. Their weighted covariate means equal the target means to solver precision, which is why the printed summary reports a largest imbalance at the level of numerical noise.
 
 ```{r exact}
 n <- 600
@@ -85,10 +85,10 @@ exposure <- rbinom(n, 1, plogis(0.5 * age - 0.5 * score))
 study <- data.frame(exposure, age, score)
 
 exact <- balance(study, exposure, c(age, score), method = bw_entropy())
-tidy(exact)[c("term", "unweighted", "weighted")]
+exact
 ```
 
-Exact balance is not always achievable or desirable. When the groups overlap poorly, forcing exact balance can drive the weights to extremes and collapse the effective sample size. A **tolerance** relaxes the constraints: each weighted statistic is held within a band rather than pinned to a point. For entropy balancing, a positive tolerance selects an inexact problem that trades a little residual imbalance for less variable weights.
+Exact balance is not always achievable or desirable. When the groups overlap poorly, forcing exact balance can drive the weights to extremes and collapse the effective sample size. A **tolerance** relaxes the constraints: each weighted statistic is held within a band rather than pinned to a point. For entropy balancing, a positive tolerance selects an inexact problem that trades a little residual imbalance for less variable weights. The printed summary records the tolerance the fit used and the largest imbalance it leaves.
 
 ```{r tolerance}
 relaxed <- balance(
@@ -99,7 +99,7 @@ relaxed <- balance(
   estimand = "att",
   constraints = balance_terms(tolerance = 0.05)
 )
-tidy(relaxed)[c("term", "weighted", "tolerance", "within_tolerance")]
+relaxed
 ```
 
 For `bw_sbw()` the tolerance is not optional. Stable balancing weights minimize weight dispersion subject to a balance band, so the tolerance is the method's central tuning parameter and a fit without a positive tolerance is refused.
@@ -133,7 +133,7 @@ balance_terms(moments = c(age = 1, score = 2))
 
 Powers above one are ignored for binary indicator columns, since squaring a zero/one column reproduces it.
 
-**Interactions** add all pairwise products of the base columns when set to `TRUE`, excluding products of two indicators of the same factor. This balances the joint distribution of pairs of covariates, not just their marginals.
+**Interactions** add all pairwise products of the base columns when set to `TRUE`, excluding products of two indicators of the same factor. This balances the joint distribution of pairs of covariates, not just their marginals, and adds the product terms to the constraint count the printed summary reports.
 
 ```{r interactions}
 with_interactions <- balance(
@@ -143,10 +143,10 @@ with_interactions <- balance(
   method = bw_entropy(),
   constraints = balance_terms(moments = 1, interactions = TRUE)
 )
-tidy(with_interactions)[c("term", "kind", "weighted")]
+with_interactions
 ```
 
-**Quantiles** add an indicator column at each requested probability, so that mean balance on the indicator is quantile balance on the covariate. This targets the shape of the distribution rather than its moments. Quantile constraints apply to discrete exposures only.
+**Quantiles** add an indicator column at each requested probability, so that mean balance on the indicator is quantile balance on the covariate. This targets the shape of the distribution rather than its moments, and each added indicator becomes another constraint term. Quantile constraints apply to discrete exposures only.
 
 ```{r quantiles}
 with_quantiles <- balance(
@@ -159,7 +159,7 @@ with_quantiles <- balance(
     quantiles = c(0.25, 0.5, 0.75)
   )
 )
-tidy(with_quantiles)[c("term", "kind", "weighted")]
+with_quantiles
 ```
 
 **Tolerance** sets the per-constraint balance band, as described above. It can be a scalar or a named vector giving a different tolerance per source covariate, with derived columns inheriting their source's tolerance.
@@ -187,11 +187,7 @@ dose_fit <- balance(
 dose_fit
 ```
 
-The balance table for a continuous exposure reports weighted exposure-covariate correlations rather than standardized mean differences.
-
-```{r continuous-tidy}
-tidy(dose_fit)[c("term", "statistic", "unweighted", "weighted")]
-```
+For a continuous exposure the printed summary reports the largest weighted exposure-covariate correlation rather than a standardized mean difference.
 
 For `bw_entropy()` and `bw_energy()`, the `distribution_moments` argument on the method constructor sets how many moments of the exposure and covariate marginals are held equal to the unweighted sample, extending the identifying conditions beyond the correlation constraints. It is raised automatically to at least the moments the constraints require.
 
@@ -202,10 +198,10 @@ dose_moments <- balance(
   c(age, score),
   method = bw_entropy(distribution_moments = 2, convergence_tolerance = 1e-8)
 )
-glance(dose_moments)[c("method", "converged")]
+dose_moments
 ```
 
-The marginal-moment conditions are enforced inside the solver rather than added to the balance table, so they leave the constraint count `glance()` reports unchanged. They also make the problem stiffer, so this fit relaxes the `convergence_tolerance` to a looser value to reach the requested balance.
+The marginal-moment conditions are enforced inside the solver rather than added to the balance table, so they leave the constraint count in the printed summary unchanged. They also make the problem stiffer, so this fit relaxes the `convergence_tolerance` to a looser value to reach the requested balance.
 
 ## A note on solvers
 

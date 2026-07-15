@@ -63,11 +63,7 @@ fit <- balance(
 fit
 ```
 
-The printed summary reports the effective sample size, the solver status, and the largest imbalance the weights leave behind. `tidy()` returns the full balance table, one row per constraint term, with the standardized mean difference before and after weighting.
-
-```{r tidy}
-tidy(fit)
-```
+The printed summary reports the solver status and the largest imbalance the weights leave behind on the constraint terms.
 
 The weights are a `bw` vector, a sibling of `propensity::psw`. Pass them to a weighted outcome model to estimate the effect.
 
@@ -77,7 +73,7 @@ outcome_mod <- lm(outcome ~ exposure, data = study, weights = w)
 coef(outcome_mod)[["exposure"]]
 ```
 
-For the estimating-equation methods with a binary exposure, `propensity::ipw()` returns effect estimates with standard errors that account for having estimated the weights.
+For the estimating-equation methods with a binary exposure, `ipw()` returns effect estimates with standard errors that account for having estimated the weights.
 
 ## How balancing relates to the other r-causal packages
 
@@ -85,7 +81,7 @@ balancing is part of the [r-causal](https://github.com/r-causal) family and shar
 
 - [propensity](https://r-causal.github.io/propensity/) calculates inverse probability weights from a fitted propensity score model and estimates effects with `ipw()`. balancing produces a different kind of weight, one that targets balance directly rather than through a modeled score, but it plugs into the same effect-estimation workflow: the weights share the `causal_wts` vocabulary, and `ipw()` dispatches on a balancing fit just as it does on a propensity model.
 - [halfmoon](https://r-causal.github.io/halfmoon/) assesses covariate balance. balancing reports the balance achieved on its own constraint terms, but a full balance-assessment workflow, including variables the weights were not asked to balance, lives in halfmoon. Extract the weights with `weights()` and pass them to `halfmoon::check_balance()` and `halfmoon::plot_balance()`.
-- [positively](https://github.com/r-causal/positively) contributes the shared design language: the S7 method specifications, the orchestrator API, and the exposure-type handling follow its conventions.
+- [positively](https://r-causal.github.io/positively/) diagnoses positivity violations and extrapolation across binary, categorical, and continuous exposures. balancing redistributes influence across units to achieve balance, and positivity problems are exactly where that redistribution becomes extrapolation, showing up as extreme weights and a collapsing effective sample size, so checking positivity with positively complements weighting with balancing.
 
 ## Learn more
 

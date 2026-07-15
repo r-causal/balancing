@@ -70,26 +70,13 @@ fit
 #> Exposure: "exposure" (binary)
 #> Estimand: "att" (focal level "1")
 #> Observations: 500
-#> Effective sample size (0: 138.6 and 1: 267.0)
 #> Solver: converged in 3 iterations
 #> Constraints: 2 terms (tolerance 0)
 #> Largest imbalance: 0.0000 (standardized mean difference)
 ```
 
-The printed summary reports the effective sample size, the solver
-status, and the largest imbalance the weights leave behind. `tidy()`
-returns the full balance table, one row per constraint term, with the
-standardized mean difference before and after weighting.
-
-``` r
-tidy(fit)
-#>    term   kind statistic group unweighted     weighted tolerance
-#> 1   age moment       smd     0  0.4523254 4.451137e-11         0
-#> 2 score moment       smd     0  0.4901850 1.810707e-11         0
-#>   within_tolerance
-#> 1             TRUE
-#> 2             TRUE
-```
+The printed summary reports the solver status and the largest imbalance
+the weights leave behind on the constraint terms.
 
 The weights are a `bw` vector, a sibling of `propensity::psw`. Pass them
 to a weighted outcome model to estimate the effect.
@@ -101,9 +88,9 @@ coef(outcome_mod)[["exposure"]]
 #> [1] 1.131677
 ```
 
-For the estimating-equation methods with a binary exposure,
-`propensity::ipw()` returns effect estimates with standard errors that
-account for having estimated the weights.
+For the estimating-equation methods with a binary exposure, `ipw()`
+returns effect estimates with standard errors that account for having
+estimated the weights.
 
 ## How balancing relates to the other r-causal packages
 
@@ -123,9 +110,13 @@ and shares its design language with three sibling packages.
   weights were not asked to balance, lives in halfmoon. Extract the
   weights with `weights()` and pass them to `halfmoon::check_balance()`
   and `halfmoon::plot_balance()`.
-- [positively](https://github.com/r-causal/positively) contributes the
-  shared design language: the S7 method specifications, the orchestrator
-  API, and the exposure-type handling follow its conventions.
+- [positively](https://r-causal.github.io/positively/) diagnoses
+  positivity violations and extrapolation across binary, categorical,
+  and continuous exposures. balancing redistributes influence across
+  units to achieve balance, and positivity problems are exactly where
+  that redistribution becomes extrapolation, showing up as extreme
+  weights and a collapsing effective sample size, so checking positivity
+  with positively complements weighting with balancing.
 
 ## Learn more
 

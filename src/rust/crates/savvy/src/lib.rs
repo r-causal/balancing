@@ -31,7 +31,8 @@ use convert::{
     parse_binary_estimand, parse_cbps_estimand, parse_cbps_multi_estimand, parse_cfd_options,
     parse_distance, parse_entropy_options, parse_ipt_options, parse_kernel, parse_kernel_options,
     parse_link, parse_multi_estimand, parse_qp_options, parse_sbw_norm, parse_sbw_options,
-    parse_smoothness, real_matrix, real_vector,
+    parse_smoothness, real_matrix, real_vector, require_binary_treat, require_dense_levels,
+    require_finite,
 };
 
 /// Report the parallel resources the Rust core observes.
@@ -396,6 +397,9 @@ fn solve_ipt(
     if treat.len() != n {
         return Err(savvy::Error::new("treat must have length n"));
     }
+    require_finite(covs.as_slice(), "covs")?;
+    require_finite(s_weights.as_slice(), "s_weights")?;
+    require_binary_treat(treat.as_slice())?;
 
     let inputs = IptInputs {
         covs: covs.as_slice(),
@@ -461,6 +465,9 @@ fn solve_ipt_multi(
             "focal must be a level present in treat_idx",
         ));
     }
+    require_finite(covs.as_slice(), "covs")?;
+    require_finite(s_weights.as_slice(), "s_weights")?;
+    require_dense_levels(treat, n_levels)?;
     let estimand = parse_multi_estimand(estimand, focal as usize)?;
 
     let inputs = IptInputs {
@@ -532,6 +539,9 @@ fn eval_psi_ipt(
             "focal must be a level present in treat_idx",
         ));
     }
+    require_finite(covs.as_slice(), "covs")?;
+    require_finite(s_weights.as_slice(), "s_weights")?;
+    require_dense_levels(treat, n_levels)?;
     let estimand = parse_multi_estimand(estimand, focal as usize)?;
 
     let inputs = IptInputs {

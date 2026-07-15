@@ -182,17 +182,3 @@ test_that("balancing_ipw_unsupported_error: estimating_equations() when absent",
   )
   expect_balancing_error(estimating_equations(fit))
 })
-
-test_that("balancing_autoplot_duals_error: the duals view without dual variables", {
-  data <- sim_binary(n = 150)
-  fit <- balance(
-    data,
-    exposure,
-    c(x1, x2),
-    method = bw_entropy(),
-    estimand = "ate"
-  )
-  # The estimating-equation family carries no dual variables, so the dual view
-  # aborts before it touches ggplot2.
-  expect_balancing_error(autoplot_duals(fit))
-})

@@ -345,14 +345,6 @@ method(print, balancing) <- function(x, ...) {
     }
     cli::cli_text("Observations: {x@n}")
 
-    ess_tbl <- ess(x)
-    ess_lines <- paste0(
-      ess_tbl$group,
-      ": ",
-      formatC(ess_tbl$ess, format = "f", digits = 1)
-    )
-    cli::cli_text("Effective sample size ({ess_lines})")
-
     status <- if (x@converged) "converged" else "did not converge"
     cli::cli_text(
       "Solver: {status} in {x@iterations} iteration{?s}"
@@ -414,86 +406,6 @@ method(summary, balancing) <- function(object, ...) {
   # whether the tibble print method is attached.
   print(utils::head(as.data.frame(object@balance_table)))
   invisible(object)
-}
-
-#' Tidy and glance methods for a balancing fit
-#'
-#' @description
-#' [generics::tidy()] returns the fit's balance table, one row per constraint
-#' term, and [generics::glance()] returns a one-row fit summary. Both are
-#' re-exported so they work with `library(balancing)` alone.
-#'
-#' @details
-#' `tidy()` returns a tibble with one row per balance constraint and the
-#' columns:
-#'
-#' - `term`: the covariate or expansion the constraint acts on.
-#' - `kind`: the constraint kind, such as `"moment"` or `"quantile"`.
-#' - `statistic`: the balance statistic, `"smd"` for a discrete exposure or
-#'   `"correlation"` for a continuous exposure.
-#' - `group`: the exposure level the contrast is measured against.
-#' - `unweighted`: the statistic before weighting.
-#' - `weighted`: the statistic after weighting.
-#' - `tolerance`: the requested tolerance for the term.
-#' - `within_tolerance`: whether the weighted statistic sits within tolerance.
-#'
-#' `glance()` returns a one-row tibble with the columns:
-#'
-#' - `method`: the balancing method label.
-#' - `estimand`: the target estimand.
-#' - `exposure_type`: the resolved exposure type.
-#' - `n`: the number of observations.
-#' - `ess`: the overall effective sample size.
-#' - `n_constraints`: the number of balance constraints.
-#' - `max_absolute_smd` or `max_absolute_correlation`: the largest absolute
-#'   weighted statistic, named for the exposure type.
-#' - `converged`: whether the solver converged.
-#' - `iterations`: the iteration count the solver reported.
-#' - `objective`: the solver's objective value.
-#'
-#' @param x A [balancing] result.
-#' @param ... Ignored.
-#'
-#' @return A tibble, as described in the details.
-#'
-#' @examples
-#' n <- 200
-#' x1 <- rnorm(n)
-#' df <- data.frame(exposure = rbinom(n, 1, plogis(0.5 * x1)), x1 = x1)
-#' fit <- balance(df, exposure, x1, method = bw_entropy())
-#' tidy(fit)
-#' glance(fit)
-#'
-#' @name tidy.balancing
-NULL
-
-method(tidy, balancing) <- function(x, ...) {
-  x@balance_table
-}
-
-method(glance, balancing) <- function(x, ...) {
-  w <- as.numeric(weights(x))
-  overall_ess <- sum(w)^2 / sum(w^2)
-  statistic <- x@balance_table$statistic[1]
-  imbalance_name <- if (identical(statistic, "correlation")) {
-    "max_absolute_correlation"
-  } else {
-    "max_absolute_smd"
-  }
-  out <- new_balancing_tibble(list(
-    method = method_label(x@method),
-    estimand = x@estimand,
-    exposure_type = x@exposure_type,
-    n = x@n,
-    ess = overall_ess,
-    n_constraints = nrow(x@balance_table),
-    imbalance = max(abs(x@balance_table$weighted)),
-    converged = x@converged,
-    iterations = x@iterations,
-    objective = x@objective
-  ))
-  names(out)[names(out) == "imbalance"] <- imbalance_name
-  out
 }
 
 #' Extract the estimating-equations container

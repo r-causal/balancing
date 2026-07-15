@@ -301,9 +301,16 @@ test_that("the effective sample size is bounded by n within each group", {
     method = bw_cfd(),
     estimand = "ate"
   )
-  ess_tbl <- ess(fit)
-  expect_true(all(ess_tbl$ess <= ess_tbl$n + 1e-8))
-  expect_true(all(ess_tbl$ess > 0))
+  # Kish effective sample size computed inline within each exposure group, since
+  # balance assessment moved to halfmoon; each group's figure stays positive and
+  # bounded by that group's size.
+  w <- as.numeric(weights(fit))
+  groups <- attr(fit@weights, "groups")
+  for (idx in groups) {
+    group_ess <- sum(w[idx])^2 / sum(w[idx]^2)
+    expect_gt(group_ess, 0)
+    expect_lte(group_ess, length(idx) + 1e-8)
+  }
 })
 
 # ---- Categorical ----------------------------------------------------------

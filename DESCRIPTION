@@ -24,7 +24,6 @@ Depends:
 Imports:
     causalgenerics,
     cli,
-    generics,
     propensity,
     rlang,
     S7,
@@ -32,10 +31,11 @@ Imports:
     tidyselect,
     vctrs
 Suggests:
-    ggplot2,
     halfmoon,
     knitr,
     optweight,
+    osqp,
+    quadprog,
     rmarkdown,
     testthat (>= 3.0.0),
     WeightIt,

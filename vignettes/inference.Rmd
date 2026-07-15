@@ -16,7 +16,7 @@ options(balancing.quiet = TRUE)
 set.seed(2024)
 ```
 
-Balancing weights are estimated, not fixed. A weighted outcome model treats its weights as known constants, so the standard errors it reports do not account for the uncertainty in the weights themselves. This article explains why that matters and shows two ways to get honest standard errors: linearization through `propensity::ipw()` for the estimating-equation methods, and a bootstrap for the quadratic-program methods.
+Balancing weights are estimated, not fixed. A weighted outcome model treats its weights as known constants, so the standard errors it reports do not account for the uncertainty in the weights themselves. This article explains why that matters and shows two ways to get honest standard errors: linearization through `ipw()` for the estimating-equation methods, and a bootstrap for the quadratic-program methods.
 
 ```{r setup}
 library(balancing)
@@ -67,10 +67,10 @@ The right standard error propagates the uncertainty from estimating the weights 
 
 ## Linearization with `ipw()`
 
-The estimating-equation methods (`bw_entropy()`, `bw_ipt()`, and the just-identified `bw_cbps()`) fit weights that solve smooth estimating equations. That structure lets the uncertainty be propagated analytically: `propensity::ipw()` stacks the weight-parameter estimating equations, the outcome-model score equations, and the marginal-mean equations into one system and takes its sandwich variance. The result is a standard error that accounts for having estimated the weights.
+The estimating-equation methods (`bw_entropy()`, `bw_ipt()`, and the just-identified `bw_cbps()`) fit weights that solve smooth estimating equations. That structure lets the uncertainty be propagated analytically: `ipw()` stacks the weight-parameter estimating equations, the outcome-model score equations, and the marginal-mean equations into one system and takes its sandwich variance. The result is a standard error that accounts for having estimated the weights.
 
 ```{r ipw}
-result <- propensity::ipw(fit, outcome_mod)
+result <- ipw(fit, outcome_mod)
 result
 ```
 
@@ -96,7 +96,7 @@ sbw_fit <- balance(
   method = bw_sbw(),
   constraints = balance_terms(tolerance = 0.02)
 )
-propensity::ipw(sbw_fit, outcome_mod)
+ipw(sbw_fit, outcome_mod)
 ```
 
 ## Bootstrapping the quadratic-program methods

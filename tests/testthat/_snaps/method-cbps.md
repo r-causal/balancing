@@ -9,7 +9,6 @@
       Exposure: "exposure" (binary)
       Estimand: "ate"
       Observations: 500
-      Effective sample size (0: 180.1 and 1: 236.0)
       Solver: converged in 4 iterations
       Constraints: 2 terms (tolerance 0)
       Largest imbalance: 0.0000 (standardized mean difference)

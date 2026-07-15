@@ -13,7 +13,6 @@
       Exposure: "exposure" (binary)
       Estimand: "ate"
       Observations: 500
-      Effective sample size (0: 184.6 and 1: 247.6)
       Solver: did not converge in 2 iterations
       Constraints: 2 terms (tolerance 0)
       Largest imbalance: 0.0000 (standardized mean difference)
@@ -34,7 +33,6 @@
       Exposure: "exposure" (continuous)
       Estimand: "ate"
       Observations: 500
-      Effective sample size (overall: 371.0)
       Solver: converged in 30 iterations
       Constraints: 2 terms (tolerance 0.1)
       Largest imbalance: 0.1751 (correlation)
@@ -54,7 +52,6 @@
       Exposure: "exposure" (binary)
       Estimand: "ate"
       Observations: 500
-      Effective sample size (0: 180.1 and 1: 236.0)
       Solver: converged in 4 iterations
       Constraints: 2 terms (tolerance 0)
       Largest imbalance: 0.0000 (standardized mean difference)

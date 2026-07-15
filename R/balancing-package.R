@@ -4,8 +4,6 @@
 ## usethis namespace: start
 #' @import S7
 #' @import vctrs
-#' @importFrom generics glance
-#' @importFrom generics tidy
 #' @importFrom rlang %||%
 #' @importFrom rlang .data
 #' @importFrom stats sd

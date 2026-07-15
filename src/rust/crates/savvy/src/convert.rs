@@ -412,6 +412,13 @@ pub fn parse_link(link: &str) -> savvy::Result<Link> {
 /// Resolve a binary-exposure estimand to its tilting target. The treated level
 /// is `1` and the control level is `0`, so `att` tilts toward the treated and
 /// `atc` toward the controls.
+///
+/// The R fit path re-encodes a focal estimand as `att` with the focal exposure
+/// level mapped to the treated encoding (`1`), so only `ate` and `att` arrive
+/// from the package; the `atc` arm is unreachable from the package and is kept
+/// for boundary symmetry with the categorical and quadratic-program parsers.
+/// The R layer's own canonical untreated target is `atu`, the propensity synonym
+/// for `atc`, which never reaches this parser because of that re-encoding.
 pub fn parse_binary_estimand(estimand: &str) -> savvy::Result<IptEstimand> {
     match estimand {
         "ate" => Ok(IptEstimand::Ate),
@@ -461,6 +468,75 @@ pub fn parse_cbps_multi_estimand(estimand: &str) -> savvy::Result<CbpsEstimand> 
     }
 }
 
+/// Reject a non-finite value in a boundary numeric input.
+///
+/// The R layer validates missing values (`NA`, which includes `NaN`) but not an
+/// infinity, which slips through `anyNA` and standardizes to another infinity, so
+/// this catches both as defense in depth before the value reaches a solver where
+/// it would silently poison the arithmetic. One pass over the slice, cheap
+/// relative to the solve that reads it repeatedly.
+pub fn require_finite(values: &[f64], name: &str) -> savvy::Result<()> {
+    if let Some(i) = values.iter().position(|x| !x.is_finite()) {
+        return Err(savvy::Error::new(format!(
+            "`{name}` contains a non-finite value at position {}",
+            i + 1
+        )));
+    }
+    Ok(())
+}
+
+/// Validate a binary treatment vector: every value is `0` or `1`, and both
+/// levels are present.
+///
+/// The R fit path always encodes the treatment as `0`/`1`, so this makes the
+/// binary boundary symmetric with the categorical entry (which already checks
+/// its encoding) rather than leaving an out-of-range value to produce a unit
+/// weight and a `NaN` propensity, or an all-one-level vector to drive a solve on
+/// an empty group.
+pub fn require_binary_treat(treat: &[i32]) -> savvy::Result<()> {
+    let mut seen_zero = false;
+    let mut seen_one = false;
+    for &t in treat {
+        match t {
+            0 => seen_zero = true,
+            1 => seen_one = true,
+            other => {
+                return Err(savvy::Error::new(format!(
+                    "treat must be 0 or 1; found {other}"
+                )));
+            }
+        }
+    }
+    if !(seen_zero && seen_one) {
+        return Err(savvy::Error::new("treat must contain both levels 0 and 1"));
+    }
+    Ok(())
+}
+
+/// Validate that a categorical treatment vector fills every level `0..n_levels`
+/// with at least one unit, so no solved block is left with an empty group.
+///
+/// The categorical entries derive `n_levels` from the largest level index, so a
+/// gap (an unused interior exposure level) or an all-one-level vector would leave
+/// a block with no units, whose target and Newton step are degenerate. Callers
+/// have already checked non-negativity and the focal range.
+pub fn require_dense_levels(treat: &[i32], n_levels: usize) -> savvy::Result<()> {
+    let mut present = vec![false; n_levels];
+    for &t in treat {
+        if let Ok(level) = usize::try_from(t) {
+            if level < n_levels {
+                present[level] = true;
+            }
+        }
+    }
+    if let Some(level) = present.iter().position(|&seen| !seen) {
+        return Err(savvy::Error::new(format!(
+            "treat leaves level {level} empty; every level 0..{n_levels} must be present"
+        )));
+    }
+    Ok(())
+}
+
 /// Build an R matrix SEXP from column-major data.
 pub fn real_matrix(data: &[f64], nrow: usize, ncol: usize) -> savvy::Result<OwnedRealSexp> {
     debug_assert_eq!(data.len(), nrow * ncol);
@@ -494,5 +570,39 @@ mod tests {
         // than silently substituting a default.
         assert!(parse_smoothness(2.0).is_err());
         assert!(parse_smoothness(3.5).is_err());
+    }
+
+    #[test]
+    fn require_finite_accepts_finite_and_rejects_nan_and_infinity() {
+        assert!(require_finite(&[0.0, -1.5, 3.0], "covs").is_ok());
+        let nan = require_finite(&[1.0, f64::NAN, 2.0], "covs").unwrap_err();
+        assert!(nan.to_string().contains("position 2"), "{nan}");
+        let inf = require_finite(&[1.0, 2.0, f64::INFINITY], "s_weights").unwrap_err();
+        assert!(inf.to_string().contains("s_weights"), "{inf}");
+    }
+
+    #[test]
+    fn require_binary_treat_accepts_both_levels() {
+        assert!(require_binary_treat(&[0, 1, 1, 0]).is_ok());
+    }
+
+    #[test]
+    fn require_binary_treat_rejects_out_of_range_and_single_level() {
+        assert!(require_binary_treat(&[0, 2, 1]).is_err());
+        assert!(require_binary_treat(&[-1, 0, 1]).is_err());
+        assert!(require_binary_treat(&[1, 1, 1]).is_err());
+        assert!(require_binary_treat(&[0, 0, 0]).is_err());
+    }
+
+    #[test]
+    fn require_dense_levels_accepts_a_full_encoding() {
+        assert!(require_dense_levels(&[0, 1, 2, 1, 0], 3).is_ok());
+    }
+
+    #[test]
+    fn require_dense_levels_rejects_a_gap() {
+        // Level 1 is unused, so its block would solve on an empty group.
+        let err = require_dense_levels(&[0, 2, 2, 0], 3).unwrap_err();
+        assert!(err.to_string().contains("level 1"), "{err}");
     }
 }

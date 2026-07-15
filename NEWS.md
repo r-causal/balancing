@@ -15,9 +15,15 @@
   covering moments, pairwise interactions, quantile indicators, and per-covariate
   balance tolerances.
 
-* Added a diagnostics surface for fitted results: `print()`, `summary()`,
-  `tidy()`, `glance()`, `ess()`, and `autoplot()` and `plot()` for love plots,
-  weight distributions, and dual-variable charts.
+* `bw_sbw()` supports three weight-dispersion norms: `"l2"` (the default, sum of
+  squared weights), `"l1"` (sum of absolute deviations from uniform), and
+  `"linf"` (the maximum deviation from uniform).
+
+* Added a summary surface for fitted results: `print()` and `summary()` report
+  the method, estimand, solver status, constraint count, and largest imbalance;
+  `weights()` returns the `bw` weight vector; and the fit carries its balance
+  table and solver dual variables for inspection. Broader balance assessment,
+  including covariates the weights did not target, lives in the halfmoon package.
 
 * Added an `ipw()` method so a balancing fit drives the same effect-estimation
   workflow as a propensity score model. For the estimating-equation methods with

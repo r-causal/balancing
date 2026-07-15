@@ -78,7 +78,7 @@ fit <- balance(df, exposure, x1, method = bw_entropy(), estimand = "ate")
 df$.wts <- as.numeric(weights(fit))
 outcome_mod <- glm(y ~ exposure, data = df, family = binomial(), weights = .wts)
 
-propensity::ipw(fit, outcome_mod)
+ipw(fit, outcome_mod)
 
 }
 \references{

@@ -49,7 +49,7 @@ test_that("print() of a continuous ate fit is stable", {
   expect_snapshot(print(fit))
 })
 
-test_that("tidy() of a binary ate fit returns one row per constraint term", {
+test_that("the balance table carries one row per constraint term", {
   data <- sim_binary()
   fit <- balance(
     data,
@@ -58,7 +58,7 @@ test_that("tidy() of a binary ate fit returns one row per constraint term", {
     method = bw_entropy(),
     estimand = "ate"
   )
-  tidied <- generics::tidy(fit)
+  balance_table <- fit@balance_table
   expect_true(all(
     c(
       "term",
@@ -70,7 +70,7 @@ test_that("tidy() of a binary ate fit returns one row per constraint term", {
       "tolerance",
       "within_tolerance"
     ) %in%
-      names(tidied)
+      names(balance_table)
   ))
 })
 

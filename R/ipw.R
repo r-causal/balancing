@@ -83,7 +83,7 @@
 #' df$.wts <- as.numeric(weights(fit))
 #' outcome_mod <- glm(y ~ exposure, data = df, family = binomial(), weights = .wts)
 #'
-#' propensity::ipw(fit, outcome_mod)
+#' ipw(fit, outcome_mod)
 #'
 #' @name ipw.balancing
 #' @importFrom causalgenerics ipw

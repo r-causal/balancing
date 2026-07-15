@@ -34,13 +34,12 @@ reference:
   - build_constraint_matrix
   - rebuild_constraint_matrix
 - title: Inspect results
-  desc: Summarize, tidy, and visualize a fitted balancing result.
+  desc: Summarize a fitted balancing result.
   contents:
   - balancing
   - starts_with("weights,balancing")
-  - ess
-  - autoplot.balancing
   - bw
+  - balancing_options
 - title: Effect estimation
   desc: Estimate causal effects and access the pieces inference needs.
   contents:

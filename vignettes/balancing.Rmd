@@ -20,11 +20,8 @@ Balancing weights target covariate balance directly. Instead of fitting a model 
 
 ```{r setup, message = FALSE}
 # halfmoon provides the broader balance-assessment tools used later in this
-# vignette. Both packages register ess() on the same shared generic, so
-# attaching both masks neither method.
-if (requireNamespace("halfmoon", quietly = TRUE)) {
-  library(halfmoon)
-}
+# vignette.
+library(halfmoon)
 library(balancing)
 ```
 
@@ -64,27 +61,7 @@ fit <- balance(
 fit
 ```
 
-The print method summarizes the fit. It reports the method and the exposure type detected from the data, the estimand and its focal level, the number of observations and the effective sample size in each group, whether the solver converged, and the largest imbalance the weights leave on the constraint terms. Here the largest standardized mean difference is effectively zero: entropy balancing achieves exact mean balance by construction.
-
-## Reading the balance table
-
-`tidy()` returns the balance table, one row per constraint term. Each row gives the balance statistic before weighting (`unweighted`) and after (`weighted`), the requested `tolerance`, and whether the achieved balance falls `within_tolerance`.
-
-```{r tidy}
-tidy(fit)
-```
-
-`glance()` reduces the fit to a single row of fit-level summaries, which is useful for comparing methods.
-
-```{r glance}
-glance(fit)
-```
-
-The effective sample size is worth attention. Weighting trades sample size for balance, and `ess()` reports how much of each group remains.
-
-```{r ess}
-ess(fit)
-```
+The print method summarizes the fit. It reports the method and the exposure type detected from the data, the estimand and its focal level, the number of observations, whether the solver converged, and the largest imbalance the weights leave on the constraint terms. Here the largest standardized mean difference is effectively zero: entropy balancing achieves exact mean balance by construction.
 
 ## Checking balance with halfmoon
 
@@ -96,7 +73,7 @@ study$w <- as.numeric(weights(fit))
 
 `check_balance()` compares the weighting scheme against the unweighted sample across a set of covariates.
 
-```{r halfmoon, eval = requireNamespace("halfmoon", quietly = TRUE)}
+```{r halfmoon}
 balance_check <- check_balance(
   study,
   c(age, score),
@@ -108,11 +85,11 @@ balance_check
 
 `plot_balance()` renders the same comparison as a love plot.
 
-```{r love-plot, eval = requireNamespace("halfmoon", quietly = TRUE)}
+```{r love-plot}
 plot_balance(balance_check)
 ```
 
-halfmoon owns the general balance-assessment workflow, so its love plots, mirrored histograms, and balance summaries are the place to look when you want a fuller picture than the constraint terms provide. Both packages register `ess()` methods on the same shared generic, so `ess(fit)` summarizes a balancing fit while `ess()` on a weight vector uses halfmoon's method, and `check_balance()` and `plot_balance()` from halfmoon remain available.
+halfmoon owns the general balance-assessment workflow, so its love plots, mirrored histograms, and balance summaries are the place to look when you want a fuller picture than the constraint terms provide. It also reports the effective sample size, the amount of each group that survives weighting, through `check_ess()`.
 
 ## Estimating a causal effect
 
@@ -127,7 +104,7 @@ The estimate recovers the simulated effect of 0.8, which the unweighted comparis
 
 ## Standard errors with `ipw()`
 
-A weighted outcome model's usual standard errors treat the weights as fixed, but the weights were themselves estimated. For the estimating-equation methods (entropy balancing, inverse probability tilting, and the just-identified covariate balancing propensity score) with a binary exposure, `propensity::ipw()` returns effect estimates with standard errors that account for the estimation of the weights.
+A weighted outcome model's usual standard errors treat the weights as fixed, but the weights were themselves estimated. For the estimating-equation methods (entropy balancing, inverse probability tilting, and the just-identified covariate balancing propensity score) with a binary exposure, `ipw()` returns effect estimates with standard errors that account for the estimation of the weights.
 
 ```{r ipw}
 binary_outcome <- rbinom(n, 1, plogis(-0.3 + 0.6 * exposure + 0.4 * age))
@@ -149,7 +126,7 @@ event_mod <- glm(
   weights = w_ate
 )
 
-propensity::ipw(ate_fit, event_mod)
+ipw(ate_fit, event_mod)
 ```
 
 The `vignette("inference")` article explains why these standard errors differ from the naive ones and how to obtain valid intervals for the methods that do not carry estimating equations.
