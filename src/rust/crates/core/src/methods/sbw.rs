@@ -37,10 +37,10 @@ use super::qp_balance::{ConstraintBuilder, ZERO_SW, expand_and_floor, group_norm
 
 /// The dispersion norm the objective minimizes.
 ///
-/// Only the `L2` norm is solved in this version. The `L1` and `L2`-supremum
-/// variants are recognized so the option round-trips through the boundary, but
-/// their quadratic-program encodings are not yet implemented and the solver
-/// rejects them rather than silently substituting the squared norm.
+/// Each norm measures the spread of the group-normalized weights around the
+/// uniform baseline of one. `L2` minimizes the sum of squared deviations through
+/// a diagonal quadratic program; `L1` and `Linf` minimize the summed and the
+/// largest absolute deviation through a linear program in auxiliary variables.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SbwNorm {
     /// Minimize the sum of squared weights (minimum variance).
@@ -49,17 +49,6 @@ pub enum SbwNorm {
     L1,
     /// Minimize the largest weight deviation.
     Linf,
-}
-
-impl SbwNorm {
-    /// A lowercase name for the norm, used in the unsupported-norm message.
-    fn as_str(self) -> &'static str {
-        match self {
-            SbwNorm::L2 => "l2",
-            SbwNorm::L1 => "l1",
-            SbwNorm::Linf => "linf",
-        }
-    }
 }
 
 /// The estimand a stable balancing solve targets.
@@ -75,8 +64,6 @@ pub enum SbwEstimand {
 /// A reason a stable balancing solve cannot proceed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SbwError {
-    /// The requested dispersion norm is not yet implemented.
-    UnsupportedNorm(SbwNorm),
     /// An explicitly requested backend is not compiled into this build; the field
     /// names the missing backend.
     BackendUnavailable(&'static str),
@@ -88,11 +75,6 @@ impl std::fmt::Display for SbwError {
             SbwError::BackendUnavailable(name) => write!(
                 f,
                 "the `{name}` backend is not compiled into this build; rebuild with the `qp-clarabel` feature or choose another backend"
-            ),
-            SbwError::UnsupportedNorm(norm) => write!(
-                f,
-                "the `{}` norm is not yet implemented for stable balancing weights; only `l2` is available",
-                norm.as_str()
             ),
         }
     }
@@ -165,6 +147,182 @@ fn l2_pmat(nvar: usize) -> PMat {
     PMat::Diagonal(vec![2.0; nvar])
 }
 
+/// The uniform baseline the absolute-deviation norms measure spread against. Each
+/// reweighted group is normalized so its group-normalized weights average one, so
+/// a weight of one is the no-reweighting reference the `L1` and `Linf` objectives
+/// linearize `|w - reference|` around, matching the reference implementation.
+const SBW_REFERENCE: f64 = 1.0;
+
+/// A small quadratic weight on the balancing variables of the absolute-deviation
+/// norms. The pure L1 and Linf objectives are linear, and the alternating-direction
+/// backend can stall on a linear program without strong convexity; this ridge
+/// restores it. It is small enough that the minimizer stays a minimum-deviation
+/// weighting to well within the objective-parity tolerance, and it is carried into
+/// the reported objective so the golden comparison remains exact. The value doubles
+/// into the spec's quadratic block by the doubling convention, so each weight
+/// variable's diagonal entry is `2 * SBW_LP_RIDGE`.
+const SBW_LP_RIDGE: f64 = 1e-4;
+
+/// Add the box row for each weight variable, floored at `min_weight` or pinned to
+/// one where a zero sampling weight excludes the unit from reweighting. This
+/// mirrors [`ConstraintBuilder::add_box`] but writes only the first `nvar`
+/// variables, leaving the trailing auxiliary variables to their own bounds.
+fn add_weight_box(builder: &mut ConstraintBuilder, min_weight: f64, pinned: &[bool]) {
+    for (i, &is_pinned) in pinned.iter().enumerate() {
+        let (l, u) = if is_pinned {
+            (1.0, 1.0)
+        } else {
+            (min_weight, f64::INFINITY)
+        };
+        builder.add_sparse_row(&[(i, 1.0)], l, u);
+    }
+}
+
+/// Append the group-sum and moment rows shared by every norm. Each row's
+/// coefficients span only the `nvar` weight variables; the auxiliary columns of
+/// the absolute-deviation norms carry no balance coefficients, so a dense row of
+/// length `nvar` addresses exactly the weight block whatever the total variable
+/// count.
+fn add_balance_rows(
+    builder: &mut ConstraintBuilder,
+    inputs: &SbwDiscreteInputs<'_>,
+    active: &[usize],
+    group_levels: &[usize],
+    swnt: &[f64],
+) {
+    let n = inputs.n;
+    // One group-sum row per reweighted group, fixing the group-normalized total
+    // to one so each group's mean weight is one.
+    for &t in group_levels {
+        let coeffs: Vec<f64> = active
+            .iter()
+            .map(|&i| {
+                if inputs.levels[i] as usize == t {
+                    swnt[i]
+                } else {
+                    0.0
+                }
+            })
+            .collect();
+        builder.add_dense_row(&coeffs, 1.0, 1.0);
+    }
+
+    // One moment row per group per covariate, holding the group's weighted mean
+    // within the full tolerance band around the target. Applying the tolerance at
+    // its full width against the target keeps the reference weights feasible in
+    // this band, so their dispersion bounds the minimum-dispersion solution the
+    // comparison is measured against.
+    for &t in group_levels {
+        for c in 0..inputs.n_moments {
+            let coeffs: Vec<f64> = active
+                .iter()
+                .map(|&i| {
+                    if inputs.levels[i] as usize == t {
+                        inputs.moment_covs[c * n + i] * swnt[i]
+                    } else {
+                        0.0
+                    }
+                })
+                .collect();
+            let band = inputs.tols[c].abs();
+            builder.add_dense_row(&coeffs, inputs.targets[c] - band, inputs.targets[c] + band);
+        }
+    }
+}
+
+/// Append the auxiliary box rows and the conversion rows that pin each auxiliary
+/// deviation to the absolute weight departure from the reference.
+///
+/// For `L1` there is one auxiliary `t_j` per active weight, bounding `|w_j - 1|`
+/// from below, and the objective sums them. For `Linf` a single auxiliary bounds
+/// the largest departure across every active weight, and the objective is that
+/// auxiliary alone. In both cases the pair of conversion rows
+/// `w_j + a >= 1` and `w_j - a <= 1` forces `a >= |w_j - 1|`, and minimizing the
+/// auxiliary drives it to equality.
+fn add_deviation_rows(builder: &mut ConstraintBuilder, nvar: usize, per_weight_aux: bool) {
+    let aux = |j: usize| if per_weight_aux { nvar + j } else { nvar };
+    // Each auxiliary is non-negative. A shared auxiliary is bounded once.
+    let n_aux = if per_weight_aux { nvar } else { 1 };
+    for k in 0..n_aux {
+        builder.add_sparse_row(&[(nvar + k, 1.0)], 0.0, f64::INFINITY);
+    }
+    for j in 0..nvar {
+        let a = aux(j);
+        builder.add_sparse_row(&[(j, 1.0), (a, 1.0)], SBW_REFERENCE, f64::INFINITY);
+        builder.add_sparse_row(&[(j, 1.0), (a, -1.0)], f64::NEG_INFINITY, SBW_REFERENCE);
+    }
+}
+
+/// Assemble the quadratic-program specification for a discrete solve under the
+/// requested norm. The `L2` form is a diagonal quadratic program over the weight
+/// variables alone; the `L1` and `Linf` forms are linear programs that add
+/// auxiliary deviation variables with a zero quadratic block, which stays
+/// positive semidefinite so the routed backend policy applies unchanged.
+fn assemble_discrete_spec(
+    inputs: &SbwDiscreteInputs<'_>,
+    active: &[usize],
+    group_levels: &[usize],
+    swnt: &[f64],
+    pinned: &[bool],
+) -> QpSpec {
+    let nvar = active.len();
+    match inputs.norm {
+        SbwNorm::L2 => {
+            let mut builder = ConstraintBuilder::new(nvar);
+            builder.add_box(inputs.min_weight, pinned);
+            add_balance_rows(&mut builder, inputs, active, group_levels, swnt);
+            let (m, indptr, indices, values, l, u) = builder.finish();
+            QpSpec {
+                n: nvar,
+                m,
+                p: l2_pmat(nvar),
+                q: vec![0.0; nvar],
+                a_indptr: indptr,
+                a_indices: indices,
+                a_values: values,
+                l,
+                u,
+                convexity: Convexity::Psd,
+            }
+        }
+        SbwNorm::L1 | SbwNorm::Linf => {
+            let per_weight_aux = matches!(inputs.norm, SbwNorm::L1);
+            let n_aux = if per_weight_aux { nvar } else { 1 };
+            let total = nvar + n_aux;
+            let mut builder = ConstraintBuilder::new(total);
+            add_weight_box(&mut builder, inputs.min_weight, pinned);
+            add_balance_rows(&mut builder, inputs, active, group_levels, swnt);
+            add_deviation_rows(&mut builder, nvar, per_weight_aux);
+            let (m, indptr, indices, values, l, u) = builder.finish();
+            // The objective is linear: minimize the sum of the auxiliary
+            // deviations (L1) or the single shared deviation (Linf). A small ridge
+            // on the weight block restores the strong convexity the backend needs;
+            // the auxiliary block stays at zero. The whole term is positive
+            // semidefinite by construction.
+            let mut q = vec![0.0; total];
+            for qi in q.iter_mut().skip(nvar) {
+                *qi = 1.0;
+            }
+            let mut diag = vec![0.0; total];
+            for di in diag.iter_mut().take(nvar) {
+                *di = 2.0 * SBW_LP_RIDGE;
+            }
+            QpSpec {
+                n: total,
+                m,
+                p: PMat::Diagonal(diag),
+                q,
+                a_indptr: indptr,
+                a_indices: indices,
+                a_values: values,
+                l,
+                u,
+                convexity: Convexity::Psd,
+            }
+        }
+    }
+}
+
 /// The active variables, the group rows that carry constraints, and the focal
 /// level for a focal estimand. For the average treatment effect every present
 /// unit is a variable and every level is constrained; for a focal estimand only
@@ -197,9 +355,6 @@ pub fn solve_discrete(
     inputs: &SbwDiscreteInputs<'_>,
     interrupt: &dyn Fn() -> bool,
 ) -> Result<SbwResult, SbwError> {
-    if inputs.norm != SbwNorm::L2 {
-        return Err(SbwError::UnsupportedNorm(inputs.norm));
-    }
     let n = inputs.n;
     let s_norm = group_normalized(inputs.s, inputs.levels, inputs.n_levels);
 
@@ -225,73 +380,17 @@ pub fn solve_discrete(
         .collect();
 
     let (active, group_levels) = active_layout(n, inputs.levels, inputs.n_levels, inputs.estimand);
-    let nvar = active.len();
 
-    // The objective is the weight dispersion alone; balance enters entirely
-    // through the constraint rows, so the linear term is zero.
-    let p = l2_pmat(nvar);
-    let q = vec![0.0; nvar];
-
-    let mut builder = ConstraintBuilder::new(nvar);
     let pinned: Vec<bool> = active
         .iter()
         .map(|&i| inputs.s[i].abs() < ZERO_SW)
         .collect();
-    builder.add_box(inputs.min_weight, &pinned);
 
-    // One group-sum row per reweighted group, fixing the group-normalized total
-    // to one so each group's mean weight is one.
-    for &t in &group_levels {
-        let coeffs: Vec<f64> = active
-            .iter()
-            .map(|&i| {
-                if inputs.levels[i] as usize == t {
-                    swnt[i]
-                } else {
-                    0.0
-                }
-            })
-            .collect();
-        builder.add_dense_row(&coeffs, 1.0, 1.0);
-    }
-
-    // One moment row per group per covariate, holding the group's weighted mean
-    // within the full tolerance band around the target. Applying the tolerance at
-    // its full width against the target keeps the reference weights feasible in
-    // this band, so their dispersion bounds the minimum-dispersion solution the
-    // comparison is measured against.
-    for &t in &group_levels {
-        for c in 0..inputs.n_moments {
-            let coeffs: Vec<f64> = active
-                .iter()
-                .map(|&i| {
-                    if inputs.levels[i] as usize == t {
-                        inputs.moment_covs[c * n + i] * swnt[i]
-                    } else {
-                        0.0
-                    }
-                })
-                .collect();
-            let band = inputs.tols[c].abs();
-            builder.add_dense_row(&coeffs, inputs.targets[c] - band, inputs.targets[c] + band);
-        }
-    }
-
-    let (m, indptr, indices, values, l, u) = builder.finish();
-    let spec = QpSpec {
-        n: nvar,
-        m,
-        p,
-        q,
-        a_indptr: indptr,
-        a_indices: indices,
-        a_values: values,
-        l,
-        u,
-        convexity: Convexity::Psd,
-    };
+    let spec = assemble_discrete_spec(inputs, &active, &group_levels, &swnt, &pinned);
 
     let routed = route(&spec, &inputs.qp, interrupt)?;
+    // The weight variables lead the decision vector; any auxiliary deviations
+    // trail them and are dropped by taking the first entry per active unit.
     let weights = expand_and_floor(n, &active, &routed.solution.x, inputs.min_weight);
     Ok(package(weights, &routed))
 }
@@ -350,9 +449,6 @@ pub fn solve_cont(
     inputs: &SbwContInputs<'_>,
     interrupt: &dyn Fn() -> bool,
 ) -> Result<SbwResult, SbwError> {
-    if inputs.norm != SbwNorm::L2 {
-        return Err(SbwError::UnsupportedNorm(inputs.norm));
-    }
     let n = inputs.n;
     let nf = n as f64;
 
@@ -378,14 +474,27 @@ pub fn solve_cont(
     let a_sd = if a_var > 0.0 { a_var.sqrt() } else { 1.0 };
     let treat_std: Vec<f64> = inputs.treat.iter().map(|&t| (t - a_mean) / a_sd).collect();
 
-    let p = l2_pmat(n);
-    let q = vec![0.0; n];
-
-    let mut builder = ConstraintBuilder::new(n);
     let pinned: Vec<bool> = inputs.s.iter().map(|&si| si.abs() < ZERO_SW).collect();
-    builder.add_box(inputs.min_weight, &pinned);
 
-    // The single total-sum row fixes the weighted total to n.
+    // The auxiliary layout mirrors the discrete solve: L2 keeps only the n weight
+    // variables under a diagonal quadratic term, while L1 and Linf append their
+    // deviation variables and switch to the linear objective.
+    let (per_weight_aux, n_aux) = match inputs.norm {
+        SbwNorm::L2 => (false, 0usize),
+        SbwNorm::L1 => (true, n),
+        SbwNorm::Linf => (false, 1),
+    };
+    let total = n + n_aux;
+
+    let mut builder = ConstraintBuilder::new(total);
+    match inputs.norm {
+        SbwNorm::L2 => builder.add_box(inputs.min_weight, &pinned),
+        SbwNorm::L1 | SbwNorm::Linf => add_weight_box(&mut builder, inputs.min_weight, &pinned),
+    }
+
+    // The single total-sum row fixes the weighted total to n. The auxiliary
+    // columns carry no total-sum coefficient, so a length-n row addresses the
+    // weight block alone.
     builder.add_dense_row(&s, nf, nf);
 
     // One bounded weighted-correlation row per covariate. The average divides by n,
@@ -400,9 +509,25 @@ pub fn solve_cont(
         builder.add_dense_row(&coeffs, -tol, tol);
     }
 
+    let (p, q) = match inputs.norm {
+        SbwNorm::L2 => (l2_pmat(n), vec![0.0; n]),
+        SbwNorm::L1 | SbwNorm::Linf => {
+            add_deviation_rows(&mut builder, n, per_weight_aux);
+            let mut q = vec![0.0; total];
+            for qi in q.iter_mut().skip(n) {
+                *qi = 1.0;
+            }
+            let mut diag = vec![0.0; total];
+            for di in diag.iter_mut().take(n) {
+                *di = 2.0 * SBW_LP_RIDGE;
+            }
+            (PMat::Diagonal(diag), q)
+        }
+    };
+
     let (m, indptr, indices, values, l, u) = builder.finish();
     let spec = QpSpec {
-        n,
+        n: total,
         m,
         p,
         q,
@@ -645,16 +770,208 @@ mod tests {
     }
 
     #[test]
-    fn an_unsupported_norm_is_rejected() {
+    fn an_l1_tight_moment_recovers_the_determinate_weights() {
+        // The determinate tight-moment instance has a unique feasible weighting, so
+        // every dispersion norm returns it. Under L1 the objective is the summed
+        // absolute departure from one: |2/3 - 1| + |4/3 - 1| in the constrained
+        // group and zero in the balanced group, which is 2/3.
+        let levels = [0, 0, 1, 1];
+        let s = vec![1.0; 4];
+        let z = vec![2.0, -1.0, 1.0, -1.0];
+        let mut inputs = discrete_inputs(&levels, 2, &s, SbwEstimand::Ate, &z, &[0.0], &[0.0]);
+        inputs.norm = SbwNorm::L1;
+        let result = solve_discrete(&inputs, &|| false).unwrap();
+        assert!(result.converged, "status {}", result.status);
+        let w = &result.weights;
+        assert!((w[0] - 2.0 / 3.0).abs() < 1e-4, "w0 = {}", w[0]);
+        assert!((w[1] - 4.0 / 3.0).abs() < 1e-4, "w1 = {}", w[1]);
+        assert!(
+            (result.objective - 2.0 / 3.0).abs() < 1e-3,
+            "obj {}",
+            result.objective
+        );
+    }
+
+    #[test]
+    fn an_l1_slack_tolerance_keeps_uniform_weights() {
+        // A column already balanced at uniform weights leaves the summed absolute
+        // deviation at its floor of zero, so the L1 solution is the uniform
+        // weighting just as the L2 solution is.
         let levels = [0, 0, 1, 1];
         let s = vec![1.0; 4];
         let z = vec![1.0, -1.0, 1.0, -1.0];
-        for norm in [SbwNorm::L1, SbwNorm::Linf] {
-            let mut inputs = discrete_inputs(&levels, 2, &s, SbwEstimand::Ate, &z, &[0.0], &[0.1]);
-            inputs.norm = norm;
-            let err = solve_discrete(&inputs, &|| false).unwrap_err();
-            assert_eq!(err, SbwError::UnsupportedNorm(norm));
+        let mut inputs = discrete_inputs(&levels, 2, &s, SbwEstimand::Ate, &z, &[0.0], &[0.1]);
+        inputs.norm = SbwNorm::L1;
+        let result = solve_discrete(&inputs, &|| false).unwrap();
+        assert!(result.converged, "status {}", result.status);
+        for w in &result.weights {
+            assert!((w - 1.0).abs() < 1e-3, "weight {w} is far from one");
         }
+        // The uniform weighting incurs no absolute deviation, so the objective is
+        // the stabilizing ridge alone.
+        assert!(result.objective < 1e-3, "obj {}", result.objective);
+    }
+
+    #[test]
+    fn the_l1_and_linf_objectives_are_hand_checkable_and_differ() {
+        // Each group carries the column (1, 0, 0) held exactly at a target of 0.5.
+        // The first unit's group-normalized mean is w0 / 3, so the exact target
+        // pins w0 = 1.5 in each group and leaves the remaining pair summing to 1.5.
+        // Under L1 the per-group objective is |1.5 - 1| plus the pair's summed
+        // shortfall of (1 - w1) + (1 - w2) = 0.5, so 1.0 per group and 2.0 across
+        // both. Under Linf the single shared deviation is the largest departure,
+        // 0.5, dominated by the pinned first units.
+        let levels = [0, 0, 0, 1, 1, 1];
+        let s = vec![1.0; 6];
+        let z = vec![1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+        let targets = [0.5];
+        let tols = [0.0];
+
+        let mut l1 = discrete_inputs(&levels, 2, &s, SbwEstimand::Ate, &z, &targets, &tols);
+        l1.norm = SbwNorm::L1;
+        let l1_result = solve_discrete(&l1, &|| false).unwrap();
+        assert!(l1_result.converged, "l1 status {}", l1_result.status);
+        assert!(
+            (l1_result.weights[0] - 1.5).abs() < 1e-4,
+            "w0 = {}",
+            l1_result.weights[0]
+        );
+        assert!(
+            (l1_result.weights[3] - 1.5).abs() < 1e-4,
+            "w3 = {}",
+            l1_result.weights[3]
+        );
+        assert!(
+            (l1_result.objective - 2.0).abs() < 1e-3,
+            "l1 obj {}",
+            l1_result.objective
+        );
+
+        let mut linf = discrete_inputs(&levels, 2, &s, SbwEstimand::Ate, &z, &targets, &tols);
+        linf.norm = SbwNorm::Linf;
+        let linf_result = solve_discrete(&linf, &|| false).unwrap();
+        assert!(linf_result.converged, "linf status {}", linf_result.status);
+        assert!(
+            (linf_result.weights[0] - 1.5).abs() < 1e-4,
+            "w0 = {}",
+            linf_result.weights[0]
+        );
+        // The reported objective adds the stabilizing ridge to the largest
+        // deviation, so it sits just above 0.5; the deviation itself is read from
+        // the weights.
+        let linf_max = linf_result
+            .weights
+            .iter()
+            .map(|w| (w - 1.0).abs())
+            .fold(0.0_f64, f64::max);
+        assert!(
+            (linf_max - 0.5).abs() < 1e-3,
+            "linf max deviation {linf_max}"
+        );
+        // The largest departure under Linf is no larger than the one the L1
+        // solution incurs, the defining property of the supremum norm.
+        let l1_max = l1_result
+            .weights
+            .iter()
+            .map(|w| (w - 1.0).abs())
+            .fold(0.0_f64, f64::max);
+        assert!(
+            linf_max <= l1_max + 1e-6,
+            "linf max {linf_max} > l1 max {l1_max}"
+        );
+    }
+
+    #[test]
+    fn the_min_weight_floor_binds_under_l1() {
+        // A minimum weight equal to the group mean forces every weight in a group
+        // that sums to its size onto the floor, whatever the norm.
+        let levels = [0, 0, 0, 1, 1, 1];
+        let s = vec![1.0; 6];
+        let z = vec![0.5, 0.0, -0.5, 0.5, 0.0, -0.5];
+        let mut inputs = discrete_inputs(&levels, 2, &s, SbwEstimand::Ate, &z, &[0.0], &[0.5]);
+        inputs.norm = SbwNorm::L1;
+        inputs.min_weight = 1.0;
+        let result = solve_discrete(&inputs, &|| false).unwrap();
+        assert!(result.converged, "status {}", result.status);
+        for w in &result.weights {
+            assert!(*w >= 1.0 - 1e-9, "weight {w} below the floor");
+            assert!((w - 1.0).abs() < 1e-6, "weight {w} not at the floor");
+        }
+    }
+
+    #[test]
+    fn an_infeasible_band_reports_primal_infeasibility_under_linf() {
+        // A perfectly separating column cannot be balanced under any norm, so a
+        // tight band certifies primal infeasibility just as it does for L2.
+        let levels = [0, 0, 0, 1, 1, 1];
+        let s = vec![1.0; 6];
+        let z = vec![-1.0, -1.0, -1.0, 1.0, 1.0, 1.0];
+        let mut inputs = discrete_inputs(&levels, 2, &s, SbwEstimand::Ate, &z, &[0.0], &[0.01]);
+        inputs.norm = SbwNorm::Linf;
+        let result = solve_discrete(&inputs, &|| false).unwrap();
+        assert!(!result.converged);
+        assert_eq!(result.status, "primal_infeasible");
+    }
+
+    #[test]
+    fn the_l1_solve_is_deterministic() {
+        let levels = [0, 0, 0, 1, 1, 1];
+        let s = vec![1.0; 6];
+        let z = vec![1.5, -0.3, -1.2, 0.4, -0.1, -0.3];
+        let mut inputs = discrete_inputs(&levels, 2, &s, SbwEstimand::Ate, &z, &[0.0], &[0.05]);
+        inputs.norm = SbwNorm::L1;
+        let a = solve_discrete(&inputs, &|| false).unwrap();
+        let b = solve_discrete(&inputs, &|| false).unwrap();
+        for (x, y) in a.weights.iter().zip(&b.weights) {
+            assert_eq!(x.to_bits(), y.to_bits());
+        }
+    }
+
+    #[test]
+    fn a_continuous_l1_solve_meets_the_correlation_tolerance() {
+        // The continuous L1 solve bounds the same weighted correlation the L2 solve
+        // does; only the dispersion objective changes. The weights stay
+        // non-negative and the bounded row sits inside the tolerance.
+        let n = 40;
+        let treat: Vec<f64> = (0..n)
+            .map(|i| ((i as f64) * 0.13).sin() * 2.0 + (i as f64) * 0.02)
+            .collect();
+        let raw: Vec<f64> = (0..n)
+            .map(|i| treat[i] * 0.7 + ((i as f64) * 0.37).cos())
+            .collect();
+        let mean: f64 = raw.iter().sum::<f64>() / n as f64;
+        let sd = (raw.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n as f64 - 1.0)).sqrt();
+        let covs: Vec<f64> = raw.iter().map(|v| (v - mean) / sd).collect();
+        let s = vec![1.0; n];
+        let tol = 0.1;
+        let inputs = SbwContInputs {
+            n,
+            treat: &treat,
+            covs: &covs,
+            n_covs: 1,
+            s: &s,
+            min_weight: 1e-8,
+            norm: SbwNorm::L1,
+            tols: &[tol],
+            qp: QpOptions::default(),
+        };
+        let result = solve_cont(&inputs, &|| false).unwrap();
+        assert!(result.converged, "status {}", result.status);
+        assert!(result.weights.iter().all(|&w| w >= 0.0));
+
+        let a_mean: f64 = treat.iter().sum::<f64>() / n as f64;
+        let a_sd = weighted_variance(&treat, &s).sqrt();
+        let constrained = result
+            .weights
+            .iter()
+            .enumerate()
+            .map(|(i, &w)| w * ((treat[i] - a_mean) / a_sd) * covs[i])
+            .sum::<f64>()
+            / n as f64;
+        assert!(
+            constrained.abs() <= tol + 1e-6,
+            "constrained correlation {constrained}"
+        );
     }
 
     #[test]

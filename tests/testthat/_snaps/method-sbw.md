@@ -8,16 +8,6 @@
       x No constraint carries a tolerance above zero.
       i Set `tolerance` in `balance_terms()` to a positive value, the central tuning parameter for `bw_sbw()`.
 
-# the unsupported-norm message points to the least-squares norm
-
-    Code
-      balance(data, exposure, c(x1, x2), method = bw_sbw(norm = "l1"), estimand = "ate",
-      constraints = balance_terms(tolerance = 0.05))
-    Condition <balancing_method_error>
-      Error in `method(fit_method, balancing::bw_sbw)`:
-      ! The "l1" norm is not yet available for stable balancing weights.
-      i Set `norm = "l2"` in `bw_sbw()`; only the least-squares norm is solved in this version.
-
 # an infeasible constraint set raises balancing_infeasible_error
 
     Code
@@ -48,7 +38,6 @@
       Exposure: "exposure" (binary)
       Estimand: "ate"
       Observations: 500
-      Effective sample size (0: 198.3 and 1: 259.6)
       Solver: converged in 100 iterations
       Constraints: 2 terms (tolerance 0.05)
       Largest imbalance: 0.1000 (standardized mean difference)

@@ -14,8 +14,8 @@ bw_sbw(
 }
 \arguments{
 \item{norm}{The weight-dispersion norm to minimize, one of \code{"l2"} (the sum of
-squared weights, minimum variance), \code{"l1"}, or \code{"linf"}. Only \code{"l2"} is
-solved in this version.}
+squared weights, minimum variance), \code{"l1"} (the sum of absolute deviations
+from one), or \code{"linf"} (the largest absolute deviation from one).}
 
 \item{min_weight}{The smallest permitted weight.}
 
@@ -73,8 +73,18 @@ discrete exposures only.
 
 Stable balancing weights belong to the quadratic-program family, which has no
 estimating equations, so a fit produces no linearized-inference container.
-Only the \code{"l2"} norm is available in this version; \code{"l1"} and \code{"linf"} are
-accepted by the constructor but raise a clear error at fit time.
+
+The \code{norm} argument selects how the weight dispersion is measured, always
+against the uniform baseline of one within each reweighted group. \code{"l2"}
+minimizes the sum of squared weights, so for a fixed per-group total it
+minimizes the weight variance. \code{"l1"} minimizes the sum of absolute deviations
+from one, which tends to leave many weights untouched and concentrate the
+reweighting on a few units. \code{"linf"} minimizes the single largest absolute
+deviation from one, which spreads the reweighting as evenly as the balance
+constraints allow. The \code{"l1"} and \code{"linf"} problems are linear programs solved
+through the same quadratic-program backends as \code{"l2"}; their solutions can be
+non-unique, so a fit reports the achieved dispersion rather than promising a
+unique weighting.
 }
 \examples{
 n <- 200

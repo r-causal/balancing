@@ -55,6 +55,37 @@ normalize_by_group <- function(w, g) {
   as.numeric(w / ave[as.character(g)])
 }
 
+# The weight dispersion the "l1" objective minimizes: the summed absolute
+# departure from one within each group, normalized to mean one so it measures the
+# weighting solution rather than a per-group total. Monotone in the true objective
+# and comparable across two fits on the same constraint set.
+l1_dispersion <- function(w, g) {
+  parts <- split(w, g)
+  sum(vapply(
+    parts,
+    function(v) {
+      v <- v / mean(v)
+      sum(abs(v - 1))
+    },
+    numeric(1)
+  ))
+}
+
+# The weight dispersion the "linf" objective minimizes: the single largest
+# absolute departure from one across every reweighted unit, normalized to mean one
+# within each group, matching the solver's single shared deviation variable.
+linf_dispersion <- function(w, g) {
+  parts <- split(w, g)
+  max(vapply(
+    parts,
+    function(v) {
+      v <- v / mean(v)
+      max(abs(v - 1))
+    },
+    numeric(1)
+  ))
+}
+
 # The achieved absolute standardized mean difference of each constraint column,
 # arm to pooled, for the average treatment effect. The constraint matrix is
 # rebuilt from the recipe and standardized to the unweighted sample, the pooled
@@ -333,6 +364,34 @@ test_that("a binary ate balances under non-uniform sampling weights", {
   expect_equal(sum(w[!treated]), sum(sw[!treated]), tolerance = 1e-3)
 })
 
+test_that("the tolerance box binds on the weighted scale under informative sampling weights", {
+  # Sampling weights correlated with a covariate make its weighted standard
+  # deviation differ from its unweighted one, so a box measured on the wrong scale
+  # binds at the wrong width. The weights below shrink the weighted spread of x1
+  # to well below its unweighted spread; the fit must still bind its box, and
+  # report balance, on the weighted scale, so no balance warning fires on a
+  # converged in-box solution.
+  data <- sim_binary()
+  sw <- 0.3 + 2 * (abs(data$x1) < 0.5)
+  fit <- expect_no_warning(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_sbw(),
+      estimand = "ate",
+      constraints = balance_terms(tolerance = 0.01),
+      sampling_weights = sw
+    ),
+    class = "balancing_balance_warning"
+  )
+  expect_true(fit@converged)
+  expect_true(all(fit@balance_table$within_tolerance))
+  # The achieved balance binds at the tolerance on the weighted scale, not the
+  # looser unweighted scale a mis-scaled box would have allowed.
+  expect_balanced(fit, data, tolerance = 0.01)
+})
+
 test_that("a continuous ate meets the correlation tolerance under sampling weights", {
   data <- sim_continuous()
   sw <- withr::with_seed(12, stats::runif(nrow(data), 0.3, 3))
@@ -363,9 +422,16 @@ test_that("the effective sample size is bounded by n within each group", {
     estimand = "ate",
     constraints = balance_terms(tolerance = 0.05)
   )
-  ess_tbl <- ess(fit)
-  expect_true(all(ess_tbl$ess <= ess_tbl$n + 1e-8))
-  expect_true(all(ess_tbl$ess > 0))
+  # Kish effective sample size computed inline within each exposure group, since
+  # balance assessment moved to halfmoon; each group's figure stays positive and
+  # bounded by that group's size.
+  w <- as.numeric(weights(fit))
+  groups <- attr(fit@weights, "groups")
+  for (idx in groups) {
+    group_ess <- sum(w[idx])^2 / sum(w[idx]^2)
+    expect_gt(group_ess, 0)
+    expect_lte(group_ess, length(idx) + 1e-8)
+  }
 })
 
 # ---- Categorical ----------------------------------------------------------
@@ -467,40 +533,274 @@ test_that("the required-tolerance message names the tuning parameter", {
   )
 })
 
-# ---- Unsupported norm -------------------------------------------------------
+# ---- Absolute-deviation norms ---------------------------------------------
 
-test_that("a fit with an unsupported norm raises balancing_method_error", {
-  # The constructor stores every norm so a spec round-trips, but only the
-  # least-squares norm is solved in this version, so a fit with another norm is
-  # refused with a clear message rather than silently minimizing the squared norm.
+test_that("an l1 binary ate meets the tolerance and normalizes each group", {
   data <- sim_binary()
-  for (norm in c("l1", "linf")) {
-    expect_error(
-      balance(
-        data,
-        exposure,
-        c(x1, x2),
-        method = bw_sbw(norm = norm),
-        estimand = "ate",
-        constraints = balance_terms(tolerance = 0.05)
-      ),
-      class = "balancing_method_error"
-    )
-  }
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_sbw(norm = "l1"),
+    estimand = "ate",
+    constraints = balance_terms(tolerance = 0.05)
+  )
+  w <- as.numeric(stats::weights(fit))
+  expect_true(all(w >= 0))
+  expect_true(all(w >= 1e-8))
+  treated <- data$exposure == 1
+  expect_equal(sum(w[treated]), sum(treated), tolerance = 1e-3)
+  expect_equal(sum(w[!treated]), sum(!treated), tolerance = 1e-3)
+  expect_balanced(fit, data, tolerance = 0.05)
 })
 
-test_that("the unsupported-norm message points to the least-squares norm", {
+test_that("an l1 binary att targets the treated total and meets the tolerance", {
   data <- sim_binary()
-  expect_balancing_error(
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_sbw(norm = "l1"),
+    estimand = "att",
+    constraints = balance_terms(tolerance = 0.05)
+  )
+  w <- as.numeric(stats::weights(fit))
+  expect_true(all(w >= 0))
+  treated <- data$exposure == 1
+  n_treated <- sum(treated)
+  expect_equal(sum(w[treated]), n_treated, tolerance = 1e-3)
+  expect_equal(sum(w[!treated]), n_treated, tolerance = 1e-3)
+  expect_balanced(fit, data, tolerance = 0.05)
+})
+
+test_that("a linf binary ate meets the tolerance and normalizes each group", {
+  data <- sim_binary()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_sbw(norm = "linf"),
+    estimand = "ate",
+    constraints = balance_terms(tolerance = 0.05)
+  )
+  w <- as.numeric(stats::weights(fit))
+  expect_true(all(w >= 0))
+  expect_true(all(w >= 1e-8))
+  treated <- data$exposure == 1
+  expect_equal(sum(w[treated]), sum(treated), tolerance = 1e-3)
+  expect_equal(sum(w[!treated]), sum(!treated), tolerance = 1e-3)
+  expect_balanced(fit, data, tolerance = 0.05)
+})
+
+test_that("a linf binary att meets the tolerance", {
+  data <- sim_binary()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_sbw(norm = "linf"),
+    estimand = "att",
+    constraints = balance_terms(tolerance = 0.05)
+  )
+  w <- as.numeric(stats::weights(fit))
+  expect_true(all(w >= 0))
+  expect_balanced(fit, data, tolerance = 0.05)
+})
+
+test_that("an l1 categorical ate produces valid balanced weights", {
+  data <- sim_categorical()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_sbw(norm = "l1"),
+    estimand = "ate",
+    constraints = balance_terms(tolerance = 0.05)
+  )
+  w <- as.numeric(stats::weights(fit))
+  expect_true(all(w >= 0))
+  for (level in levels(data$exposure)) {
+    idx <- data$exposure == level
+    expect_equal(sum(w[idx]), sum(idx), tolerance = 1e-3)
+  }
+  expect_balanced(fit, data, tolerance = 0.05)
+})
+
+test_that("a linf categorical ate produces valid balanced weights", {
+  data <- sim_categorical()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_sbw(norm = "linf"),
+    estimand = "ate",
+    constraints = balance_terms(tolerance = 0.05)
+  )
+  w <- as.numeric(stats::weights(fit))
+  expect_true(all(w >= 0))
+  expect_balanced(fit, data, tolerance = 0.05)
+})
+
+test_that("an l1 continuous ate meets the correlation tolerance", {
+  data <- sim_continuous()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_sbw(norm = "l1"),
+    estimand = "ate",
+    constraints = balance_terms(tolerance = 0.05)
+  )
+  w <- as.numeric(stats::weights(fit))
+  expect_true(all(w >= 0))
+  expect_true(all(w >= 1e-8))
+  expect_balanced(fit, data, tolerance = 0.05)
+})
+
+test_that("a linf continuous ate meets the correlation tolerance", {
+  data <- sim_continuous()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_sbw(norm = "linf"),
+    estimand = "ate",
+    constraints = balance_terms(tolerance = 0.05)
+  )
+  w <- as.numeric(stats::weights(fit))
+  expect_true(all(w >= 0))
+  expect_balanced(fit, data, tolerance = 0.05)
+})
+
+test_that("an l1 fit balances under non-uniform sampling weights", {
+  data <- sim_binary()
+  sw <- withr::with_seed(11, stats::runif(nrow(data), 0.3, 3))
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_sbw(norm = "l1"),
+    estimand = "ate",
+    constraints = balance_terms(tolerance = 0.05),
+    sampling_weights = sw
+  )
+  w <- as.numeric(stats::weights(fit))
+  treated <- data$exposure == 1
+  expect_equal(sum(w[treated]), sum(sw[treated]), tolerance = 1e-3)
+  expect_equal(sum(w[!treated]), sum(sw[!treated]), tolerance = 1e-3)
+  expect_balanced(fit, data, tolerance = 0.05)
+})
+
+test_that("a linf fit balances under non-uniform sampling weights", {
+  # The supremum norm measures deviation on the group-normalized scale, so the
+  # sampling weights enter only through the constraints. Unlike the reference
+  # implementation the fit is therefore well defined with sampling weights, and it
+  # returns balanced, group-normalized weights.
+  data <- sim_binary()
+  sw <- withr::with_seed(11, stats::runif(nrow(data), 0.3, 3))
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_sbw(norm = "linf"),
+    estimand = "ate",
+    constraints = balance_terms(tolerance = 0.05),
+    sampling_weights = sw
+  )
+  w <- as.numeric(stats::weights(fit))
+  expect_true(all(w >= 0))
+  treated <- data$exposure == 1
+  expect_equal(sum(w[treated]), sum(sw[treated]), tolerance = 1e-3)
+  expect_equal(sum(w[!treated]), sum(sw[!treated]), tolerance = 1e-3)
+  expect_balanced(fit, data, tolerance = 0.05)
+})
+
+test_that("tightening the tolerance cannot lower the l1 dispersion", {
+  # A smaller tolerance is a smaller feasible set, so the minimized summed
+  # absolute deviation cannot fall, the operational form of the
+  # minimum-dispersion characterization for the l1 norm.
+  data <- sim_binary()
+  fit_of <- function(tolerance) {
     balance(
       data,
       exposure,
       c(x1, x2),
       method = bw_sbw(norm = "l1"),
       estimand = "ate",
-      constraints = balance_terms(tolerance = 0.05)
+      constraints = balance_terms(tolerance = tolerance)
     )
+  }
+  tight <- fit_of(0.01)
+  loose <- fit_of(0.1)
+  expect_balanced(tight, data, tolerance = 0.01)
+  expect_balanced(loose, data, tolerance = 0.1)
+  disp_tight <- l1_dispersion(as.numeric(stats::weights(tight)), data$exposure)
+  disp_loose <- l1_dispersion(as.numeric(stats::weights(loose)), data$exposure)
+  expect_gte(disp_tight, disp_loose - 1e-3)
+})
+
+# ---- Live consistency against optweight for the deviation norms ------------
+
+test_that("l1 stable balancing meets the objective tolerance against optweight", {
+  skip_on_cran()
+  skip_if_not_installed("optweight")
+
+  # Both implementations minimize the same summed absolute deviation on the same
+  # tolerance box, so ours attains an l1 dispersion at or below optweight's while
+  # both satisfy the band. The comparison is at the objective level because the
+  # linear program's solution can be non-unique.
+  data <- sim_binary()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_sbw(norm = "l1"),
+    estimand = "ate",
+    constraints = balance_terms(tolerance = 0.05)
   )
+  # The reference solver emits its own convergence chatter on this linear program;
+  # its returned weights are still feasible, which is all the comparison needs.
+  reference <- suppressWarnings(optweight::optweight(
+    exposure ~ x1 + x2,
+    data = data,
+    tols = 0.05,
+    estimand = "ATE",
+    norm = "l1"
+  ))
+
+  expect_balanced(fit, data, tolerance = 0.05)
+  ours <- l1_dispersion(as.numeric(stats::weights(fit)), data$exposure)
+  theirs <- l1_dispersion(reference$weights, data$exposure)
+  expect_lte(ours, theirs + 0.01 * theirs + 1e-6)
+})
+
+test_that("linf stable balancing meets the objective tolerance against optweight", {
+  skip_on_cran()
+  skip_if_not_installed("optweight")
+
+  data <- sim_binary()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_sbw(norm = "linf"),
+    estimand = "ate",
+    constraints = balance_terms(tolerance = 0.05)
+  )
+  # The reference solver emits its own convergence chatter on this linear program;
+  # its returned weights are still feasible, which is all the comparison needs.
+  reference <- suppressWarnings(optweight::optweight(
+    exposure ~ x1 + x2,
+    data = data,
+    tols = 0.05,
+    estimand = "ATE",
+    norm = "linf"
+  ))
+
+  expect_balanced(fit, data, tolerance = 0.05)
+  ours <- linf_dispersion(as.numeric(stats::weights(fit)), data$exposure)
+  theirs <- linf_dispersion(reference$weights, data$exposure)
+  expect_lte(ours, theirs + 0.01 * theirs + 1e-6)
 })
 
 test_that("a per-covariate tolerance binds each covariate to its own band", {

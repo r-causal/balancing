@@ -138,6 +138,17 @@ impl ConstraintBuilder {
         });
     }
 
+    /// Add a constraint row from its nonzero `(column, value)` entries. This
+    /// keeps the auxiliary-variable rows of the absolute-deviation norms compact
+    /// when only a couple of columns of a wide decision vector are involved.
+    pub fn add_sparse_row(&mut self, coeffs: &[(usize, f64)], l: f64, u: f64) {
+        self.rows.push(Row {
+            coeffs: coeffs.to_vec(),
+            l,
+            u,
+        });
+    }
+
     /// Compress the accumulated rows into `(m, indptr, indices, values, l, u)`
     /// describing the `m` by `n` constraint matrix in sparse column form.
     ///
@@ -246,6 +257,24 @@ mod tests {
         assert_eq!(indptr, vec![0, 2, 4]);
         assert_eq!(indices, vec![0, 2, 1, 2]);
         assert_eq!(values, vec![1.0, 2.0, 1.0, 3.0]);
+    }
+
+    #[test]
+    fn a_sparse_row_places_its_entries_by_column() {
+        // Two box rows over three variables, then a sparse row touching columns 0
+        // and 2 only; column 1 keeps only its box entry.
+        let mut b = ConstraintBuilder::new(3);
+        b.add_box(0.0, &[false, false, false]);
+        b.add_sparse_row(&[(0, 1.0), (2, -1.0)], 1.0, f64::INFINITY);
+        let (m, indptr, indices, values, l, u) = b.finish();
+        assert_eq!(m, 4);
+        // Column 0: box row 0 (1.0), sparse row 3 (1.0); column 2: box row 2 and
+        // sparse row 3 (-1.0); column 1: box row 1 only.
+        assert_eq!(indptr, vec![0, 2, 3, 5]);
+        assert_eq!(indices, vec![0, 3, 1, 2, 3]);
+        assert_eq!(values, vec![1.0, 1.0, 1.0, 1.0, -1.0]);
+        assert_eq!(l[3], 1.0);
+        assert!(u[3].is_infinite());
     }
 
     #[test]

@@ -52,12 +52,22 @@
 #'
 #' Stable balancing weights belong to the quadratic-program family, which has no
 #' estimating equations, so a fit produces no linearized-inference container.
-#' Only the `"l2"` norm is available in this version; `"l1"` and `"linf"` are
-#' accepted by the constructor but raise a clear error at fit time.
+#'
+#' The `norm` argument selects how the weight dispersion is measured, always
+#' against the uniform baseline of one within each reweighted group. `"l2"`
+#' minimizes the sum of squared weights, so for a fixed per-group total it
+#' minimizes the weight variance. `"l1"` minimizes the sum of absolute deviations
+#' from one, which tends to leave many weights untouched and concentrate the
+#' reweighting on a few units. `"linf"` minimizes the single largest absolute
+#' deviation from one, which spreads the reweighting as evenly as the balance
+#' constraints allow. The `"l1"` and `"linf"` problems are linear programs solved
+#' through the same quadratic-program backends as `"l2"`; their solutions can be
+#' non-unique, so a fit reports the achieved dispersion rather than promising a
+#' unique weighting.
 #'
 #' @param norm The weight-dispersion norm to minimize, one of `"l2"` (the sum of
-#'   squared weights, minimum variance), `"l1"`, or `"linf"`. Only `"l2"` is
-#'   solved in this version.
+#'   squared weights, minimum variance), `"l1"` (the sum of absolute deviations
+#'   from one), or `"linf"` (the largest absolute deviation from one).
 #' @param min_weight The smallest permitted weight.
 #' @param convergence_tolerance The quadratic-program solver tolerance, or `NULL`
 #'   for the core default.
@@ -242,25 +252,8 @@ enforce_positive_tolerance <- function(prepared, call = rlang::caller_env()) {
   }
 }
 
-# Only the L2 norm is solved in this version. The L1 and L2-supremum variants
-# round-trip through the constructor so a spec can carry them, but the solver
-# rejects them at fit time rather than silently minimizing the squared norm.
-enforce_supported_norm <- function(method, call = rlang::caller_env()) {
-  if (!identical(method@norm, "l2")) {
-    abort(
-      c(
-        "The {.val {method@norm}} norm is not yet available for stable balancing weights.",
-        i = "Set {.code norm = \"l2\"} in {.fn bw_sbw}; only the least-squares norm is solved in this version."
-      ),
-      error_class = "balancing_method_error",
-      call = call
-    )
-  }
-}
-
 method(fit_method, bw_sbw) <- function(method, prepared) {
   enforce_positive_tolerance(prepared)
-  enforce_supported_norm(method)
 
   if (identical(prepared$exposure_type, "continuous")) {
     fit_sbw_continuous(method, prepared)
@@ -298,7 +291,7 @@ fit_sbw_discrete <- function(method, prepared) {
   } else {
     targets <- target_means(z, groups[[focal]], s)
   }
-  tols <- solver_box(z, prepared$tolerances)
+  tols <- solver_box(z, prepared$tolerances, s)
   options <- sbw_options(method)
 
   if (identical(prepared$exposure_type, "binary")) {
@@ -359,7 +352,12 @@ fit_sbw_discrete <- function(method, prepared) {
     )
   }
 
-  duals <- sbw_duals_frame(result$duals, nvar, n_group_rows)
+  # Each reweighted group carries one sum row and one moment row per covariate, so
+  # the sum and balance rows number `n_group_rows * (1 + ncol(z))`; the
+  # absolute-deviation norms add auxiliary rows beyond these that the dual report
+  # excludes.
+  n_keep <- n_group_rows * (1L + ncol(z))
+  duals <- sbw_duals_frame(result$duals, nvar, n_group_rows, n_keep)
   assemble_sbw(result, method, prepared, duals = duals)
 }
 
@@ -445,11 +443,14 @@ fit_sbw_continuous <- function(method, prepared) {
   }
 
   # The continuous solve carries one total-sum row followed by the correlation
-  # rows; the box rows bound each of the n units.
+  # rows; the box rows bound each of the n units, and the absolute-deviation norms
+  # add auxiliary rows the dual report excludes.
+  n_keep <- 1L + ncol(z)
   duals <- sbw_duals_frame(
     result$duals,
     prepared$n,
     1L,
+    n_keep,
     group_kind = "total",
     moment_kind = "correlation"
   )
@@ -461,11 +462,16 @@ fit_sbw_continuous <- function(method, prepared) {
 # sum rows, then the balance rows, so the structural duals follow the `nvar` box
 # rows. A discrete fit labels the sum rows "group" and the balance rows "moment"; a
 # continuous fit has a single total-sum row and correlation balance rows, so its
-# labels differ. Returns `NULL` when no structural row resolved.
+# labels differ. The absolute-deviation norms append auxiliary and conversion rows
+# after the balance rows, so `n_keep` caps the reported duals at the sum and
+# balance rows and excludes those auxiliary rows; for the squared norm it equals
+# the full structural count, so nothing is dropped. Returns `NULL` when no
+# structural row resolved.
 sbw_duals_frame <- function(
   duals,
   nvar,
   n_group_rows,
+  n_keep,
   group_kind = "group",
   moment_kind = "moment"
 ) {
@@ -474,7 +480,8 @@ sbw_duals_frame <- function(
   if (m <= nvar) {
     return(NULL)
   }
-  structural <- duals[(nvar + 1):m]
+  last <- min(nvar + n_keep, m)
+  structural <- duals[(nvar + 1):last]
   n_structural <- length(structural)
   n_group_rows <- min(n_group_rows, n_structural)
   kind <- c(
