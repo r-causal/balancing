@@ -14,10 +14,10 @@
         Call: stats::glm(formula = formula, family = family, data = data, weights = .wts) 
       
       Estimates:
-              estimate  std.err        z ci.lower ci.upper conf.level p.value  
-      rd       0.14805 0.076088 1.945779  -0.0011  0.29718       0.95 0.05168 .
-      log(rr)  0.31383 0.162944 1.925974  -0.0055  0.63319       0.95 0.05411 .
-      log(or)  0.59806 0.311491 1.919985  -0.0125  1.20857       0.95 0.05486 .
+              estimate  std.err      z   ci.lower ci.upper conf.level p.value  
+      rd      0.148050 0.076088 1.9458 -0.0010793  0.29718       0.95 0.05168 .
+      log(rr) 0.313825 0.162944 1.9260 -0.0055384  0.63319       0.95 0.05411 .
+      log(or) 0.598059 0.311491 1.9200 -0.0124530  1.20857       0.95 0.05486 .
       ---
       Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 
