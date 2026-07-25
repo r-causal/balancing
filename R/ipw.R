@@ -354,7 +354,17 @@ outcome_model_pieces <- function(outcome_mod, family) {
 # The outcome design and predictions with the exposure fixed to one level, for
 # the marginal-mean equations. The model's terms, contrasts, and factor levels
 # are reused so the columns line up with the fitted coefficients.
-fixed_exposure_pieces <- function(outcome_mod, frame, exposure_name, level) {
+#
+# An offset is part of the linear predictor rather than of the design, so a
+# model that carries one supplies it separately and it is added to eta. Fixing
+# the exposure does not change it, since it is a known per-unit quantity.
+fixed_exposure_pieces <- function(
+  outcome_mod,
+  frame,
+  exposure_name,
+  level,
+  offset = NULL
+) {
   frame[[exposure_name]] <- level
   terms <- stats::delete.response(stats::terms(outcome_mod))
   model_frame <- stats::model.frame(terms, frame, xlev = outcome_mod$xlevels)
@@ -364,6 +374,9 @@ fixed_exposure_pieces <- function(outcome_mod, frame, exposure_name, level) {
     contrasts.arg = outcome_mod$contrasts
   )
   eta <- as.numeric(design %*% stats::coef(outcome_mod))
+  if (!is.null(offset)) {
+    eta <- eta + offset
+  }
   family <- stats::family(outcome_mod)
   list(
     design = design,

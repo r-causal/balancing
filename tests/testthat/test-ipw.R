@@ -1189,3 +1189,553 @@ test_that("the unsupported-weights ipw error carries the bootstrap pointer", {
     stop(cnd)
   )
 })
+
+# ---- The deli-backed stacked sandwich --------------------------------------
+
+# `ipw_deli_sandwich()` replaces the hand-assembled `stacked_sandwich()` with a
+# stack built through deli. It evaluates the whole system as one p-by-n
+# estimating-function closure and lets `deli::compute_sandwich()` finite
+# difference the bread, so the R layer writes no derivative by hand and the
+# effect contrasts become parameters of the stack rather than a delta-method
+# gradient applied afterwards.
+#
+# Its interface is
+#
+#   ipw_deli_sandwich(
+#     container,
+#     outcome_mod,
+#     frame,
+#     exposure_name,
+#     sampling_weights = NULL
+#   )
+#
+# where `container` is the fit's `balancing_estimating_equations`, `frame` is
+# the data frame holding the exposure, and `sampling_weights` is the fit's
+# sampling weight vector or `NULL`. The weight parameter count comes from
+# `length(container@parameters)`, and the closure reaches the weight path only
+# through `container@psi_fn()` and `container@weights_fn()`, so no method math
+# is restated here.
+#
+# It returns `list(theta =, vcov =)`. `theta` is the stacked parameter vector
+# and `vcov` its covariance on the standard-error scale, so `sqrt(diag(vcov))`
+# is the vector of standard errors. Both carry the same names, in stacked block
+# order:
+#
+#   theta_w1 ... theta_wp   the weight parameters
+#   beta_<column>           one per outcome-model design column
+#   mu0, mu1                the marginal means
+#   rd, log(rr), log(or)    the contrasts for a non-gaussian outcome model
+#   diff                    the single contrast for a gaussian outcome model
+#
+# The contrast names match the `effect` column `ipw()` reports, so an estimates
+# table reads its estimate and standard error straight off `theta` and the
+# diagonal of `vcov`.
+
+# Call the new sandwich with the pieces read off a fit, the way the `ipw()`
+# method will.
+call_deli_sandwich <- function(fit, outcome_mod, data) {
+  ipw_deli_sandwich(
+    container = estimating_equations(fit),
+    outcome_mod = outcome_mod,
+    frame = data,
+    exposure_name = fit@exposure,
+    sampling_weights = fit@sampling_weights
+  )
+}
+
+# The old path, called at the level `ipw()` calls it: the marginal means, the
+# marginal-mean covariance block, and the effect standard errors the
+# delta-method gradients produce from that block. Going through the internals
+# rather than through `ipw()` keeps the comparison on the variance engine alone.
+old_stacked_pieces <- function(fit, outcome_mod, data) {
+  exposure_name <- fit@exposure
+  levels <- sort(unique(data[[exposure_name]]))
+  family <- stats::family(outcome_mod)
+  fitted <- outcome_model_pieces(outcome_mod, family)
+  design0 <- fixed_exposure_pieces(
+    outcome_mod,
+    data,
+    exposure_name,
+    levels[[1]]
+  )
+  design1 <- fixed_exposure_pieces(
+    outcome_mod,
+    data,
+    exposure_name,
+    levels[[2]]
+  )
+  mu0 <- mean(design0$mu)
+  mu1 <- mean(design1$mu)
+  covariance <- stacked_sandwich(
+    container = estimating_equations(fit),
+    weights = as.numeric(stats::weights(fit)),
+    outcome = resolve_outcome_response(outcome_mod),
+    fitted = fitted,
+    design0 = design0,
+    design1 = design1,
+    mu0 = mu0,
+    mu1 = mu1
+  )
+  estimates <- ipw_estimates(
+    mu0 = mu0,
+    mu1 = mu1,
+    covariance = covariance,
+    conf_level = 0.95,
+    continuous = is_gaussian_outcome(outcome_mod)
+  )
+  list(
+    covariance = covariance,
+    mu0 = mu0,
+    mu1 = mu1,
+    std_err = stats::setNames(estimates$std.err, estimates$effect)
+  )
+}
+
+# Old-against-new agreement on the two quantities `ipw()` reports from: the
+# marginal-mean covariance block and every effect standard error. The tolerance
+# is 1e-6 rather than the 1e-8 the oracle comparisons use because the new bread
+# is a central finite difference (`deriv_method = "capprox"`) where the old one
+# was written analytically. Measured against these fixtures at deli's default
+# step the worst case sits near 2e-7, so 1e-6 leaves margin without letting a
+# genuinely different bread through.
+expect_deli_parity <- function(fit, outcome_mod, data) {
+  old <- old_stacked_pieces(fit, outcome_mod, data)
+  result <- call_deli_sandwich(fit, outcome_mod, data)
+
+  block <- result$vcov[c("mu0", "mu1"), c("mu0", "mu1")]
+  expect_equal(unname(block), unname(old$covariance), tolerance = 1e-6)
+
+  std_err <- sqrt(diag(result$vcov))[names(old$std_err)]
+  expect_true(all(is.finite(std_err)))
+  expect_true(all(std_err > 0))
+  expect_equal(std_err, old$std_err, tolerance = 1e-6)
+
+  invisible(result)
+}
+
+test_that("ipw_deli_sandwich() names its blocks for a binary outcome", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+  ee <- estimating_equations(fit)
+  p <- length(ee@parameters)
+  beta <- stats::coef(outcome_mod)
+
+  result <- call_deli_sandwich(fit, outcome_mod, data)
+  old <- old_stacked_pieces(fit, outcome_mod, data)
+
+  expected_names <- c(
+    paste0("theta_w", seq_len(p)),
+    paste0("beta_", colnames(stats::model.matrix(outcome_mod))),
+    "mu0",
+    "mu1",
+    "rd",
+    "log(rr)",
+    "log(or)"
+  )
+  expect_named(result$theta, expected_names)
+  expect_identical(dimnames(result$vcov), list(expected_names, expected_names))
+
+  expect_equal(unname(result$theta[seq_len(p)]), ee@parameters)
+  expect_equal(unname(result$theta[p + seq_along(beta)]), unname(beta))
+  expect_equal(result$theta[["mu0"]], old$mu0)
+  expect_equal(result$theta[["mu1"]], old$mu1)
+  expect_equal(result$theta[["rd"]], old$mu1 - old$mu0)
+  expect_equal(result$theta[["log(rr)"]], log(old$mu1) - log(old$mu0))
+  expect_equal(
+    result$theta[["log(or)"]],
+    stats::qlogis(old$mu1) - stats::qlogis(old$mu0)
+  )
+})
+
+test_that("ipw_deli_sandwich() names its blocks for a continuous outcome", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y_cont ~ exposure, data, w, stats::gaussian())
+  ee <- estimating_equations(fit)
+  p <- length(ee@parameters)
+
+  result <- call_deli_sandwich(fit, outcome_mod, data)
+  old <- old_stacked_pieces(fit, outcome_mod, data)
+
+  expected_names <- c(
+    paste0("theta_w", seq_len(p)),
+    paste0("beta_", colnames(stats::model.matrix(outcome_mod))),
+    "mu0",
+    "mu1",
+    "diff"
+  )
+  expect_named(result$theta, expected_names)
+  expect_identical(dimnames(result$vcov), list(expected_names, expected_names))
+  expect_equal(result$theta[["diff"]], old$mu1 - old$mu0)
+})
+
+# The parity grid is the one the hand-assembled sandwich is already pinned on,
+# widened to both outcome families. Each case asserts that swapping the variance
+# engine changes nothing a caller can see.
+
+for (spec in list(
+  list(
+    label = "an entropy ate fit",
+    method = quote(bw_entropy()),
+    estimand = "ate",
+    focal = NULL
+  ),
+  list(
+    label = "an bw_ipt ate fit",
+    method = quote(bw_ipt()),
+    estimand = "ate",
+    focal = NULL
+  ),
+  list(
+    label = "an bw_ipt att fit",
+    method = quote(bw_ipt()),
+    estimand = "att",
+    focal = "1"
+  ),
+  list(
+    label = "a just-identified bw_cbps ate fit",
+    method = quote(bw_cbps()),
+    estimand = "ate",
+    focal = NULL
+  ),
+  list(
+    label = "a just-identified bw_cbps att fit",
+    method = quote(bw_cbps()),
+    estimand = "att",
+    focal = "1"
+  )
+)) {
+  for (outcome in list(
+    list(
+      label = "a binary outcome",
+      formula = y ~ exposure,
+      family = quote(stats::binomial())
+    ),
+    list(
+      label = "a continuous outcome",
+      formula = y_cont ~ exposure,
+      family = quote(stats::gaussian())
+    )
+  )) {
+    local({
+      spec <- spec
+      outcome <- outcome
+      test_that(
+        paste0(
+          "the deli sandwich matches the stacked sandwich for ",
+          spec$label,
+          " with ",
+          outcome$label
+        ),
+        {
+          data <- ipw_fixture()
+          fit <- balance(
+            data,
+            exposure,
+            c(x1, x2),
+            method = eval(spec$method),
+            estimand = spec$estimand,
+            focal_level = spec$focal
+          )
+          w <- as.numeric(stats::weights(fit))
+          outcome_mod <- fit_outcome(
+            outcome$formula,
+            data,
+            w,
+            eval(outcome$family)
+          )
+
+          expect_deli_parity(fit, outcome_mod, data)
+        }
+      )
+    })
+  }
+}
+
+test_that("the deli sandwich matches the stacked sandwich with sampling weights", {
+  data <- ipw_fixture()
+  data$sw <- withr::with_seed(7, stats::runif(nrow(data), 0.5, 2))
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate",
+    sampling_weights = sw
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  expect_deli_parity(fit, outcome_mod, data)
+})
+
+# The scale-coherent oracle builds the whole stacked M-estimator at the scale
+# the container stores natively, so it shares none of either engine's rescaling
+# algebra. The new engine must reach it as closely as the old one does, up to
+# the finite-difference bread.
+
+for (spec in list(
+  list(
+    label = "an entropy ate fit",
+    method = quote(bw_entropy()),
+    estimand = "ate",
+    focal = NULL
+  ),
+  list(
+    label = "an bw_ipt ate fit",
+    method = quote(bw_ipt()),
+    estimand = "ate",
+    focal = NULL
+  ),
+  list(
+    label = "an bw_ipt att fit",
+    method = quote(bw_ipt()),
+    estimand = "att",
+    focal = "1"
+  ),
+  list(
+    label = "a just-identified bw_cbps ate fit",
+    method = quote(bw_cbps()),
+    estimand = "ate",
+    focal = NULL
+  ),
+  list(
+    label = "a just-identified bw_cbps att fit",
+    method = quote(bw_cbps()),
+    estimand = "att",
+    focal = "1"
+  )
+)) {
+  local({
+    spec <- spec
+    test_that(
+      paste0(
+        "the deli risk-difference standard error matches the coherent oracle for ",
+        spec$label
+      ),
+      {
+        data <- ipw_fixture()
+        fit <- balance(
+          data,
+          exposure,
+          c(x1, x2),
+          method = eval(spec$method),
+          estimand = spec$estimand,
+          focal_level = spec$focal
+        )
+        w <- as.numeric(stats::weights(fit))
+        outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+        oracle_se <- coherent_rd_se(fit, data)
+
+        result <- call_deli_sandwich(fit, outcome_mod, data)
+        rd_se <- sqrt(result$vcov[["rd", "rd"]])
+
+        expect_equal(rd_se, oracle_se, tolerance = 1e-6)
+      }
+    )
+  })
+}
+
+test_that("the deli risk-difference standard error is coherent with sampling weights", {
+  data <- ipw_fixture()
+  data$sw <- withr::with_seed(7, stats::runif(nrow(data), 0.5, 2))
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate",
+    sampling_weights = sw
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+  oracle_se <- coherent_rd_se(fit, data, sampling = data$sw)
+
+  result <- call_deli_sandwich(fit, outcome_mod, data)
+  rd_se <- sqrt(result$vcov[["rd", "rd"]])
+
+  expect_equal(rd_se, oracle_se, tolerance = 1e-6)
+})
+
+# A probit outcome model has a non-canonical link, where the expected (Fisher)
+# information the hand-assembled bread uses and the observed information a
+# finite-differenced bread produces are different matrices in general. They
+# coincide here for a structural reason worth pinning: `ipw()` accepts only the
+# marginal outcome model, whose sole predictor is the binary exposure, so the
+# model is saturated. The term separating observed from expected information is
+# a weighted sum of residuals within each exposure group scaled by a factor that
+# is constant within the group, and the score equations of a saturated model set
+# exactly those sums to zero. The non-canonical link therefore joins the parity
+# grid rather than diverging from it.
+
+test_that("the deli sandwich matches the stacked sandwich for a probit outcome model", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(
+    y ~ exposure,
+    data,
+    w,
+    stats::binomial(link = "probit")
+  )
+
+  expect_deli_parity(fit, outcome_mod, data)
+})
+
+# The bootstrap is the external check that the whole stack, not just its
+# agreement with the previous engine, is calibrated. One resampling loop serves
+# all three outcome models: the marginal means of a saturated weighted model are
+# the weighted group means whatever the link, so the logit and probit fits share
+# a risk-difference point estimate and therefore a bootstrap distribution, and
+# the continuous outcome rides along on the same replicate fits.
+
+test_that("the deli standard errors track a nonparametric bootstrap", {
+  skip_on_cran()
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  logit_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+  probit_mod <- fit_outcome(
+    y ~ exposure,
+    data,
+    w,
+    stats::binomial(link = "probit")
+  )
+  continuous_mod <- fit_outcome(y_cont ~ exposure, data, w, stats::gaussian())
+
+  logit <- call_deli_sandwich(fit, logit_mod, data)
+  probit <- call_deli_sandwich(fit, probit_mod, data)
+  continuous <- call_deli_sandwich(fit, continuous_mod, data)
+  expect_equal(logit$theta[["rd"]], probit$theta[["rd"]], tolerance = 1e-8)
+
+  n <- nrow(data)
+  boot <- withr::with_seed(2024, {
+    vapply(
+      seq_len(200),
+      function(b) {
+        idx <- sample.int(n, n, replace = TRUE)
+        resampled <- data[idx, , drop = FALSE]
+        # A resampled data set can legitimately fail to converge; that replicate
+        # drops out through the error handler, and its convergence warning is
+        # suppressed so it does not leak into the suite output.
+        tryCatch(
+          suppressWarnings({
+            boot_fit <- balance(
+              resampled,
+              exposure,
+              c(x1, x2),
+              method = bw_entropy(),
+              estimand = "ate"
+            )
+            boot_w <- as.numeric(stats::weights(boot_fit))
+            binary_mod <- fit_outcome(
+              y ~ exposure,
+              resampled,
+              boot_w,
+              stats::binomial()
+            )
+            gaussian_mod <- fit_outcome(
+              y_cont ~ exposure,
+              resampled,
+              boot_w,
+              stats::gaussian()
+            )
+            binary_means <- marginal_means(binary_mod, resampled)
+            gaussian_means <- marginal_means(gaussian_mod, resampled)
+            c(
+              binary_means$mu1 - binary_means$mu0,
+              gaussian_means$mu1 - gaussian_means$mu0
+            )
+          }),
+          error = function(e) c(NA_real_, NA_real_)
+        )
+      },
+      numeric(2)
+    )
+  })
+  boot_rd_se <- stats::sd(boot[1L, ], na.rm = TRUE)
+  boot_diff_se <- stats::sd(boot[2L, ], na.rm = TRUE)
+
+  # The bootstrap is noisy at this replicate count, so the agreement is loose.
+  expect_equal(sqrt(logit$vcov[["rd", "rd"]]), boot_rd_se, tolerance = 0.15)
+  expect_equal(sqrt(probit$vcov[["rd", "rd"]]), boot_rd_se, tolerance = 0.15)
+  expect_equal(
+    sqrt(continuous$vcov[["diff", "diff"]]),
+    boot_diff_se,
+    tolerance = 0.15
+  )
+})
+
+# A container carrying one extra parameter whose estimating function is
+# identically zero. Its bread row is an exact zero row, so the stack does not
+# identify that parameter. `deli::compute_sandwich()` pseudo-inverts a singular
+# bread by default and would return a confident-looking covariance for a system
+# that has none, so the call must pass `allow_pinv = FALSE` and let the failure
+# surface. Building the deficiency into the container rather than mocking the
+# deli call also pins that the weight block is sized from
+# `container@parameters` and reached only through `psi_fn()` and `weights_fn()`.
+inert_parameter_container <- function(ee) {
+  p <- length(ee@parameters)
+  jacobian <- matrix(0, p + 1L, p + 1L)
+  jacobian[seq_len(p), seq_len(p)] <- ee@jacobian
+  balancing_estimating_equations(
+    parameters = c(ee@parameters, 0),
+    psi = cbind(ee@psi, 0),
+    jacobian = jacobian,
+    weight_jacobian = cbind(ee@weight_jacobian, 0),
+    weights_raw = ee@weights_raw,
+    psi_fn = function(theta) cbind(ee@psi_fn(theta[seq_len(p)]), 0),
+    weights_fn = function(theta) ee@weights_fn(theta[seq_len(p)])
+  )
+}
+
+test_that("ipw_deli_sandwich() refuses a rank-deficient stack", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  expect_error(
+    ipw_deli_sandwich(
+      container = inert_parameter_container(estimating_equations(fit)),
+      outcome_mod = outcome_mod,
+      frame = data,
+      exposure_name = fit@exposure,
+      sampling_weights = fit@sampling_weights
+    ),
+    regexp = "singular"
+  )
+})
