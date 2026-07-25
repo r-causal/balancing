@@ -99,9 +99,10 @@ NULL
 #' `n_draws` t-kernel projection matrix, empty for the other kernels; `s_weights`
 #' standardize the covariates; `discarded` marks units excluded from the bandwidth
 #' median, empty to discard none. The result is a column-major `n` by `n` symmetric
-#' matrix. The R layer uses this for the t-kernel projection path and for
-#' diagnostics; the solve entry points build the kernel internally so the `n` by
-#' `n` matrix never crosses the boundary during a fit.
+#' matrix. This entry point is mandated by the boundary contract and is available
+#' for building a kernel matrix directly, for diagnostics. The fit path does not
+#' call it: the solve entry points build the kernel internally, so the `n` by `n`
+#' matrix never crosses the boundary during a fit.
 #'
 #' Internal solver entry point, called from the R layer rather than by users, so
 #' it is not exported. `@noRd` keeps it out of the reference and out of
