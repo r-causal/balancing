@@ -633,6 +633,166 @@ test_that("ipw() rejects a supplied data frame without two exposure levels", {
   )
 })
 
+# ---- Outcome response scale -----------------------------------------------
+
+# A binomial outcome model may be fitted on a numeric 0/1 response or on a
+# two-level factor, and both fits model the same 0/1 scale: the family's
+# initializer maps the factor to zero for its first level and one otherwise.
+# The two fits therefore share their coefficients, so ipw() must return the same
+# effects and the same standard errors from either one. Reading the response off
+# the model frame and coercing it with as.numeric() would put a factor on the
+# 1/2 scale, which leaves the coefficient-only point estimates untouched while
+# corrupting every sandwich standard error, so the parity assertion is on
+# std.err as much as on estimate.
+
+test_that("ipw() gives identical results for numeric and factor binary outcomes", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  data$y_factor <- factor(
+    ifelse(data$y == 1, "yes", "no"),
+    levels = c("no", "yes")
+  )
+
+  numeric_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+  factor_mod <- fit_outcome(y_factor ~ exposure, data, w, stats::binomial())
+
+  numeric_result <- as.data.frame(propensity::ipw(fit, numeric_mod))
+  factor_result <- as.data.frame(propensity::ipw(fit, factor_mod))
+
+  expect_identical(factor_result$effect, numeric_result$effect)
+  expect_equal(factor_result$estimate, numeric_result$estimate)
+  expect_equal(factor_result$std.err, numeric_result$std.err)
+
+  # The numeric path is the one pinned against the scale-coherent oracle, so
+  # anchor the factor path there too rather than only to its numeric twin.
+  factor_rd_se <- factor_result$std.err[factor_result$effect == "rd"]
+  expect_equal(factor_rd_se, coherent_rd_se(fit, data), tolerance = 1e-8)
+})
+
+# A glm stores its modeled response in `$y` by default, which is the reliable
+# source for the 0/1 scale. A fit made with `y = FALSE` discards it, and the
+# model frame alone leaves the intended scale of a factor response ambiguous, so
+# that combination is refused rather than guessed at. Numeric responses and lm
+# fits are unaffected: they keep reading the response from the model frame.
+
+test_that("ipw() rejects a factor outcome model fitted without its response", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  data$y_factor <- factor(
+    ifelse(data$y == 1, "yes", "no"),
+    levels = c("no", "yes")
+  )
+  data$.wts <- as.numeric(stats::weights(fit))
+  factor_mod <- suppressWarnings(stats::glm(
+    y_factor ~ exposure,
+    data = data,
+    family = stats::binomial(),
+    weights = .wts,
+    y = FALSE
+  ))
+  expect_null(factor_mod$y)
+
+  expect_error(
+    propensity::ipw(fit, factor_mod),
+    class = "balancing_ipw_input_error"
+  )
+
+  cnd <- rlang::catch_cnd(
+    propensity::ipw(fit, factor_mod),
+    classes = "balancing_ipw_input_error"
+  )
+  expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
+})
+
+# The refusal above is narrow: it covers a factor response only. A numeric
+# response carries its modeled scale in the model frame whether or not the fit
+# stored one, so dropping the stored response must not change anything. Pinning
+# this keeps the abort from being widened to every fit made with `y = FALSE`.
+
+test_that("ipw() gives identical results for a numeric response with y = FALSE", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  data$.wts <- as.numeric(stats::weights(fit))
+
+  stored <- suppressWarnings(stats::glm(
+    y ~ exposure,
+    data = data,
+    family = stats::binomial(),
+    weights = .wts
+  ))
+  dropped <- suppressWarnings(stats::glm(
+    y ~ exposure,
+    data = data,
+    family = stats::binomial(),
+    weights = .wts,
+    y = FALSE
+  ))
+  expect_false(is.null(stored$y))
+  expect_null(dropped$y)
+
+  stored_result <- as.data.frame(propensity::ipw(fit, stored))
+  dropped_result <- as.data.frame(propensity::ipw(fit, dropped))
+
+  expect_identical(dropped_result$effect, stored_result$effect)
+  expect_equal(dropped_result$estimate, stored_result$estimate)
+  expect_equal(dropped_result$std.err, stored_result$std.err)
+})
+
+# An lm stores no response by default, so it always reads one from the model
+# frame. That response is already on the modeled scale, so a weighted lm and the
+# equivalent weighted gaussian glm, which does carry a stored response, must
+# agree. This is the other reader of the model-frame path, and it guards the
+# path against being dropped once the stored response covers the glm cases.
+
+test_that("ipw() gives identical results for an lm and a gaussian glm", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  data$.wts <- as.numeric(stats::weights(fit))
+
+  glm_mod <- stats::glm(
+    y_cont ~ exposure,
+    data = data,
+    family = stats::gaussian(),
+    weights = .wts
+  )
+  lm_mod <- stats::lm(y_cont ~ exposure, data = data, weights = .wts)
+  expect_false(is.null(glm_mod$y))
+  expect_null(lm_mod$y)
+
+  glm_result <- as.data.frame(propensity::ipw(fit, glm_mod))
+  lm_result <- as.data.frame(propensity::ipw(fit, lm_mod))
+
+  expect_identical(lm_result$effect, "diff")
+  expect_identical(lm_result$effect, glm_result$effect)
+  expect_equal(lm_result$estimate, glm_result$estimate)
+  expect_equal(lm_result$std.err, glm_result$std.err)
+})
+
 # ---- Re-evaluation hook validation ----------------------------------------
 
 # The container's psi re-evaluation hook crosses into Rust; a wrong-length

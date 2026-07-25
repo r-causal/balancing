@@ -156,7 +156,7 @@ method(causalgenerics_ipw, balancing) <- function(
   }
 
   weights <- as.numeric(weights(ps_mod))
-  outcome <- as.numeric(stats::model.response(stats::model.frame(outcome_mod)))
+  outcome <- resolve_outcome_response(outcome_mod)
   family <- stats::family(outcome_mod)
   continuous <- is_gaussian_outcome(outcome_mod)
 
@@ -298,6 +298,39 @@ validate_ipw_outcome_model <- function(
       call = call
     )
   }
+}
+
+# The sandwich needs the response on the scale the outcome model actually
+# modeled, which is not always the scale the model frame stores. A binomial glm
+# fitted on a two-level factor models zero for the first level and one for the
+# other, while the model frame keeps the factor, whose integer codes are one and
+# two. Coercing the model-frame response would put such an outcome on the wrong
+# scale and corrupt every standard error, silently, because the point estimates
+# read off the coefficients and would not move. A glm records the scale it
+# modeled in `$y`, so that is the reliable source for every family.
+#
+# A glm fitted with `y = FALSE` keeps no stored response. A numeric model-frame
+# response is unambiguous and is used directly, but a factor one leaves the
+# modeled scale a guess, so it is refused instead. An lm does not store `$y` by
+# default and its model-frame response is already numeric, so it takes the same
+# direct path.
+resolve_outcome_response <- function(outcome_mod, call = rlang::caller_env()) {
+  if (inherits(outcome_mod, "glm") && !is.null(outcome_mod$y)) {
+    return(as.numeric(outcome_mod$y))
+  }
+  response <- stats::model.response(stats::model.frame(outcome_mod))
+  if (is.factor(response)) {
+    abort(
+      c(
+        "{.arg outcome_mod} must carry the response it modeled.",
+        x = "It has a factor response but was fitted with {.code y = FALSE}, which discards that response.",
+        i = "Refit it with {.code y = TRUE}, or on a numeric 0/1 response."
+      ),
+      error_class = "balancing_ipw_input_error",
+      call = call
+    )
+  }
+  as.numeric(response)
 }
 
 # The fitted outcome model's design, working residual, and working weight. The

@@ -51,6 +51,16 @@
       i The exposure "exposure" must be its only predictor.
       i See the inference vignette for a bootstrap workflow with covariate-adjusted outcome models.
 
+# ipw() rejects a factor outcome model fitted without its response
+
+    Code
+      stop(cnd)
+    Condition <balancing_ipw_input_error>
+      Error in `propensity::ipw()`:
+      ! `outcome_mod` must carry the response it modeled.
+      x It has a factor response but was fitted with `y = FALSE`, which discards that response.
+      i Refit it with `y = TRUE`, or on a numeric 0/1 response.
+
 # ipw() rejects a categorical-exposure fit that has a container
 
     Code
