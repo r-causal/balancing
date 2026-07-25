@@ -55,6 +55,61 @@ weighted_scale <- function(x, w) {
   sqrt(max(variance, 0))
 }
 
+# ---- The reported weight scale ---------------------------------------------
+
+# The sampling-weighted total each exposure group is reported at. A focal
+# estimand reports every group at the focal group's total, which puts the focal
+# group at its own base weights carried to that total; those coincide with the
+# base weights themselves only when the base weights already sum to it, as
+# uniform base weights do. The pooled estimands report each group at its own
+# total. A focal level is resolved for exactly the focal estimands, so it carries
+# the distinction on its own.
+group_target_sums <- function(s, groups, focal_level = NULL) {
+  targets <- vapply(groups, function(idx) sum(s[idx]), numeric(1))
+  if (!is.null(focal_level)) {
+    targets[] <- targets[[focal_level]]
+  }
+  targets
+}
+
+# Move each exposure group's weights onto its reported total. The solvers
+# normalize on their own internal convention and the reported convention places
+# each group's sampling-weighted total at `targets`, so the correction is one
+# constant per group: it changes the reporting scale without disturbing the
+# balance the solve achieved. A group whose weights already sum to zero has no
+# scale to move to and is left alone. The arguments are the weights together
+# with the groups and targets rather than a fitted object, so a caller
+# re-evaluating the weights at other parameters can apply the same convention.
+renormalize_group_weights <- function(w, s, groups, targets) {
+  for (level in names(groups)) {
+    idx <- groups[[level]]
+    current <- sum(s[idx] * w[idx])
+    if (current > 0) {
+      w[idx] <- w[idx] * (targets[[level]] / current)
+    }
+  }
+  w
+}
+
+# Build the container's weight re-evaluation hook from an evaluator returning a
+# method's weights on the scale the container stores them at. The reported scale
+# differs from the stored scale by one constant per group, and that constant is
+# fixed here, at the fit, rather than recomputed at every set of parameters. The
+# hook is then a fixed rescaling of the solver's weight path, whose derivative
+# is exactly `weight_jacobian` moved to the reported scale. Recomputing the
+# constant instead would add the derivative of the group totals, a different
+# coupling from the one the container's Jacobian describes.
+make_weights_fn <- function(eval_fn, reported, weights_raw) {
+  force(eval_fn)
+  scale <- reported / weights_raw
+  # A unit the solve holds at zero weight has no reporting scale to move to, so
+  # it keeps whatever the evaluator returns rather than an undefined ratio.
+  scale[!is.finite(scale)] <- 1
+  function(theta) {
+    as.numeric(eval_fn(theta)) * scale
+  }
+}
+
 # Guard the trailing dots of a method constructor. Each constructor takes only
 # its named tuning parameters, so an unexpected argument, usually a misspelled
 # name, raises a classed `balancing_method_error` naming the offending arguments

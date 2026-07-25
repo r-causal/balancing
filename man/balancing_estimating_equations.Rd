@@ -10,7 +10,8 @@ balancing_estimating_equations(
   jacobian = numeric(0),
   weight_jacobian = numeric(0),
   weights_raw = NULL,
-  psi_fn = NULL
+  psi_fn = NULL,
+  weights_fn = NULL
 )
 }
 \arguments{
@@ -29,6 +30,15 @@ consumer that needs the derivative of the reported weights rescales
 \code{weight_jacobian} by the ratio of the reported weights to \code{weights_raw}.}
 
 \item{psi_fn}{An optional function re-evaluating \code{psi} at new parameters.}
+
+\item{weights_fn}{An optional function returning the reported balancing
+weights at new parameters, a plain double vector with the sampling weights
+excluded. At the fitted parameters it reproduces
+\code{as.numeric(weights(fit, include_sampling_weights = FALSE))}. The per-group
+reporting scale is fixed at the fit rather than recomputed at each set of
+parameters, so the function's derivative is \code{weight_jacobian} rescaled by
+the ratio of the reported weights to \code{weights_raw}, which is the weight
+coupling a stacked variance needs.}
 }
 \value{
 A \code{balancing_estimating_equations} object.

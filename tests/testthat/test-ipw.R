@@ -242,6 +242,184 @@ for (spec in list(
   })
 }
 
+# The container also exposes the weights as a function of the parameters.
+# `weights_fn(theta)` returns the weights the fit reports, with the sampling
+# weights excluded, so a variance estimator can differentiate the weight path
+# without the R layer reimplementing any method's math. The contract has three
+# parts: at the fitted parameters it reproduces the reported weights; it carries
+# the reporting scale the container records on `weights_raw`; and its derivative
+# is `weight_jacobian` moved to that same reporting scale. The third part is the
+# one downstream inference leans on, because a weight coupling left at the
+# container's storage scale is wrong by the per-group reporting factor.
+
+# Assert the whole `weights_fn` contract for a fitted result. The central
+# difference uses a step of 1e-6 scaled by each coordinate's magnitude, which
+# balances a truncation error of order the step squared against a cancellation
+# error of order the double epsilon over the step; both sit near 1e-10 relative
+# to the Jacobian's scale. The 1e-6 relative tolerance therefore leaves four
+# orders of margin over what a correct implementation reaches, while still
+# separating it from a derivative left at the wrong per-group scale, whose error
+# is of the order of the scale factor itself.
+expect_weights_fn_contract <- function(fit, data) {
+  ee <- estimating_equations(fit)
+  weights_fn <- ee@weights_fn
+  expect_true(rlang::is_function(weights_fn))
+  evaluate <- function(theta) as.numeric(weights_fn(theta))
+
+  theta <- ee@parameters
+  reported <- as.numeric(
+    stats::weights(fit, include_sampling_weights = FALSE)
+  )
+  expect_equal(evaluate(theta), reported, tolerance = 1e-10)
+
+  # The move from the container's storage scale to the reporting scale is a
+  # per-unit ratio, so it is defined only where the stored weight is nonzero.
+  # Every method that populates the container stores a nonzero weight for every
+  # unit, including the focal units an entropy or tilting fit reports at their
+  # renormalized base weights, so the ratio is well defined here rather than
+  # merely guarded.
+  raw <- ee@weights_raw
+  expect_true(all(raw != 0))
+  rescaled <- (reported / raw) * ee@weight_jacobian
+
+  finite_diff <- vapply(
+    seq_along(theta),
+    function(j) {
+      step <- 1e-6 * max(1, abs(theta[[j]]))
+      up <- theta
+      down <- theta
+      up[[j]] <- up[[j]] + step
+      down[[j]] <- down[[j]] - step
+      (evaluate(up) - evaluate(down)) / (2 * step)
+    },
+    numeric(length(reported))
+  )
+  expect_equal(finite_diff, rescaled, tolerance = 1e-6)
+
+  # A focal group is reported at weights that do not move with the parameters,
+  # so its rows of the difference vanish identically rather than to a tolerance.
+  if (!is.null(fit@focal_level)) {
+    focal <- which(as.character(data[[fit@exposure]]) == fit@focal_level)
+    expect_identical(max(abs(finite_diff[focal, ])), 0)
+  }
+}
+
+# Base weights away from one for the entropy case that varies them. The focal
+# group is reported at its base weights carried to the focal total, so a base
+# vector whose own total misses that target separates the reported focal weights
+# from the base weights themselves, which a uniform base leaves indistinguishable.
+contract_base_weights <- function(n) {
+  withr::with_seed(303, stats::runif(n, 0.5, 2))
+}
+
+for (spec in list(
+  list(
+    label = "an entropy ate fit",
+    data = quote(sim_binary(200)),
+    method = quote(bw_entropy()),
+    estimand = "ate",
+    focal = NULL
+  ),
+  list(
+    label = "an entropy att fit",
+    data = quote(sim_binary(200)),
+    method = quote(bw_entropy()),
+    estimand = "att",
+    focal = "1"
+  ),
+  list(
+    label = "an entropy att fit with base weights",
+    data = quote(sim_binary(200)),
+    method = quote(bw_entropy(
+      base_weights = contract_base_weights(nrow(data))
+    )),
+    estimand = "att",
+    focal = "1"
+  ),
+  list(
+    label = "an bw_ipt ate fit",
+    data = quote(sim_binary(200)),
+    method = quote(bw_ipt()),
+    estimand = "ate",
+    focal = NULL
+  ),
+  list(
+    label = "an bw_ipt att fit",
+    data = quote(sim_binary(200)),
+    method = quote(bw_ipt()),
+    estimand = "att",
+    focal = "1"
+  ),
+  list(
+    label = "an bw_ipt categorical ate fit",
+    data = quote(sim_categorical(200)),
+    method = quote(bw_ipt()),
+    estimand = "ate",
+    focal = NULL
+  ),
+  list(
+    label = "an bw_ipt categorical att fit",
+    data = quote(sim_categorical(200)),
+    method = quote(bw_ipt()),
+    estimand = "att",
+    focal = "b"
+  ),
+  list(
+    label = "a just-identified bw_cbps ate fit",
+    data = quote(sim_binary(200)),
+    method = quote(bw_cbps()),
+    estimand = "ate",
+    focal = NULL
+  ),
+  list(
+    label = "a just-identified bw_cbps categorical ate fit",
+    data = quote(sim_categorical(200)),
+    method = quote(bw_cbps()),
+    estimand = "ate",
+    focal = NULL
+  ),
+  list(
+    label = "a just-identified bw_cbps categorical att fit",
+    data = quote(sim_categorical(200)),
+    method = quote(bw_cbps()),
+    estimand = "att",
+    focal = "b"
+  )
+)) {
+  for (sampled in c(FALSE, TRUE)) {
+    local({
+      spec <- spec
+      sampled <- sampled
+      test_that(
+        paste0(
+          "the container of ",
+          spec$label,
+          " re-evaluates its reported weights",
+          if (sampled) " with sampling weights" else ""
+        ),
+        {
+          data <- eval(spec$data)
+          sampling <- if (sampled) {
+            withr::with_seed(505, stats::runif(nrow(data), 0.5, 2))
+          } else {
+            NULL
+          }
+          fit <- balance(
+            data,
+            exposure,
+            c(x1, x2),
+            method = eval(spec$method),
+            estimand = spec$estimand,
+            focal_level = spec$focal,
+            sampling_weights = sampling
+          )
+          expect_weights_fn_contract(fit, data)
+        }
+      )
+    })
+  }
+}
+
 # ---- The ipw() method: effect rows and point estimates --------------------
 
 test_that("ipw() returns the binary-outcome effect rows for an entropy fit", {

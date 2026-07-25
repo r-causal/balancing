@@ -222,6 +222,7 @@ fit_entropy_discrete <- function(method, prepared) {
   measure <- s * base
 
   if (identical(estimand, "ate")) {
+    focal_idx <- integer(0)
     targets <- target_means(z, seq_len(n), measure)
     solved_levels <- levels
     group_idx <- match(prepared$exposure_key, solved_levels) - 1L
@@ -270,26 +271,20 @@ fit_entropy_discrete <- function(method, prepared) {
     options
   )
 
-  w <- result$weights
-  if (!identical(estimand, "ate")) {
-    w[focal_idx] <- base[focal_idx]
-  }
+  w <- overlay_focal_weights(result$weights, base, focal_idx)
+  w <- renormalize_group_weights(
+    w,
+    s,
+    groups,
+    group_target_sums(s, groups, focal)
+  )
 
-  for (level in levels) {
-    idx <- groups[[level]]
-    target_sum <- if (identical(estimand, "ate")) sum(s[idx]) else n_eff
-    current <- sum(s[idx] * w[idx])
-    if (current > 0) {
-      w[idx] <- w[idx] * (target_sum / current)
-    }
-  }
-
-  # The estimating-equations container carries an optional psi re-evaluation
-  # hook so a sandwich variance can finite-difference the Jacobian. Building it
-  # captures the constraint matrix and the solve inputs in the closure, a memory
-  # cost the design accepts by making the hook optional. The raw M-estimator
-  # duals feed the hook, so the reported weights' renormalization is applied
-  # through the same per-group scale the solver output carried.
+  # The estimating-equations container carries optional re-evaluation hooks so a
+  # sandwich variance can finite-difference the Jacobian and the weight path.
+  # Building them captures the constraint matrix and the solve inputs in the
+  # closures, a memory cost the design accepts by making the hooks optional. The
+  # raw M-estimator duals feed both, so the reported weights' renormalization is
+  # applied through the same per-group scale the solver output carried.
   psi_fn <- make_entropy_psi_fn(
     z,
     group_idx,
@@ -299,6 +294,23 @@ fit_entropy_discrete <- function(method, prepared) {
     n_eff,
     esteq_scale
   )
+  weights_eval <- make_entropy_weights_eval(
+    z,
+    group_idx,
+    targets,
+    base,
+    s,
+    n_eff,
+    esteq_scale,
+    focal_idx,
+    w
+  )
+
+  # The core applies the per-group scale before the matrices cross the boundary,
+  # so the container stores the reported weights as its own weight scale and the
+  # ratio the hook applies is one. Passing both vectors keeps the algebra the
+  # same shape it has for the methods whose container stores the raw scale.
+  weights_fn <- make_weights_fn(weights_eval, reported = w, weights_raw = w)
 
   list(
     weights = w,
@@ -308,9 +320,29 @@ fit_entropy_discrete <- function(method, prepared) {
     iterations = as.integer(result$iterations),
     objective = entropy_objective(s, w, base),
     solver_status = result$solver,
-    estimating_equations = estimating_equations_from_result(result, w, psi_fn),
+    estimating_equations = estimating_equations_from_result(
+      result,
+      w,
+      psi_fn,
+      weights_fn
+    ),
     groups = groups
   )
+}
+
+# Overlay the focal group's weights, taking them from `values`, a vector aligned
+# with `w`. A focal estimand does not tilt the focal group, so the solve and the
+# weight re-evaluation entrypoint both leave those units at zero and their
+# weights come from elsewhere. The fit path takes them from the base weights,
+# which the group renormalization that follows then carries to the focal total;
+# the re-evaluation hook takes them from the finished reported weights, which are
+# that carried result and do not move with the duals. The two sources agree only
+# when the focal group's base weights already sum to the focal total, so the hook
+# cannot read the base weights directly. The overlay is empty for the pooled
+# estimands, whose focal index set is empty.
+overlay_focal_weights <- function(w, values, focal_idx) {
+  w[focal_idx] <- values[focal_idx]
+  w
 }
 
 # A closure re-evaluating the discrete estimating functions at new duals, over
@@ -343,6 +375,48 @@ make_entropy_psi_fn <- function(
       n_eff,
       esteq_scale
     )
+  }
+}
+
+# A closure re-evaluating the discrete balancing weights at new duals, over the
+# Rust eval entrypoint and the solve inputs captured here. The entrypoint
+# carries the same per-group `esteq_scale` the solve output carried, so the
+# weights it returns are on the scale the container stores. `reported` is the
+# finished weight vector the fit reports; the focal overlay reads its focal
+# entries, which are the base weights already carried to the focal total and are
+# constant in the duals.
+make_entropy_weights_eval <- function(
+  z,
+  group_idx,
+  targets,
+  base,
+  s,
+  n_eff,
+  esteq_scale,
+  focal_idx,
+  reported
+) {
+  force(z)
+  force(group_idx)
+  force(targets)
+  force(base)
+  force(s)
+  force(n_eff)
+  force(esteq_scale)
+  force(focal_idx)
+  force(reported)
+  function(theta) {
+    w <- eval_weights_entropy(
+      as.numeric(theta),
+      z,
+      as.integer(group_idx),
+      targets,
+      base,
+      s,
+      n_eff,
+      esteq_scale
+    )
+    overlay_focal_weights(w, reported, focal_idx)
   }
 }
 
@@ -422,6 +496,8 @@ fit_entropy_continuous <- function(method, prepared) {
     w <- w * (n_eff / current)
   }
 
+  # The continuous form has no re-evaluation entrypoints in the core, so its
+  # container carries the matrices at the solution and neither hook.
   list(
     weights = w,
     coefficients = as.numeric(result$duals),
@@ -451,7 +527,8 @@ entropy_objective <- function(s, w, base) {
 estimating_equations_from_result <- function(
   result,
   weights_raw = NULL,
-  psi_fn = NULL
+  psi_fn = NULL,
+  weights_fn = NULL
 ) {
   psi <- result$psi
   jacobian <- result$jac
@@ -465,7 +542,8 @@ estimating_equations_from_result <- function(
     jacobian = jacobian,
     weight_jacobian = weight_jacobian,
     weights_raw = weights_raw,
-    psi_fn = psi_fn
+    psi_fn = psi_fn,
+    weights_fn = weights_fn
   )
 }
 

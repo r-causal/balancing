@@ -253,6 +253,14 @@ balance_terms <- new_class(
 #'   consumer that needs the derivative of the reported weights rescales
 #'   `weight_jacobian` by the ratio of the reported weights to `weights_raw`.
 #' @param psi_fn An optional function re-evaluating `psi` at new parameters.
+#' @param weights_fn An optional function returning the reported balancing
+#'   weights at new parameters, a plain double vector with the sampling weights
+#'   excluded. At the fitted parameters it reproduces
+#'   `as.numeric(weights(fit, include_sampling_weights = FALSE))`. The per-group
+#'   reporting scale is fixed at the fit rather than recomputed at each set of
+#'   parameters, so the function's derivative is `weight_jacobian` rescaled by
+#'   the ratio of the reported weights to `weights_raw`, which is the weight
+#'   coupling a stacked variance needs.
 #'
 #' @return A `balancing_estimating_equations` object.
 #' @keywords internal
@@ -265,7 +273,8 @@ balancing_estimating_equations <- new_class(
     jacobian = class_double,
     weight_jacobian = class_double,
     weights_raw = NULL | class_double,
-    psi_fn = NULL | class_function
+    psi_fn = NULL | class_function,
+    weights_fn = NULL | class_function
   )
 )
 

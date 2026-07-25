@@ -180,8 +180,16 @@ fit_ipt_binary <- function(method, prepared) {
     core_estimand,
     method@link
   )
+  weights_eval <- make_ipt_weights_eval(
+    covs,
+    treat,
+    focal_idx,
+    s,
+    core_estimand,
+    method@link
+  )
 
-  assemble_ipt(result, prepared, psi_fn)
+  assemble_ipt(result, prepared, psi_fn, weights_eval)
 }
 
 fit_ipt_categorical <- function(method, prepared) {
@@ -222,8 +230,16 @@ fit_ipt_categorical <- function(method, prepared) {
     core_estimand,
     method@link
   )
+  weights_eval <- make_ipt_weights_eval(
+    covs,
+    treat_idx,
+    focal_idx,
+    s,
+    core_estimand,
+    method@link
+  )
 
-  assemble_ipt(result, prepared, psi_fn)
+  assemble_ipt(result, prepared, psi_fn, weights_eval)
 }
 
 # A closure re-evaluating the tilting estimating functions at new coefficients,
@@ -249,6 +265,30 @@ make_ipt_psi_fn <- function(covs, treat_idx, focal, s, estimand, link) {
   }
 }
 
+# A closure re-evaluating the tilting weights at new coefficients, over the Rust
+# eval entrypoint and the solve inputs captured here. The entrypoint returns the
+# raw M-estimator weights, the scale the container stores, so the reported
+# per-group normalization is applied on top of it rather than inside it.
+make_ipt_weights_eval <- function(covs, treat_idx, focal, s, estimand, link) {
+  force(covs)
+  force(treat_idx)
+  force(focal)
+  force(s)
+  force(estimand)
+  force(link)
+  function(theta) {
+    eval_weights_ipt(
+      as.numeric(theta),
+      covs,
+      as.integer(treat_idx),
+      as.integer(focal),
+      s,
+      estimand,
+      link
+    )
+  }
+}
+
 # Normalize each exposure group to its estimand target sum and pack the fit
 # result. For the average treatment effect the core's intercept moment fixes
 # each group's sampling-weighted total at the whole-sample total, so rescaling
@@ -260,25 +300,23 @@ make_ipt_psi_fn <- function(covs, treat_idx, focal, s, estimand, link) {
 # container is stored separately at the raw solution (see
 # `ipt_estimating_equations`), and downstream inference reads the container, not
 # these weights.
-assemble_ipt <- function(result, prepared, psi_fn = NULL) {
+assemble_ipt <- function(result, prepared, psi_fn = NULL, weights_eval = NULL) {
   s <- prepared$sampling_weights
-  estimand <- prepared$estimand
   focal <- prepared$focal_level
   groups <- prepared$groups
-  levels <- prepared$exposure_levels
 
-  w <- result$weights
-  for (level in levels) {
-    idx <- groups[[level]]
-    target_sum <- if (identical(estimand, "ate")) {
-      sum(s[idx])
-    } else {
-      sum(s[groups[[focal]]])
-    }
-    current <- sum(s[idx] * w[idx])
-    if (current > 0) {
-      w[idx] <- w[idx] * (target_sum / current)
-    }
+  weights_raw <- as.numeric(result$weights)
+  w <- renormalize_group_weights(
+    result$weights,
+    s,
+    groups,
+    group_target_sums(s, groups, focal)
+  )
+
+  weights_fn <- if (is.null(weights_eval)) {
+    NULL
+  } else {
+    make_weights_fn(weights_eval, reported = w, weights_raw = weights_raw)
   }
 
   list(
@@ -289,7 +327,12 @@ assemble_ipt <- function(result, prepared, psi_fn = NULL) {
     iterations = as.integer(result$iterations),
     objective = result$grad_norm,
     solver_status = "newton",
-    estimating_equations = ipt_estimating_equations(result, psi_fn),
+    estimating_equations = ipt_estimating_equations(
+      result,
+      weights_raw,
+      psi_fn,
+      weights_fn
+    ),
     groups = groups
   )
 }
@@ -303,13 +346,19 @@ assemble_ipt <- function(result, prepared, psi_fn = NULL) {
 # representation. The stored functions therefore sum to zero column by column at
 # the fitted parameters. `weight_jacobian` is the derivative of the raw weights,
 # recorded on `weights_raw` so a consumer can rescale to the reported convention.
-ipt_estimating_equations <- function(result, psi_fn = NULL) {
+ipt_estimating_equations <- function(
+  result,
+  weights_raw,
+  psi_fn = NULL,
+  weights_fn = NULL
+) {
   balancing_estimating_equations(
     parameters = as.numeric(result$coefs),
     psi = result$psi,
     jacobian = result$jac,
     weight_jacobian = result$dw_dbeta,
-    weights_raw = as.numeric(result$weights),
-    psi_fn = psi_fn
+    weights_raw = weights_raw,
+    psi_fn = psi_fn,
+    weights_fn = weights_fn
   )
 }
