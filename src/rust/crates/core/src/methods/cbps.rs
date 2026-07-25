@@ -428,6 +428,25 @@ fn solve_binary_just(inputs: &CbpsInputs<'_>, interrupt: &dyn Fn() -> bool) -> C
     }
 }
 
+/// The modeled propensity of each unit at `beta`, read off the
+/// propensity-model design.
+///
+/// Both re-evaluation entrypoints start here: the estimating functions turn the
+/// propensity into a balancing factor, the weights into the estimand's weight.
+fn model_propensities(inputs: &CbpsInputs<'_>, beta: &[f64]) -> Vec<f64> {
+    let n = inputs.n;
+    (0..n)
+        .map(|i| {
+            let eta: f64 = beta
+                .iter()
+                .enumerate()
+                .map(|(j, b)| inputs.covs_mod[j * n + i] * b)
+                .sum();
+            inputs.link.linkinv(eta)
+        })
+        .collect()
+}
+
 /// Re-evaluate the binary just-identified estimating functions at a supplied set
 /// of coefficients.
 ///
@@ -439,10 +458,9 @@ fn solve_binary_just(inputs: &CbpsInputs<'_>, interrupt: &dyn Fn() -> bool) -> C
 pub fn eval_psi_binary_just(inputs: &CbpsInputs<'_>, beta: &[f64]) -> Vec<f64> {
     let n = inputs.n;
     let p = inputs.p_mod;
+    let ps = model_propensities(inputs, beta);
     let mut psi = vec![0.0; n * p];
-    for i in 0..n {
-        let eta: f64 = (0..p).map(|j| inputs.covs_mod[j * n + i] * beta[j]).sum();
-        let prob = inputs.link.linkinv(eta);
+    for (i, &prob) in ps.iter().enumerate() {
         let t = f64::from(inputs.treat[i]);
         let sc = inputs.s[i] * inputs.estimand.bal_factor(prob, t);
         for j in 0..p {
@@ -450,6 +468,23 @@ pub fn eval_psi_binary_just(inputs: &CbpsInputs<'_>, beta: &[f64]) -> Vec<f64> {
         }
     }
     psi
+}
+
+/// Re-evaluate the binary just-identified balancing weights at a supplied set
+/// of coefficients.
+///
+/// A sandwich variance that treats the weights as a function of the propensity
+/// coefficients needs the weight map itself, not only its derivative at the
+/// solution. This recomputes the length-`n` weight vector from `beta` without
+/// solving, at the same scale [`solve_binary_just`] reports: the estimand's
+/// weight function evaluated at the modeled propensity and the unit's treatment
+/// indicator.
+pub fn eval_weights_binary_just(inputs: &CbpsInputs<'_>, beta: &[f64]) -> Vec<f64> {
+    model_propensities(inputs, beta)
+        .into_iter()
+        .enumerate()
+        .map(|(i, prob)| inputs.estimand.weight(prob, f64::from(inputs.treat[i])))
+        .collect()
 }
 
 // ---- Binary over-identified GMM --------------------------------------------
@@ -1449,6 +1484,134 @@ mod tests {
                         "estimand {estimand:?} jac[{row},{col}]: fd {fd} analytic {analytic}"
                     );
                 }
+            }
+        }
+    }
+
+    // Re-evaluating the weights at the solved coefficients reproduces the
+    // solve's own weight vector, and a central finite difference of that vector
+    // reproduces the analytic weight derivative, across every binary estimand.
+    #[test]
+    fn eval_weights_binary_just_matches_solve_and_weight_jacobian() {
+        let (covs, treat, n) = saturated_design();
+        let s = vec![1.0; n];
+        let p = 2;
+        for estimand in [
+            CbpsEstimand::Ate,
+            CbpsEstimand::Att,
+            CbpsEstimand::Atc,
+            CbpsEstimand::Ato,
+        ] {
+            let inputs = CbpsInputs {
+                covs_mod: &covs,
+                covs_bal: &covs,
+                n,
+                p_mod: p,
+                p_bal: p,
+                treat: &treat,
+                s: &s,
+                link: Link::Logit,
+                estimand,
+                over: false,
+                twostep: true,
+                threads: 1,
+                max_iter: 200,
+                tol: 1e-12,
+            };
+            let result = solve(&inputs, &no_interrupt());
+            assert!(result.converged, "estimand {estimand:?} did not converge");
+            let dw = result.dw_dbeta.as_ref().expect("just-identified has dw");
+
+            let recomputed = eval_weights_binary_just(&inputs, &result.coefs);
+            assert_eq!(recomputed.len(), n);
+            for (i, (a, b)) in result.weights.iter().zip(&recomputed).enumerate() {
+                assert!(
+                    (a - b).abs() < 1e-12,
+                    "estimand {estimand:?} weight[{i}]: solve {a} versus eval {b}"
+                );
+            }
+
+            let eps = 1e-6;
+            for col in 0..p {
+                let mut up = result.coefs.clone();
+                let mut down = result.coefs.clone();
+                up[col] += eps;
+                down[col] -= eps;
+                let w_up = eval_weights_binary_just(&inputs, &up);
+                let w_down = eval_weights_binary_just(&inputs, &down);
+                for i in 0..n {
+                    let fd = (w_up[i] - w_down[i]) / (2.0 * eps);
+                    let analytic = dw[col * n + i];
+                    assert!(
+                        (fd - analytic).abs() < 1e-5,
+                        "estimand {estimand:?} dw[{i},{col}]: fd {fd} analytic {analytic}"
+                    );
+                }
+            }
+        }
+    }
+
+    // Non-unit sampling weights move the solved coefficients, so the weight
+    // re-evaluation and its finite difference are checked again on the
+    // sampling-weighted fixture. The weight map itself does not read the
+    // sampling weights, which is exactly why the check belongs here: an
+    // implementation that folded them in would agree with the solve output
+    // under unit weights and disagree here.
+    #[test]
+    fn eval_weights_binary_just_under_sampling_weights() {
+        let covs = vec![
+            // intercept column
+            1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, //
+            // covariate column
+            -1.2, 0.4, 0.9, -0.5, 1.5, -0.8, 0.2, 1.1,
+        ];
+        let treat = vec![1, 0, 1, 0, 1, 0, 1, 0];
+        let s = vec![0.7, 1.3, 0.5, 1.8, 1.1, 0.9, 1.4, 0.6];
+        let n = 8;
+        let p = 2;
+        let inputs = CbpsInputs {
+            covs_mod: &covs,
+            covs_bal: &covs,
+            n,
+            p_mod: p,
+            p_bal: p,
+            treat: &treat,
+            s: &s,
+            link: Link::Logit,
+            estimand: CbpsEstimand::Ate,
+            over: false,
+            twostep: true,
+            threads: 1,
+            max_iter: 200,
+            tol: 1e-12,
+        };
+        let result = solve(&inputs, &no_interrupt());
+        assert!(result.converged, "moment norm {}", result.obj_value);
+        let dw = result.dw_dbeta.as_ref().expect("just-identified has dw");
+
+        let recomputed = eval_weights_binary_just(&inputs, &result.coefs);
+        for (i, (a, b)) in result.weights.iter().zip(&recomputed).enumerate() {
+            assert!(
+                (a - b).abs() < 1e-12,
+                "weight[{i}]: solve {a} versus eval {b}"
+            );
+        }
+
+        let eps = 1e-6;
+        for col in 0..p {
+            let mut up = result.coefs.clone();
+            let mut down = result.coefs.clone();
+            up[col] += eps;
+            down[col] -= eps;
+            let w_up = eval_weights_binary_just(&inputs, &up);
+            let w_down = eval_weights_binary_just(&inputs, &down);
+            for i in 0..n {
+                let fd = (w_up[i] - w_down[i]) / (2.0 * eps);
+                let analytic = dw[col * n + i];
+                assert!(
+                    (fd - analytic).abs() < 1e-5,
+                    "dw[{i},{col}]: fd {fd} analytic {analytic}"
+                );
             }
         }
     }

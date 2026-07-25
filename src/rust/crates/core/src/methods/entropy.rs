@@ -290,6 +290,27 @@ pub struct EntropyInputs<'a> {
     pub solver: EntropySolver,
 }
 
+/// The number of solved groups `group_idx` implies, one past its largest
+/// non-negative entry.
+fn group_count(group_idx: &[i32]) -> usize {
+    group_idx.iter().copied().max().map_or(0, |g| g + 1).max(0) as usize
+}
+
+/// Partition the units into their groups, in unit order.
+///
+/// A negative index marks a unit that belongs to no solved group, the focal
+/// level a focal estimand leaves out. Those units appear in no partition, so
+/// every output the group loop fills keeps its initial value for them.
+fn partition_groups(group_idx: &[i32], n_groups: usize) -> Vec<Vec<usize>> {
+    let mut groups: Vec<Vec<usize>> = vec![Vec::new(); n_groups];
+    for (i, &g) in group_idx.iter().enumerate() {
+        if g >= 0 {
+            groups[g as usize].push(i);
+        }
+    }
+    groups
+}
+
 /// Solve a discrete entropy problem whose units are partitioned into groups by
 /// `group_idx` (values `0..G`), each balanced to the shared `targets`.
 pub fn solve_discrete(
@@ -297,13 +318,7 @@ pub fn solve_discrete(
     group_idx: &[i32],
     interrupt: &dyn Fn() -> bool,
 ) -> EntropyResult {
-    let n_groups = group_idx.iter().copied().max().map_or(0, |g| g + 1).max(0) as usize;
-    let mut groups: Vec<Vec<usize>> = vec![Vec::new(); n_groups];
-    for (i, &g) in group_idx.iter().enumerate() {
-        if g >= 0 {
-            groups[g as usize].push(i);
-        }
-    }
+    let groups = partition_groups(group_idx, group_count(group_idx));
     // Every constraint column can be relaxed to its tolerance; there are no
     // exact-only marginal columns in a discrete problem.
     solve_groups(inputs, &groups, inputs.tols, interrupt)
@@ -608,6 +623,68 @@ pub fn scale_estimating_output(
     Ok(())
 }
 
+/// Check that `coefs` carries one `p`-vector per group and `scales` one value
+/// per group, the shared precondition of the re-evaluation entrypoints. A
+/// mismatch would slice past the end of the dual vector, so it is returned for
+/// the boundary layer to surface rather than left to panic.
+fn check_discrete_args(
+    p: usize,
+    n_groups: usize,
+    coefs: &[f64],
+    scales: &[f64],
+) -> Result<(), String> {
+    let total_params = n_groups * p;
+    if coefs.len() != total_params || scales.len() < n_groups {
+        return Err(format!(
+            "group_idx implies {n_groups} group(s) of size {p}, so coefs must have length {total_params} (got {}) and scales at least {n_groups} (got {})",
+            coefs.len(),
+            scales.len()
+        ));
+    }
+    Ok(())
+}
+
+/// The per-unit weights a set of duals implies, at the reported scale.
+///
+/// Each group's exponential tilt is normalized so its sampling-weighted total
+/// is `n_eff`, then multiplied by that group's entry of `scales`, the same
+/// per-group renormalization [`scale_estimating_output`] applies to the
+/// estimating-equation blocks. A unit in no group keeps zero, the value
+/// [`solve_groups`] leaves for the focal level a focal estimand omits.
+fn discrete_weights(
+    inputs: &EntropyInputs<'_>,
+    groups: &[Vec<usize>],
+    coefs: &[f64],
+    scales: &[f64],
+) -> Vec<f64> {
+    let p = inputs.p;
+    let pool = get_pool(inputs.threads);
+    let mut weights = vec![0.0; inputs.n];
+    for (g, idx) in groups.iter().enumerate() {
+        if idx.is_empty() {
+            continue;
+        }
+        let beta = &coefs[g * p..g * p + p];
+        let problem = EntropyProblem {
+            covs: inputs.covs,
+            n: inputs.n,
+            p,
+            idx,
+            targets: inputs.targets,
+            base: inputs.base,
+            s: inputs.s,
+            n_eff: inputs.n_eff,
+            pool: Arc::clone(&pool),
+        };
+        let (group_weights, _mbar) = problem.solution_parts(beta);
+        let scale = scales.get(g).copied().unwrap_or(1.0);
+        for (&gi, w) in idx.iter().zip(group_weights) {
+            weights[gi] = w * scale;
+        }
+    }
+    weights
+}
+
 /// Re-evaluate the discrete estimating functions at a supplied set of duals.
 ///
 /// The estimating-equations container stores `psi` at the solution; a sandwich
@@ -627,51 +704,49 @@ pub fn eval_psi_discrete(
 ) -> Result<Vec<f64>, String> {
     let n = inputs.n;
     let p = inputs.p;
-    let n_groups = group_idx.iter().copied().max().map_or(0, |g| g + 1).max(0) as usize;
-    let total_params = n_groups * p;
-    if coefs.len() != total_params || scales.len() < n_groups {
-        return Err(format!(
-            "group_idx implies {n_groups} group(s) of size {p}, so coefs must have length {total_params} (got {}) and scales at least {n_groups} (got {})",
-            coefs.len(),
-            scales.len()
-        ));
-    }
-    let mut groups: Vec<Vec<usize>> = vec![Vec::new(); n_groups];
-    for (i, &g) in group_idx.iter().enumerate() {
-        if g >= 0 {
-            groups[g as usize].push(i);
-        }
-    }
+    let n_groups = group_count(group_idx);
+    check_discrete_args(p, n_groups, coefs, scales)?;
+    let groups = partition_groups(group_idx, n_groups);
 
-    let pool = get_pool(inputs.threads);
-    let mut psi = vec![0.0; n * total_params];
+    // The weights already carry the sampling weight's partner scale, so each
+    // unit's row is its sampling weight times its scaled weight times the
+    // centered constraint row.
+    let weights = discrete_weights(inputs, &groups, coefs, scales);
+    let mut psi = vec![0.0; n * n_groups * p];
     for (g, idx) in groups.iter().enumerate() {
-        if idx.is_empty() {
-            continue;
-        }
-        let beta = &coefs[g * p..g * p + p];
-        let problem = EntropyProblem {
-            covs: inputs.covs,
-            n,
-            p,
-            idx,
-            targets: inputs.targets,
-            base: inputs.base,
-            s: inputs.s,
-            n_eff: inputs.n_eff,
-            pool: Arc::clone(&pool),
-        };
-        let (weights, _mbar) = problem.solution_parts(beta);
-        let scale = scales.get(g).copied().unwrap_or(1.0);
         let offset = g * p;
-        for (local, &gi) in idx.iter().enumerate() {
-            let sw = inputs.s[gi] * weights[local] * scale;
+        for &gi in idx {
+            let sw = inputs.s[gi] * weights[gi];
             for j in 0..p {
                 psi[(offset + j) * n + gi] = sw * (inputs.covs[j * n + gi] - inputs.targets[j]);
             }
         }
     }
     Ok(psi)
+}
+
+/// Re-evaluate the discrete balancing weights at a supplied set of duals.
+///
+/// A sandwich variance that treats the weights as a function of the duals needs
+/// the weight map itself, not only its derivative at the solution. This
+/// recomputes the length-`n` weight vector from `coefs` (`p` duals per group,
+/// stacked in group order) without solving, at the scale
+/// [`solve_discrete`] reports: each group's exponential tilt normalized so its
+/// sampling-weighted total is `n_eff`, multiplied by that group's entry of
+/// `scales`, the same per-group renormalization
+/// [`scale_estimating_output`] applies to the estimating-equation blocks. Units
+/// with a negative group index belong to no solved group and carry zero,
+/// matching the solve output.
+pub fn eval_weights_discrete(
+    inputs: &EntropyInputs<'_>,
+    group_idx: &[i32],
+    coefs: &[f64],
+    scales: &[f64],
+) -> Result<Vec<f64>, String> {
+    let n_groups = group_count(group_idx);
+    check_discrete_args(inputs.p, n_groups, coefs, scales)?;
+    let groups = partition_groups(group_idx, n_groups);
+    Ok(discrete_weights(inputs, &groups, coefs, scales))
 }
 
 #[cfg(test)]
@@ -923,6 +998,146 @@ mod tests {
         }
     }
 
+    // Non-unit sampling weights for the twelve-unit design. The tilt reads them
+    // in its normalizing constant, so the weight map, not only the solved
+    // duals, depends on them.
+    fn sampling_weights() -> Vec<f64> {
+        vec![0.7, 1.3, 0.5, 1.8, 1.1, 0.9, 1.4, 0.6, 1.2, 0.8, 1.5, 1.0]
+    }
+
+    // Re-evaluating the weights at the solved duals reproduces the solve's own
+    // weight vector, and a central finite difference of that vector reproduces
+    // the analytic weight derivative, under unit and non-unit sampling weights.
+    #[test]
+    fn eval_weights_discrete_matches_solve_and_weight_jacobian() {
+        let (covs, group_idx, targets, n, p) = two_group_design();
+        let base = vec![1.0; n];
+        let tols = vec![0.0; p];
+        for s in [vec![1.0; n], sampling_weights()] {
+            let inputs = eval_inputs(&covs, &targets, &base, &s, n, p, &tols);
+            let result = solve_discrete(&inputs, &group_idx, &no_interrupt());
+            assert!(result.converged);
+
+            let duals = &result.duals;
+            let total_params = duals.len();
+            let scales = vec![1.0; total_params / p];
+            let dw = result.dw_dbeta.as_ref().expect("exact problem has dw");
+
+            let recomputed = eval_weights_discrete(&inputs, &group_idx, duals, &scales).unwrap();
+            assert_eq!(recomputed.len(), n);
+            for (i, (a, b)) in result.weights.iter().zip(&recomputed).enumerate() {
+                assert!(
+                    (a - b).abs() < 1e-12,
+                    "weight[{i}]: solve {a} versus eval {b}"
+                );
+            }
+
+            let eps = 1e-6;
+            for col in 0..total_params {
+                let mut up = duals.clone();
+                let mut down = duals.clone();
+                up[col] += eps;
+                down[col] -= eps;
+                let w_up = eval_weights_discrete(&inputs, &group_idx, &up, &scales).unwrap();
+                let w_down = eval_weights_discrete(&inputs, &group_idx, &down, &scales).unwrap();
+                for i in 0..n {
+                    let fd = (w_up[i] - w_down[i]) / (2.0 * eps);
+                    let analytic = dw[col * n + i];
+                    // The group-normalized weights are of order one over the
+                    // group size, so the bound sits well below the derivative
+                    // scale while staying orders above central-difference noise.
+                    assert!(
+                        (fd - analytic).abs() < 1e-6,
+                        "dw[{i},{col}]: fd {fd} analytic {analytic}"
+                    );
+                }
+            }
+        }
+    }
+
+    // The per-group scale is the renormalization the reported weights carry, so
+    // it multiplies the returned weight of every unit in its group and, being
+    // free of the duals, its derivative too.
+    #[test]
+    fn eval_weights_discrete_applies_the_group_scale() {
+        let (covs, group_idx, targets, n, p) = two_group_design();
+        let base = vec![1.0; n];
+        let s = vec![1.0; n];
+        let tols = vec![0.0; p];
+        let inputs = eval_inputs(&covs, &targets, &base, &s, n, p, &tols);
+        let result = solve_discrete(&inputs, &group_idx, &no_interrupt());
+        assert!(result.converged);
+
+        let duals = &result.duals;
+        let total_params = duals.len();
+        let dw = result.dw_dbeta.as_ref().expect("exact problem has dw");
+        let scales = vec![2.0, 3.0];
+
+        let scaled = eval_weights_discrete(&inputs, &group_idx, duals, &scales).unwrap();
+        for i in 0..n {
+            let scale = scales[group_idx[i] as usize];
+            let want = result.weights[i] * scale;
+            assert!(
+                (scaled[i] - want).abs() < 1e-12,
+                "weight[{i}]: scaled {} expected {want}",
+                scaled[i]
+            );
+        }
+
+        let eps = 1e-6;
+        for col in 0..total_params {
+            let mut up = duals.clone();
+            let mut down = duals.clone();
+            up[col] += eps;
+            down[col] -= eps;
+            let w_up = eval_weights_discrete(&inputs, &group_idx, &up, &scales).unwrap();
+            let w_down = eval_weights_discrete(&inputs, &group_idx, &down, &scales).unwrap();
+            for i in 0..n {
+                let fd = (w_up[i] - w_down[i]) / (2.0 * eps);
+                let analytic = dw[col * n + i] * scales[group_idx[i] as usize];
+                assert!(
+                    (fd - analytic).abs() < 1e-6,
+                    "dw[{i},{col}]: fd {fd} analytic {analytic}"
+                );
+            }
+        }
+    }
+
+    // A focal estimand excludes its focal group from the solve, marking those
+    // units with a negative group index. They carry no solved weight, and the
+    // re-evaluation reproduces that zero alongside the solved group's weights.
+    #[test]
+    fn eval_weights_discrete_zeroes_the_unsolved_group() {
+        let (covs, group_idx, targets, n, p) = two_group_design();
+        // Shift the group labels down one so the first group becomes the focal
+        // group, left out of the solve, and the second is solved on its own.
+        let focal_idx: Vec<i32> = group_idx.iter().map(|&g| g - 1).collect();
+        let base = vec![1.0; n];
+        let s = vec![1.0; n];
+        let tols = vec![0.0; p];
+        let inputs = eval_inputs(&covs, &targets, &base, &s, n, p, &tols);
+        let result = solve_discrete(&inputs, &focal_idx, &no_interrupt());
+        assert!(result.converged);
+
+        let scales = vec![1.0; result.duals.len() / p];
+        let recomputed =
+            eval_weights_discrete(&inputs, &focal_idx, &result.duals, &scales).unwrap();
+        assert_eq!(recomputed.len(), n);
+        for i in 0..n {
+            if focal_idx[i] < 0 {
+                assert_eq!(recomputed[i], 0.0, "unsolved unit {i} carries a weight");
+            } else {
+                assert!(recomputed[i] > 0.0, "solved unit {i} carries no weight");
+            }
+            assert!(
+                (result.weights[i] - recomputed[i]).abs() < 1e-12,
+                "weight[{i}]: solve {} versus eval {}",
+                result.weights[i],
+                recomputed[i]
+            );
+        }
+    }
+
     // group_idx that implies more groups than coefs and scales cover is reported
     // rather than panicking on the block slice, so the R hook surfaces a
     // condition instead of a crash.
@@ -938,6 +1153,21 @@ mod tests {
         let coefs = vec![0.0; p];
         let scales = vec![1.0];
         let err = eval_psi_discrete(&inputs, &group_idx, &coefs, &scales).unwrap_err();
+        assert!(err.contains("group(s)"), "message was: {err}");
+    }
+
+    // The weight re-evaluation shares the argument check, so it reports the same
+    // condition rather than slicing past the block.
+    #[test]
+    fn eval_weights_discrete_rejects_inconsistent_group_count() {
+        let (covs, group_idx, targets, n, p) = two_group_design();
+        let base = vec![1.0; n];
+        let s = vec![1.0; n];
+        let tols = vec![0.0; p];
+        let inputs = eval_inputs(&covs, &targets, &base, &s, n, p, &tols);
+        let coefs = vec![0.0; p];
+        let scales = vec![1.0];
+        let err = eval_weights_discrete(&inputs, &group_idx, &coefs, &scales).unwrap_err();
         assert!(err.contains("group(s)"), "message was: {err}");
     }
 }

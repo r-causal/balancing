@@ -259,6 +259,80 @@ fn eval_psi_entropy(
     Ok(real_matrix(&psi, n, n_groups * p)?.into())
 }
 
+/// Re-evaluate the discrete entropy balancing weights at a set of duals.
+///
+/// Given the solved duals in `coefs` (`p` per group, stacked in group order) and
+/// the original solve inputs, returns the length-`n` weight vector at those
+/// parameters, with the same per-group renormalization `esteq_scale` the solve
+/// output carried. Units the solve leaves out, marked by a negative
+/// `group_idx`, carry zero. It supports a sandwich variance that treats the
+/// weights as a function of the duals without reimplementing the tilt math in R.
+///
+/// Internal solver entry point, called from the R layer rather than by users, so
+/// it is not exported. `@noRd` keeps it out of the reference and out of
+/// NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+/// lines into the generated wrapper.
+/// @noRd
+// The argument list is the fixed savvy boundary signature; the balancing inputs
+// are irreducibly numerous.
+#[allow(clippy::too_many_arguments)]
+#[savvy]
+fn eval_weights_entropy(
+    coefs: RealSexp,
+    covs: RealSexp,
+    group_idx: IntegerSexp,
+    targets: RealSexp,
+    base_weights: RealSexp,
+    s_weights: RealSexp,
+    n_eff: f64,
+    esteq_scale: RealSexp,
+) -> savvy::Result<savvy::Sexp> {
+    let n = s_weights.len();
+    let p = targets.len();
+
+    if covs.len() != n * p {
+        return Err(savvy::Error::new(format!(
+            "covs has {} elements but n * p = {n} * {p} = {}",
+            covs.len(),
+            n * p
+        )));
+    }
+    if base_weights.len() != n || group_idx.len() != n {
+        return Err(savvy::Error::new(
+            "base_weights and group_idx must have length n",
+        ));
+    }
+    let n_groups = esteq_scale.len();
+    if p == 0 || coefs.len() != n_groups * p {
+        return Err(savvy::Error::new(
+            "coefs must have length p times the number of groups",
+        ));
+    }
+
+    let inputs = EntropyInputs {
+        covs: covs.as_slice(),
+        n,
+        p,
+        targets: targets.as_slice(),
+        tols: &vec![0.0; p],
+        base: base_weights.as_slice(),
+        s: s_weights.as_slice(),
+        n_eff,
+        threads: 1,
+        max_iter: 0,
+        tol: 0.0,
+        solver: balancing_core::methods::entropy::EntropySolver::Newton,
+    };
+    let weights = balancing_core::methods::entropy::eval_weights_discrete(
+        &inputs,
+        group_idx.as_slice(),
+        coefs.as_slice(),
+        esteq_scale.as_slice(),
+    )
+    .map_err(savvy::Error::new)?;
+    Ok(real_vector(&weights)?.into())
+}
+
 /// Solve a continuous-exposure entropy balancing problem over the whole sample.
 ///
 /// Internal solver entry point, called from the R layer rather than by users, so
@@ -565,6 +639,80 @@ fn eval_psi_ipt(
     Ok(real_matrix(&psi, n, n_blocks * p)?.into())
 }
 
+/// Re-evaluate the inverse probability tilting weights at a set of
+/// coefficients.
+///
+/// Given the solved coefficients in `coefs` (`p` per block, stacked in block
+/// order) and the original solve inputs, returns the length-`n` weight vector at
+/// those parameters. `treat_idx` holds the zero-based level of each unit and
+/// `focal` the focal level index the focal estimands use, whose units carry
+/// weight one. The binary and categorical fits share this entrypoint. It
+/// supports a sandwich variance that treats the weights as a function of the
+/// coefficients without reimplementing the tilt math in R.
+///
+/// Internal solver entry point, called from the R layer rather than by users, so
+/// it is not exported. `@noRd` keeps it out of the reference and out of
+/// NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+/// lines into the generated wrapper.
+/// @noRd
+// The argument list is the fixed savvy boundary signature; the balancing inputs
+// are irreducibly numerous.
+#[allow(clippy::too_many_arguments)]
+#[savvy]
+fn eval_weights_ipt(
+    coefs: RealSexp,
+    covs: RealSexp,
+    treat_idx: IntegerSexp,
+    focal: i32,
+    s_weights: RealSexp,
+    estimand: &str,
+    link: &str,
+) -> savvy::Result<savvy::Sexp> {
+    let n = s_weights.len();
+    let p = if n == 0 { 0 } else { covs.len() / n };
+    let link = parse_link(link)?;
+
+    if n == 0 || covs.len() != n * p {
+        return Err(savvy::Error::new(format!(
+            "covs has {} elements but is not a multiple of n = {n}",
+            covs.len()
+        )));
+    }
+    if treat_idx.len() != n {
+        return Err(savvy::Error::new("treat_idx must have length n"));
+    }
+    let treat = treat_idx.as_slice();
+    if treat.iter().any(|&t| t < 0) {
+        return Err(savvy::Error::new("treat_idx values must be non-negative"));
+    }
+    let n_levels = treat.iter().copied().max().map_or(0, |m| m + 1) as usize;
+    if focal < 0 || focal as usize >= n_levels {
+        return Err(savvy::Error::new(
+            "focal must be a level present in treat_idx",
+        ));
+    }
+    require_finite(covs.as_slice(), "covs")?;
+    require_finite(s_weights.as_slice(), "s_weights")?;
+    require_dense_levels(treat, n_levels)?;
+    let estimand = parse_multi_estimand(estimand, focal as usize)?;
+
+    let inputs = IptInputs {
+        covs: covs.as_slice(),
+        n,
+        p,
+        treat,
+        n_levels,
+        s: s_weights.as_slice(),
+        link,
+        estimand,
+        threads: 1,
+        max_iter: 0,
+        tol: 0.0,
+    };
+    let weights = ipt::eval_weights(&inputs, coefs.as_slice()).map_err(savvy::Error::new)?;
+    Ok(real_vector(&weights)?.into())
+}
+
 /// Pack a covariate balancing propensity score result into its R list.
 ///
 /// The list is `weights`, `ps`, `coefs`, `converged`, `iterations`,
@@ -727,6 +875,67 @@ fn eval_psi_cbps(
     };
     let psi = cbps::eval_psi_binary_just(&inputs, coefs.as_slice());
     Ok(real_matrix(&psi, n, p)?.into())
+}
+
+/// Re-evaluate the binary just-identified covariate balancing propensity score
+/// weights at a set of coefficients.
+///
+/// Given the solved coefficients in `coefs` and the original solve inputs,
+/// returns the length-`n` weight vector at those parameters: the estimand's
+/// weight function evaluated at the modeled propensity and the unit's treatment
+/// indicator. It supports a sandwich variance that treats the weights as a
+/// function of the coefficients without reimplementing the propensity math in R.
+///
+/// Internal solver entry point, called from the R layer rather than by users, so
+/// it is not exported. `@noRd` keeps it out of the reference and out of
+/// NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+/// lines into the generated wrapper.
+/// @noRd
+#[savvy]
+fn eval_weights_cbps(
+    coefs: RealSexp,
+    covs: RealSexp,
+    treat: IntegerSexp,
+    s_weights: RealSexp,
+    estimand: &str,
+    link: &str,
+) -> savvy::Result<savvy::Sexp> {
+    let n = s_weights.len();
+    let p = if n == 0 { 0 } else { covs.len() / n };
+    let link = parse_link(link)?;
+    let estimand = parse_cbps_estimand(estimand)?;
+
+    if n == 0 || covs.len() != n * p {
+        return Err(savvy::Error::new(format!(
+            "covs has {} elements but is not a multiple of n = {n}",
+            covs.len()
+        )));
+    }
+    if treat.len() != n {
+        return Err(savvy::Error::new("treat must have length n"));
+    }
+    if coefs.len() != p {
+        return Err(savvy::Error::new("coefs must have length p"));
+    }
+
+    let inputs = CbpsInputs {
+        covs_mod: covs.as_slice(),
+        covs_bal: covs.as_slice(),
+        n,
+        p_mod: p,
+        p_bal: p,
+        treat: treat.as_slice(),
+        s: s_weights.as_slice(),
+        link,
+        estimand,
+        over: false,
+        twostep: false,
+        threads: 1,
+        max_iter: 0,
+        tol: 0.0,
+    };
+    let weights = cbps::eval_weights_binary_just(&inputs, coefs.as_slice());
+    Ok(real_vector(&weights)?.into())
 }
 
 /// Solve a categorical covariate balancing propensity score problem.

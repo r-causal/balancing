@@ -92,6 +92,62 @@ NULL
   .Call(savvy_eval_psi_ipt__impl, `coefs`, `covs`, `treat_idx`, `focal`, `s_weights`, `estimand`, `link`)
 }
 
+#' Re-evaluate the binary just-identified covariate balancing propensity score
+#' weights at a set of coefficients.
+#'
+#' Given the solved coefficients in `coefs` and the original solve inputs,
+#' returns the length-`n` weight vector at those parameters: the estimand's
+#' weight function evaluated at the modeled propensity and the unit's treatment
+#' indicator. It supports a sandwich variance that treats the weights as a
+#' function of the coefficients without reimplementing the propensity math in R.
+#'
+#' Internal solver entry point, called from the R layer rather than by users, so
+#' it is not exported. `@noRd` keeps it out of the reference and out of
+#' NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+#' lines into the generated wrapper.
+#' @noRd
+`eval_weights_cbps` <- function(`coefs`, `covs`, `treat`, `s_weights`, `estimand`, `link`) {
+  .Call(savvy_eval_weights_cbps__impl, `coefs`, `covs`, `treat`, `s_weights`, `estimand`, `link`)
+}
+
+#' Re-evaluate the discrete entropy balancing weights at a set of duals.
+#'
+#' Given the solved duals in `coefs` (`p` per group, stacked in group order) and
+#' the original solve inputs, returns the length-`n` weight vector at those
+#' parameters, with the same per-group renormalization `esteq_scale` the solve
+#' output carried. Units the solve leaves out, marked by a negative
+#' `group_idx`, carry zero. It supports a sandwich variance that treats the
+#' weights as a function of the duals without reimplementing the tilt math in R.
+#'
+#' Internal solver entry point, called from the R layer rather than by users, so
+#' it is not exported. `@noRd` keeps it out of the reference and out of
+#' NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+#' lines into the generated wrapper.
+#' @noRd
+`eval_weights_entropy` <- function(`coefs`, `covs`, `group_idx`, `targets`, `base_weights`, `s_weights`, `n_eff`, `esteq_scale`) {
+  .Call(savvy_eval_weights_entropy__impl, `coefs`, `covs`, `group_idx`, `targets`, `base_weights`, `s_weights`, `n_eff`, `esteq_scale`)
+}
+
+#' Re-evaluate the inverse probability tilting weights at a set of
+#' coefficients.
+#'
+#' Given the solved coefficients in `coefs` (`p` per block, stacked in block
+#' order) and the original solve inputs, returns the length-`n` weight vector at
+#' those parameters. `treat_idx` holds the zero-based level of each unit and
+#' `focal` the focal level index the focal estimands use, whose units carry
+#' weight one. The binary and categorical fits share this entrypoint. It
+#' supports a sandwich variance that treats the weights as a function of the
+#' coefficients without reimplementing the tilt math in R.
+#'
+#' Internal solver entry point, called from the R layer rather than by users, so
+#' it is not exported. `@noRd` keeps it out of the reference and out of
+#' NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+#' lines into the generated wrapper.
+#' @noRd
+`eval_weights_ipt` <- function(`coefs`, `covs`, `treat_idx`, `focal`, `s_weights`, `estimand`, `link`) {
+  .Call(savvy_eval_weights_ipt__impl, `coefs`, `covs`, `treat_idx`, `focal`, `s_weights`, `estimand`, `link`)
+}
+
 #' Build a kernel matrix for the covariates.
 #'
 #' `kernel` names the kernel; `bw_scale` scales the median bandwidth;

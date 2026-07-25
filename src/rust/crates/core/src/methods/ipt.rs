@@ -324,12 +324,7 @@ pub fn solve(inputs: &IptInputs<'_>, interrupt: &dyn Fn() -> bool) -> IptResult 
 
     for (b, &(level, form)) in blocks.iter().enumerate() {
         block_levels.push(level);
-        let idx: Vec<usize> = inputs
-            .treat
-            .iter()
-            .enumerate()
-            .filter_map(|(i, &t)| (t as usize == level).then_some(i))
-            .collect();
+        let idx = level_indices(inputs.treat, level);
         if idx.is_empty() {
             continue;
         }
@@ -499,6 +494,54 @@ fn fill_block_output(
     }
 }
 
+/// Global indices of the units in `level`, in unit order.
+fn level_indices(treat: &[i32], level: usize) -> Vec<usize> {
+    treat
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &t)| (t as usize == level).then_some(i))
+        .collect()
+}
+
+/// The weight each of a level's units carries at `beta`, in the order `idx`
+/// lists them.
+///
+/// This is the level's contribution to both re-evaluation entrypoints: the
+/// estimating functions subtract `s_i w_i x_i` from the target term, and the
+/// weight vector reports `w_i` directly.
+fn block_weights(
+    inputs: &IptInputs<'_>,
+    idx: &[usize],
+    form: WeightForm,
+    beta: &[f64],
+) -> Vec<f64> {
+    let n = inputs.n;
+    idx.iter()
+        .map(|&gi| {
+            let eta: f64 = beta
+                .iter()
+                .enumerate()
+                .map(|(j, b)| inputs.covs[j * n + gi] * b)
+                .sum();
+            form.weight(inputs.link.linkinv(eta))
+        })
+        .collect()
+}
+
+/// Check that `coefs` carries one `p`-vector per planned block, the shared
+/// precondition of the re-evaluation entrypoints. A mismatch would slice past
+/// the end of the coefficient vector, so it is returned for the boundary layer
+/// to surface rather than left to panic.
+fn check_coefs(p: usize, n_blocks: usize, coefs: &[f64]) -> Result<(), String> {
+    if p == 0 || coefs.len() != n_blocks * p {
+        return Err(format!(
+            "coefs has length {} but the tilt has {n_blocks} block(s) of size {p}",
+            coefs.len()
+        ));
+    }
+    Ok(())
+}
+
 /// Re-evaluate the per-unit estimating functions at a supplied set of
 /// coefficients.
 ///
@@ -512,32 +555,17 @@ pub fn eval_psi(inputs: &IptInputs<'_>, coefs: &[f64]) -> Result<Vec<f64>, Strin
     let n = inputs.n;
     let p = inputs.p;
     let (blocks, tau) = plan(inputs);
+    check_coefs(p, blocks.len(), coefs)?;
     let total_params = blocks.len() * p;
-    if p == 0 || coefs.len() != total_params {
-        return Err(format!(
-            "coefs has length {} but the tilt has {} block(s) of size {p}",
-            coefs.len(),
-            blocks.len()
-        ));
-    }
     let mut psi = vec![0.0; n * total_params];
 
     for (b, &(level, form)) in blocks.iter().enumerate() {
         let offset = b * p;
         let beta = &coefs[offset..offset + p];
-        let idx: Vec<usize> = inputs
-            .treat
-            .iter()
-            .enumerate()
-            .filter_map(|(i, &t)| (t as usize == level).then_some(i))
-            .collect();
+        let idx = level_indices(inputs.treat, level);
 
         // The level's per-unit weight at these coefficients, computed once.
-        let mut wvec = vec![0.0; idx.len()];
-        for (local, &gi) in idx.iter().enumerate() {
-            let eta: f64 = (0..p).map(|j| inputs.covs[j * n + gi] * beta[j]).sum();
-            wvec[local] = form.weight(inputs.link.linkinv(eta));
-        }
+        let wvec = block_weights(inputs, &idx, form, beta);
 
         for j in 0..p {
             let covs_col = &inputs.covs[j * n..(j + 1) * n];
@@ -551,6 +579,34 @@ pub fn eval_psi(inputs: &IptInputs<'_>, coefs: &[f64]) -> Result<Vec<f64>, Strin
         }
     }
     Ok(psi)
+}
+
+/// Re-evaluate the per-unit balancing weights at a supplied set of
+/// coefficients.
+///
+/// A sandwich variance that treats the weights as a function of the tilting
+/// parameters needs the weight map itself, not only its derivative at the
+/// solution. This recomputes the length-`n` weight vector from `coefs` (`p` per
+/// block, stacked in block order) without solving, at the same scale
+/// [`solve`] reports: a level's units carry their block's weight form evaluated
+/// at the modeled propensity, and a level with no block, the focal level of a
+/// focal estimand, carries weight one.
+pub fn eval_weights(inputs: &IptInputs<'_>, coefs: &[f64]) -> Result<Vec<f64>, String> {
+    let p = inputs.p;
+    let (blocks, _tau) = plan(inputs);
+    check_coefs(p, blocks.len(), coefs)?;
+
+    // A level with no block keeps weight one, the value [`solve`] initializes
+    // the vector to and leaves in place for the focal level.
+    let mut weights = vec![1.0; inputs.n];
+    for (b, &(level, form)) in blocks.iter().enumerate() {
+        let beta = &coefs[b * p..b * p + p];
+        let idx = level_indices(inputs.treat, level);
+        for (&gi, w) in idx.iter().zip(block_weights(inputs, &idx, form, beta)) {
+            weights[gi] = w;
+        }
+    }
+    Ok(weights)
 }
 
 #[cfg(test)]
@@ -759,6 +815,63 @@ mod tests {
         }
     }
 
+    // Re-evaluating the weights at the solved coefficients reproduces the
+    // solve's own weight vector, and a central finite difference of that vector
+    // reproduces the analytic weight derivative, for both the
+    // average-treatment-effect and focal forms. The focal form also pins the
+    // focal level's units at weight one, whose derivative is zero.
+    #[test]
+    fn eval_weights_matches_solve_and_weight_jacobian() {
+        let (covs, treat, n) = saturated_design();
+        let s = vec![1.0; n];
+        let p = 2;
+        for estimand in [IptEstimand::Ate, IptEstimand::Focal(1)] {
+            let inputs = IptInputs {
+                covs: &covs,
+                n,
+                p,
+                treat: &treat,
+                n_levels: 2,
+                s: &s,
+                link: Link::Logit,
+                estimand,
+                threads: 1,
+                max_iter: 200,
+                tol: 1e-12,
+            };
+            let result = solve(&inputs, &no_interrupt());
+            assert!(result.converged, "estimand {estimand:?} did not converge");
+            let total_params = result.coefs.len();
+
+            let recomputed = eval_weights(&inputs, &result.coefs).unwrap();
+            assert_eq!(recomputed.len(), n);
+            for (i, (a, b)) in result.weights.iter().zip(&recomputed).enumerate() {
+                assert!(
+                    (a - b).abs() < 1e-12,
+                    "estimand {estimand:?} weight[{i}]: solve {a} versus eval {b}"
+                );
+            }
+
+            let eps = 1e-6;
+            for col in 0..total_params {
+                let mut up = result.coefs.clone();
+                let mut down = result.coefs.clone();
+                up[col] += eps;
+                down[col] -= eps;
+                let w_up = eval_weights(&inputs, &up).unwrap();
+                let w_down = eval_weights(&inputs, &down).unwrap();
+                for i in 0..n {
+                    let fd = (w_up[i] - w_down[i]) / (2.0 * eps);
+                    let analytic = result.dw_dbeta[col * n + i];
+                    assert!(
+                        (fd - analytic).abs() < 1e-5,
+                        "estimand {estimand:?} dw[{i},{col}]: fd {fd} analytic {analytic}"
+                    );
+                }
+            }
+        }
+    }
+
     // Wrong-length coefficients are reported rather than panicking on the block
     // slice, so the R re-evaluation hook surfaces a condition instead of a crash.
     #[test]
@@ -781,6 +894,29 @@ mod tests {
         // The average treatment effect has two blocks of size two, so four
         // coefficients are required; two must be rejected.
         let err = eval_psi(&inputs, &[0.0, 0.0]).unwrap_err();
+        assert!(err.contains("coefs has length 2"), "message was: {err}");
+    }
+
+    // The weight re-evaluation shares the coefficient check, so it reports the
+    // same wrong-length condition rather than slicing past the block.
+    #[test]
+    fn eval_weights_rejects_wrong_length_coefs() {
+        let (covs, treat, n) = saturated_design();
+        let s = vec![1.0; n];
+        let inputs = IptInputs {
+            covs: &covs,
+            n,
+            p: 2,
+            treat: &treat,
+            n_levels: 2,
+            s: &s,
+            link: Link::Logit,
+            estimand: IptEstimand::Ate,
+            threads: 1,
+            max_iter: 0,
+            tol: 0.0,
+        };
+        let err = eval_weights(&inputs, &[0.0, 0.0]).unwrap_err();
         assert!(err.contains("coefs has length 2"), "message was: {err}");
     }
 
