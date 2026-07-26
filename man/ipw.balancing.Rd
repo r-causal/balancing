@@ -23,7 +23,18 @@ Supplying an estimand that disagrees with the fit raises
 }
 \value{
 An object of class \code{ipw}, the shared return contract of
-\code{\link[propensity:ipw]{propensity::ipw()}}.
+\code{\link[propensity:ipw]{propensity::ipw()}}. Alongside \code{estimand}, \code{ps_mod}, \code{outcome_mod}, and the
+\code{estimates} table, the result carries two fields describing the variance:
+\itemize{
+\item \code{se_method}, the string \code{"mestimation"}, naming how the standard errors
+were computed.
+\item \code{fit}, the fitted variance system, a list of \code{theta}, the stacked
+parameter vector, and \code{vcov}, its sandwich covariance. Both are named by
+stacked block: \code{theta_w1} onward for the weight parameters, \code{beta_}
+followed by the design column name for the outcome-model coefficients,
+then \code{mu0}, \code{mu1}, and one name per effect. The standard errors in
+\code{estimates} are \code{sqrt(diag(fit$vcov))} read at the effect names.
+}
 }
 \description{
 A \link{balancing} fit registers a method on \code{\link[propensity:ipw]{propensity::ipw()}}, so a set of
@@ -39,27 +50,51 @@ outcome the method returns the risk difference (\code{rd}), the log risk ratio
 (\code{log(rr)}), and the log odds ratio (\code{log(or)}); for a continuous outcome it
 returns the difference in means (\code{diff}).
 
-The standard errors come from a stacked M-estimator. The stacked parameter
-vector holds the weight parameters, the outcome-model coefficients, and the
-marginal means. Its estimating functions are the weight-parameter estimating
-equations the fit carries, the outcome-model score equations, and the
-marginal-mean equations. The sandwich variance of this system propagates the
-uncertainty from estimating the weights into the effect standard errors, which
-a variance that treats the weights as fixed would understate.
+The standard errors come from a stacked M-estimator that the deli package
+differentiates and sandwiches. The stacked parameter vector holds four
+blocks: the
+weight parameters, the outcome-model coefficients, the two marginal means,
+and the effect contrasts. Their estimating functions are, in the same order,
+the weight-parameter estimating equations the fit carries, re-evaluated at
+new weight parameters through the hooks the fit's
+\link{balancing_estimating_equations} container supplies; the outcome-model score,
+from \code{\link[deli:ee_glm]{deli::ee_glm()}}, carrying the balancing weights; the marginal-mean
+equations, which predict the outcome model with the exposure fixed to each
+level; and one deterministic row per contrast, setting the contrast parameter
+equal to its formula in the two means.
+\code{\link[deli:compute_sandwich]{deli::compute_sandwich()}} differentiates that system at the fitted values
+and returns its empirical sandwich covariance.
+
+Nothing is re-solved along the way. Every parameter enters at the value its
+own fit already found, and the stacked estimating functions are only
+re-evaluated around that point. Because each contrast is a parameter of the
+stack rather than a transformation applied afterward, its standard error is
+already on the diagonal of the joint covariance and no delta-method step
+stands between the sandwich and the reported effects. The joint covariance
+propagates the uncertainty from estimating the weights into the effect
+standard errors, which a variance that treats the weights as fixed would
+understate.
 
 The method is available only for fits whose weights solve smooth estimating
 equations with a binary exposure: the estimating-equation family (entropy
 balancing, inverse probability tilting, and the just-identified covariate
-balancing propensity score) with exact balance. Any other fit, including a
-tolerance-relaxed fit, an over-identified or quadratic-program fit, or a
-categorical or continuous exposure, raises \code{balancing_ipw_unsupported_error}
-and points to the bootstrap workflow described in the inference vignette.
+balancing propensity score) with exact balance. Any other fit, including an
+entropy fit at a positive tolerance, an over-identified or quadratic-program
+fit, or a categorical or continuous exposure, raises
+\code{balancing_ipw_unsupported_error} and points to the bootstrap workflow
+described in the inference vignette.
 
 The outcome model must be the marginal model whose only predictor is the
-exposure, such as \code{y ~ exposure}. The stacked variance is derived for that
-form, where the g-computation means reduce to the weighted group means. A
-covariate-adjusted outcome model raises \code{balancing_ipw_input_error}; use the
-bootstrap workflow in the inference vignette for those models.
+exposure, such as \code{y ~ exposure}. With a binary exposure that model is
+saturated, one free parameter per exposure level, so absent an offset its
+marginal means are the weighted group means whatever link the family carries
+and the point estimates do not depend on the link. Where the link does enter,
+in the outcome-model score, it enters exactly: the bread is differentiated
+from the estimating functions themselves rather than read off an
+information-matrix formula, so a non-canonical link such as probit or cloglog
+is handled exactly rather than approximately. A covariate-adjusted outcome
+model raises \code{balancing_ipw_input_error}; use the bootstrap workflow in the
+inference vignette for those models.
 
 Two further conditions on the outcome model raise the same condition. Its
 family must be binomial, quasibinomial, or gaussian, which includes a plain
@@ -67,11 +102,17 @@ family must be binomial, quasibinomial, or gaussian, which includes a plain
 families' marginal means. And it must have been fitted with the weights the
 fit produced, since the stacked variance differentiates the outcome-model
 score through those weights: the model's weights are compared against the
-fit's, per unit at a relative tolerance of 1e-6.
+fit's, per unit at a relative tolerance of 1e-6. Those are the weights
+\code{weights(fit)} returns, which already carry the fit's sampling weights if it
+has any. Sampling weights compose multiplicatively onto the balancing weights
+and the stack holds them fixed, since they are a design quantity rather than
+an estimate.
 
-An offset is supported. It is carried through both the outcome-model score
-and the fixed-exposure linear predictors, so the marginal means are the
-g-computation means with each unit's offset held at its observed value.
+An offset is supported, written either as an \code{offset()} term in the outcome
+formula or passed through the model's \code{offset} argument. It is carried
+through both the outcome-model score and the fixed-exposure linear
+predictors, so the marginal means are the g-computation means with each
+unit's offset held at its observed value.
 }
 \examples{
 n <- 200

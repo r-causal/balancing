@@ -46,7 +46,8 @@ group to the pooled covariate means, and the average treatment effect on the
 treated reweights the control group to the treated covariate means while the
 treated group keeps its base weights. When every requested tolerance is zero
 the constraints hold exactly and the weights solve smooth estimating
-equations, which \code{\link[=balance]{balance()}} records for later linearized inference. A
+equations, which \code{\link[=balance]{balance()}} records for the M-estimation variance in
+\code{\link[=ipw.balancing]{ipw()}}. A
 positive \code{tolerance} in \code{\link[=balance_terms]{balance_terms()}} selects the inexact problem, which
 balances each constraint to within the tolerance and does not produce
 estimating equations.

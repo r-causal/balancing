@@ -18,7 +18,8 @@
 #' treated reweights the control group to the treated covariate means while the
 #' treated group keeps its base weights. When every requested tolerance is zero
 #' the constraints hold exactly and the weights solve smooth estimating
-#' equations, which [balance()] records for later linearized inference. A
+#' equations, which [balance()] records for the M-estimation variance in
+#' [`ipw()`][ipw.balancing]. A
 #' positive `tolerance` in [balance_terms()] selects the inexact problem, which
 #' balances each constraint to within the tolerance and does not produce
 #' estimating equations.

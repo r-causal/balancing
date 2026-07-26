@@ -46,7 +46,8 @@ the two methods produce the same average-treatment-effect-on-the-treated
 weights for a binary exposure.
 
 The weights solve smooth estimating equations regardless of the requested
-tolerance, which \code{\link[=balance]{balance()}} records for later linearized inference.
+tolerance, which \code{\link[=balance]{balance()}} records for the M-estimation variance in
+\code{\link[=ipw.balancing]{ipw()}}.
 }
 \examples{
 n <- 200

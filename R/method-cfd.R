@@ -44,7 +44,7 @@
 #'
 #' Characteristic function distance balancing belongs to the quadratic-program
 #' family, which has no estimating equations, so a fit produces no
-#' linearized-inference container and the guarantee is objective-level rather
+#' estimating-equations container and the guarantee is objective-level rather
 #' than exact moment balance: without moment constraints the kernel objective
 #' drives balance, and with them the constraint rows hold within tolerance. The
 #' tolerance in [balance_terms()] relaxes any added moment constraints rather

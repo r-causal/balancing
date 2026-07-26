@@ -36,7 +36,7 @@
 #' covariate dimensionality.
 #'
 #' Energy balancing belongs to the quadratic-program family, which has no
-#' estimating equations, so a fit produces no linearized-inference container and
+#' estimating equations, so a fit produces no estimating-equations container and
 #' the tolerance in [balance_terms()] relaxes any added moment constraints rather
 #' than selecting an inexact solver. A tolerance supplied without moment
 #' constraints has nothing to relax, so it is warned and ignored.

@@ -28,7 +28,7 @@ Every method solves a convex optimization problem, but the problems come in two 
 
 The **estimating-equation family** fits weights that solve smooth estimating equations. `bw_entropy()` reweights to the maximum-entropy solution that matches the covariate targets; `bw_ipt()` fits a propensity model through a tilted moment condition; `bw_cbps()` chooses propensity parameters to satisfy covariate-balancing moment conditions. Because these weights solve estimating equations, their uncertainty can be propagated analytically into effect standard errors through `ipw()`. With mean balance and a logit link, all three produce the same ATT weights for a binary exposure.
 
-The **quadratic-program family** minimizes a dispersion or distance objective subject to balance constraints. `bw_energy()` minimizes the energy distance between the reweighted groups; `bw_cfd()` minimizes a kernel distance; `bw_sbw()` minimizes the weight dispersion subject to a balance tolerance. These methods do not carry estimating equations, so inference for them uses resampling rather than linearization.
+The **quadratic-program family** minimizes a dispersion or distance objective subject to balance constraints. `bw_energy()` minimizes the energy distance between the reweighted groups; `bw_cfd()` minimizes a kernel distance; `bw_sbw()` minimizes the weight dispersion subject to a balance tolerance. These methods do not carry estimating equations, so inference for them uses resampling rather than the M-estimation route `ipw()` takes.
 
 The family a method belongs to is reflected in its class hierarchy: the estimating-equation methods subclass `estimating_equation_method` and the quadratic-program methods subclass `quadratic_program_method`.
 

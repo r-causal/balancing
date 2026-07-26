@@ -51,7 +51,7 @@
 #' discrete exposures only.
 #'
 #' Stable balancing weights belong to the quadratic-program family, which has no
-#' estimating equations, so a fit produces no linearized-inference container.
+#' estimating equations, so a fit produces no estimating-equations container.
 #'
 #' The `norm` argument selects how the weight dispersion is measured, always
 #' against the uniform baseline of one within each reweighted group. `"l2"`

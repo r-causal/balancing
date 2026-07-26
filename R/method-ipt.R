@@ -25,7 +25,8 @@
 #' weights for a binary exposure.
 #'
 #' The weights solve smooth estimating equations regardless of the requested
-#' tolerance, which [balance()] records for later linearized inference.
+#' tolerance, which [balance()] records for the M-estimation variance in
+#' [`ipw()`][ipw.balancing].
 #'
 #' @param link The propensity link, one of `"logit"`, `"probit"`, or
 #'   `"cloglog"`.
