@@ -312,13 +312,35 @@ build_constraint_matrix <- function(
   }
 
   matrix <- rebuild_constraint_matrix(records, .data)
+
+  # Constant columns come out first. They are not aliased with anything, so the
+  # rank check does not always reach them, and a constant column that survives
+  # leaves the achieved balance undefined rather than met.
+  constant <- constant_columns(matrix)
+  if (length(constant) > 0) {
+    constant_terms <- record_terms(records[constant])
+    if (length(constant) == ncol(matrix)) {
+      abort(
+        c(
+          "Every constraint column takes a single value.",
+          x = "The constraint{?s} {.val {constant_terms}} {?is/are} constant.",
+          i = "Supply at least one covariate that varies across the sample."
+        ),
+        error_class = "balancing_constraints_error",
+        call = call
+      )
+    }
+    alert_info(
+      "Dropping constant constraint{?s} {.val {constant_terms}}."
+    )
+    keep <- setdiff(seq_along(records), constant)
+    records <- records[keep]
+    matrix <- matrix[, keep, drop = FALSE]
+  }
+
   dropped <- aliased_columns(matrix)
   if (length(dropped) > 0) {
-    dropped_terms <- vapply(
-      records[dropped],
-      function(record) record$term,
-      character(1)
-    )
+    dropped_terms <- record_terms(records[dropped])
     alert_info(
       "Dropping aliased constraint{?s} {.val {dropped_terms}}."
     )
@@ -328,6 +350,10 @@ build_constraint_matrix <- function(
   }
 
   list(matrix = matrix, recipe = records)
+}
+
+record_terms <- function(records) {
+  vapply(records, function(record) record$term, character(1))
 }
 
 # Build the interaction records: pairwise products of distinct base columns,
@@ -416,6 +442,30 @@ quantile_records <- function(covariates, data, quantiles, tolerances) {
     }
   }
   records
+}
+
+# Positions of columns that take a single value across the sample. A constant
+# column carries no balance information: every weighting meets it exactly, and
+# the statistics reported on it, a standardized mean difference or an
+# exposure-covariate correlation, divide by its zero spread. The check reads the
+# assembled columns, so one rule covers a constant numeric covariate, the
+# indicator of a factor with a single level, and the product of two constant
+# bases alike. Every element of such a column is the same arithmetic applied to
+# the same inputs, so the extremes agree to the bit and the comparison needs no
+# tolerance. Standardization does not always leave a constant column at zero:
+# when the center it subtracts differs from the column by a rounding step, the
+# division by a rounding-scale spread returns a column of unit magnitude that is
+# still constant, which this rule catches and a zero test would not.
+constant_columns <- function(columns) {
+  which(vapply(
+    seq_len(ncol(columns)),
+    function(j) {
+      values <- columns[, j]
+      values <- values[is.finite(values)]
+      length(values) == 0L || max(values) == min(values)
+    },
+    logical(1)
+  ))
 }
 
 # Positions of columns a rank-revealing QR identifies as aliased. The check runs

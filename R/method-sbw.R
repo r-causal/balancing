@@ -369,12 +369,20 @@ sbw_cont_safety <- 0.98
 
 # Absolute weighted exposure-covariate Pearson correlations under weights `w`, the
 # statistic the continuous fit is judged on and the quantity the balance table
-# reports, so the refinement loop measures the same thing the specs assert.
+# reports, so the refinement loop measures the same thing the specs assert. A
+# column with no weighted spread has no correlation to report: it is met by every
+# weighting, so it reads as zero rather than carrying an undefined value into the
+# comparison that decides which tolerances still bind.
 sbw_weighted_correlations <- function(exposure, z, w) {
   vapply(
     seq_len(ncol(z)),
     function(j) {
-      abs(stats::cov.wt(cbind(exposure, z[, j]), wt = w, cor = TRUE)$cor[1, 2])
+      correlation <- stats::cov.wt(
+        cbind(exposure, z[, j]),
+        wt = w,
+        cor = TRUE
+      )$cor[1, 2]
+      if (is.finite(correlation)) abs(correlation) else 0
     },
     numeric(1)
   )

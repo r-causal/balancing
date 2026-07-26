@@ -234,8 +234,13 @@ balance <- function(
   # solver's arm-to-target geometry through `within_tolerance`. Methods whose
   # balance is approximate by construction, such as the over-identified covariate
   # balancing propensity score, never consume a tolerance, so they report their
-  # criterion rather than warning against a knob that does not reach the fit.
-  if (!isTRUE(fit$approximate) && !all(balance_table$within_tolerance)) {
+  # criterion rather than warning against a knob that does not reach the fit. A
+  # verdict that resolves to anything other than a plain TRUE, which a constraint
+  # column with no spread would produce, is reported as outside the box rather
+  # than left to steer the branch as a missing value.
+  if (
+    !isTRUE(fit$approximate) && !all(balance_table$within_tolerance %in% TRUE)
+  ) {
     worst <- max(abs(balance_table$weighted))
     warn(
       c(

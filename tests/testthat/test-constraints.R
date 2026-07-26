@@ -364,6 +364,90 @@ test_that("interactions with a factor keep their aliased-column drops", {
   )
 })
 
+# ---- build_constraint_matrix(): constant columns --------------------------
+
+test_that("a constant covariate is dropped with a constant-column alert", {
+  withr::local_options(balancing.quiet = FALSE)
+  data <- data.frame(x1 = c(-1, 0, 1, 2, 0.5, -0.5), fixed = 5)
+
+  expect_message(
+    built <- build_constraint_matrix(
+      data,
+      c("x1", "fixed"),
+      balance_terms(),
+      exposure_type = "continuous"
+    ),
+    "constant"
+  )
+
+  # A covariate with no spread carries no balance information, and the
+  # statistics reported on it divide by its zero spread. It is reported as
+  # constant rather than aliased: nothing else in the set stands in for it.
+  terms <- vapply(built$recipe, function(record) record$term, character(1))
+  expect_identical(terms, "x1")
+  expect_identical(ncol(built$matrix), 1L)
+})
+
+test_that("a single-level factor is dropped with a constant-column alert", {
+  withr::local_options(balancing.quiet = FALSE)
+  data <- data.frame(
+    x1 = c(-1, 0, 1, 2, 0.5, -0.5),
+    f = factor(rep("a", 6))
+  )
+
+  # The single level's indicator is one everywhere, which is constant without
+  # being zero, so the rank check leaves it in place.
+  expect_message(
+    built <- build_constraint_matrix(
+      data,
+      c("x1", "f"),
+      balance_terms(),
+      exposure_type = "continuous"
+    ),
+    "constant"
+  )
+
+  terms <- vapply(built$recipe, function(record) record$term, character(1))
+  expect_identical(terms, "x1")
+})
+
+test_that("a constant interaction is dropped alongside its constant bases", {
+  withr::local_options(balancing.quiet = FALSE)
+  data <- data.frame(x1 = c(-1, 0, 1, 2, 0.5, -0.5), fixed = 5, held = 3)
+
+  # The product of two constants is constant, so the interaction branch is
+  # covered by the same detection; the products of the varying covariate with
+  # each constant are proportional to it and remain aliased drops.
+  expect_message(
+    expect_message(
+      built <- build_constraint_matrix(
+        data,
+        c("x1", "fixed", "held"),
+        balance_terms(interactions = TRUE),
+        exposure_type = "continuous"
+      ),
+      "constant"
+    ),
+    "aliased"
+  )
+
+  terms <- vapply(built$recipe, function(record) record$term, character(1))
+  expect_identical(terms, "x1")
+})
+
+test_that("a wholly constant constraint set is a classed error", {
+  data <- data.frame(fixed = rep(5, 6), held = rep(3, 6))
+  expect_error(
+    build_constraint_matrix(
+      data,
+      c("fixed", "held"),
+      balance_terms(),
+      exposure_type = "continuous"
+    ),
+    class = "balancing_constraints_error"
+  )
+})
+
 # ---- rebuild_constraint_matrix(): round trip ------------------------------
 
 test_that("rebuild_constraint_matrix() reproduces the built matrix", {

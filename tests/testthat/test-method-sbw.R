@@ -841,6 +841,54 @@ test_that("derived columns inherit the source covariate tolerance", {
   expect_balanced(fit, data, tolerance = 0.05)
 })
 
+# ---- Constant covariates --------------------------------------------------
+
+test_that("the weighted correlations read a constant column as zero", {
+  # The refinement loop compares each achieved correlation against its target.
+  # A column with no weighted spread has an undefined correlation, and reporting
+  # it as zero keeps the comparison that decides which tolerances still bind
+  # from resolving to a missing value.
+  exposure <- c(-1, 0, 1, 2, 0.5, -0.5)
+  z <- cbind(varying = exposure, constant = rep(0, 6))
+  achieved <- sbw_weighted_correlations(exposure, z, rep(1, 6))
+
+  expect_equal(achieved, c(1, 0))
+})
+
+test_that("a constant covariate leaves a continuous stable-balancing fit intact", {
+  data <- sim_continuous(n = 200)
+  data$fixed <- 5
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, fixed),
+    method = bw_sbw(),
+    estimand = "ate",
+    constraints = balance_terms(tolerance = 0.05)
+  )
+
+  expect_false("fixed" %in% fit@balance_table$term)
+  expect_true(all(is.finite(as.numeric(stats::weights(fit)))))
+  expect_balanced(fit, data, tolerance = 0.05)
+})
+
+test_that("a single-level factor leaves a continuous stable-balancing fit intact", {
+  data <- sim_continuous(n = 200)
+  data$f <- factor(rep("a", nrow(data)))
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, f),
+    method = bw_sbw(),
+    estimand = "ate",
+    constraints = balance_terms(tolerance = 0.05)
+  )
+
+  expect_false("f_a" %in% fit@balance_table$term)
+  expect_true(all(is.finite(as.numeric(stats::weights(fit)))))
+  expect_balanced(fit, data, tolerance = 0.05)
+})
+
 # ---- Infeasible constraint set --------------------------------------------
 
 test_that("an infeasible constraint set raises balancing_infeasible_error", {

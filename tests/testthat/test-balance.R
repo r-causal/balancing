@@ -362,6 +362,87 @@ test_that("missing values in the exposure error", {
   )
 })
 
+# ---- Constant covariates --------------------------------------------------
+
+test_that("a constant covariate leaves a continuous-exposure fit intact", {
+  data <- sim_continuous(n = 200)
+  data$fixed <- 5
+  fit <- balance(data, exposure, c(x1, x2, fixed), method = bw_entropy())
+
+  # The constant column is dropped before the fit, so the balance table reports
+  # only the covariates that carry information and every verdict resolves.
+  expect_false("fixed" %in% fit@balance_table$term)
+  expect_true(all(is.finite(fit@balance_table$weighted)))
+  expect_true(all(fit@balance_table$within_tolerance))
+})
+
+test_that("a single-level factor leaves a continuous-exposure fit intact", {
+  data <- sim_continuous(n = 200)
+  data$f <- factor(rep("a", nrow(data)))
+  fit <- balance(data, exposure, c(x1, x2, f), method = bw_entropy())
+
+  expect_false("f_a" %in% fit@balance_table$term)
+  expect_true(all(is.finite(fit@balance_table$weighted)))
+  expect_true(all(fit@balance_table$within_tolerance))
+})
+
+test_that("a single-level factor leaves a binary-exposure fit intact", {
+  data <- sim_binary(n = 200)
+  data$f <- factor(rep("a", nrow(data)))
+  fit <- balance(data, exposure, c(x1, x2, f), method = bw_entropy())
+
+  expect_false("f_a" %in% fit@balance_table$term)
+  expect_true(all(fit@balance_table$within_tolerance))
+})
+
+test_that("a constant covariate leaves a binary-exposure fit and ipw() intact", {
+  data <- sim_binary(n = 200)
+  data$fixed <- 5
+  data$y <- withr::with_seed(909, stats::rnorm(nrow(data)))
+  fit <- balance(data, exposure, c(x1, x2, fixed), method = bw_entropy())
+
+  expect_false("fixed" %in% fit@balance_table$term)
+  expect_true(all(fit@balance_table$within_tolerance))
+
+  data$.wts <- as.numeric(stats::weights(fit))
+  outcome_model <- suppressWarnings(stats::glm(
+    y ~ exposure,
+    data = data,
+    weights = .wts
+  ))
+  result <- ipw(fit, outcome_model)
+  expect_true(all(is.finite(result$estimates$estimate)))
+  expect_true(all(is.finite(result$estimates$std.err)))
+})
+
+test_that("a covariate set with no spread at all is a classed error", {
+  data <- sim_continuous(n = 200)
+  data$fixed <- 5
+  expect_error(
+    balance(data, exposure, fixed, method = bw_entropy()),
+    class = "balancing_constraints_error"
+  )
+})
+
+test_that("an unresolved tolerance verdict warns rather than aborting", {
+  # Defense in depth for the balance warning: whatever the constraint set, a
+  # verdict that does not resolve to TRUE is reported as out of tolerance rather
+  # than steering an `if` with a missing value.
+  data <- sim_binary(n = 200)
+  original <- compute_balance_table
+  testthat::local_mocked_bindings(
+    compute_balance_table = function(...) {
+      table <- original(...)
+      table$within_tolerance[[1]] <- NA
+      table
+    }
+  )
+  expect_warning(
+    balance(data, exposure, c(x1, x2), method = bw_entropy()),
+    class = "balancing_balance_warning"
+  )
+})
+
 # ---- Method argument ------------------------------------------------------
 
 test_that("a bare-string method errors", {
