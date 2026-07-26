@@ -26,7 +26,7 @@
     Code
       stop(cnd)
     Condition <balancing_ipw_input_error>
-      Error in `propensity::ipw()`:
+      Error in `ipw()`:
       ! `outcome_mod` must include the exposure among its predictors.
       x The exposure "exposure" is not one of its terms.
       i The model may adjust for covariates alongside the exposure.
@@ -36,7 +36,7 @@
     Code
       stop(cnd)
     Condition <balancing_estimand_error>
-      Error in `propensity::ipw()`:
+      Error in `ipw()`:
       ! The requested `estimand` does not match the fit.
       x The fit targets "ate".
       x You requested "att".
@@ -46,7 +46,7 @@
     Code
       stop(cnd)
     Condition <balancing_ipw_input_error>
-      Error in `propensity::ipw()`:
+      Error in `ipw()`:
       ! `outcome_mod` must be a fitted outcome model.
       i Supply a model of class <glm> or <lm>.
       x `outcome_mod` has class <list>.
@@ -56,7 +56,7 @@
     Code
       stop(cnd)
     Condition <balancing_ipw_input_error>
-      Error in `propensity::ipw()`:
+      Error in `ipw()`:
       ! `outcome_mod` must be fitted with the weights from `ps_mod`.
       x Its weights differ from the fit's, compared per unit at relative tolerance 1e-6.
       i Refit it with `weights = weights(fit)`, where `fit` is the balancing fit.
@@ -66,7 +66,7 @@
     Code
       stop(cnd)
     Condition <balancing_ipw_input_error>
-      Error in `propensity::ipw()`:
+      Error in `ipw()`:
       ! `outcome_mod` must come from a supported outcome family.
       x Its family is "poisson".
       i The supported families are "binomial", "quasibinomial", and "gaussian".
@@ -77,7 +77,7 @@
     Code
       stop(cnd)
     Condition <balancing_ipw_input_error>
-      Error in `propensity::ipw()`:
+      Error in `ipw()`:
       ! `outcome_mod` must carry the response it modeled.
       x It has a factor response but was fitted with `y = FALSE`, which discards that response.
       i Refit it with `y = TRUE`, or on a numeric 0/1 response.
@@ -87,7 +87,7 @@
     Code
       stop(cnd)
     Condition <balancing_ipw_unsupported_error>
-      Error in `propensity::ipw()`:
+      Error in `ipw()`:
       ! `ipw()` cannot compute a stacked variance for this balancing fit.
       x This fit has a categorical exposure, and only binary exposures are supported.
       i The stacked variance is derived for a binary exposure.
@@ -98,7 +98,7 @@
     Code
       stop(cnd)
     Condition <balancing_ipw_unsupported_error>
-      Error in `propensity::ipw()`:
+      Error in `ipw()`:
       ! `ipw()` cannot compute a stacked variance for this balancing fit.
       x This fit's container does not carry re-evaluation hooks, which the stacked variance differentiates the weight path through.
       i The hooks re-evaluate the estimating functions and the reported weights at new weight parameters.
@@ -109,7 +109,7 @@
     Code
       stop(cnd)
     Condition <balancing_ipw_unsupported_error>
-      Error in `propensity::ipw()`:
+      Error in `ipw()`:
       ! `ipw()` cannot compute a stacked variance for this balancing fit.
       x This fit's weights do not solve smooth estimating equations, so the stacked variance is unavailable.
       i Estimating equations come from the estimating-equation family (entropy balancing, inverse probability tilting, just-identified covariate balancing propensity score) with exact balance.

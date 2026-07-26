@@ -1,7 +1,8 @@
 # Specs for the ipw() integration: the estimating-equations contract that
-# variance estimation depends on, and balancing's method on propensity's ipw()
-# generic. propensity::ipw() dispatches on the balancing fit and computes a
-# stacked-sandwich variance from the fit's estimating-equations container.
+# variance estimation depends on, and balancing's method on the causalgenerics
+# ipw() generic that the package re-exports. ipw() dispatches on the balancing
+# fit and computes a stacked-sandwich variance from the fit's
+# estimating-equations container.
 
 # A small, fully seeded binary-exposure data set with a binary and a continuous
 # outcome, used for the numerical-oracle tests so the arithmetic is fixed.
@@ -435,7 +436,7 @@ test_that("ipw() returns the binary-outcome effect rows for an entropy fit", {
   w <- as.numeric(stats::weights(fit))
   outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
 
-  result <- propensity::ipw(fit, outcome_mod)
+  result <- ipw(fit, outcome_mod)
   estimates <- as.data.frame(result)
 
   expect_s3_class(result, "ipw")
@@ -455,7 +456,7 @@ test_that("ipw() returns a single difference row for a continuous outcome", {
   w <- as.numeric(stats::weights(fit))
   outcome_mod <- fit_outcome(y_cont ~ exposure, data, w, stats::gaussian())
 
-  result <- propensity::ipw(fit, outcome_mod)
+  result <- ipw(fit, outcome_mod)
   estimates <- as.data.frame(result)
 
   expect_identical(estimates$effect, "diff")
@@ -473,7 +474,7 @@ test_that("an ipw() result prints for a balancing fit", {
   w <- as.numeric(stats::weights(fit))
   outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
 
-  result <- propensity::ipw(fit, outcome_mod)
+  result <- ipw(fit, outcome_mod)
 
   expect_snapshot(print(result))
 })
@@ -491,7 +492,7 @@ test_that("ipw() point estimates match the plain weighted-glm computation", {
   outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
   means <- marginal_means(outcome_mod, data)
 
-  result <- propensity::ipw(fit, outcome_mod)
+  result <- ipw(fit, outcome_mod)
   estimates <- as.data.frame(result)
   rd <- estimates$estimate[estimates$effect == "rd"]
   log_rr <- estimates$estimate[estimates$effect == "log(rr)"]
@@ -523,7 +524,7 @@ test_that("ipw() reports its standard-error method and the fitted variance syste
   w <- as.numeric(stats::weights(fit))
   outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
 
-  result <- propensity::ipw(fit, outcome_mod)
+  result <- ipw(fit, outcome_mod)
 
   expect_identical(result$se_method, "mestimation")
   expect_named(result$fit, c("theta", "vcov"))
@@ -569,7 +570,7 @@ test_that("the ipw() variance system carries one contrast for a continuous outco
   w <- as.numeric(stats::weights(fit))
   outcome_mod <- fit_outcome(y_cont ~ exposure, data, w, stats::gaussian())
 
-  result <- propensity::ipw(fit, outcome_mod)
+  result <- ipw(fit, outcome_mod)
   estimates <- as.data.frame(result)
 
   expect_identical(result$se_method, "mestimation")
@@ -598,7 +599,7 @@ test_that("ipw() standard errors are finite and positive", {
   w <- as.numeric(stats::weights(fit))
   outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
 
-  result <- propensity::ipw(fit, outcome_mod)
+  result <- ipw(fit, outcome_mod)
   estimates <- as.data.frame(result)
 
   expect_true(all(is.finite(estimates$std.err)))
@@ -625,7 +626,7 @@ test_that("ipw() standard errors differ from the naive weights-fixed sandwich", 
     means$mu0
   )
 
-  result <- propensity::ipw(fit, outcome_mod)
+  result <- ipw(fit, outcome_mod)
   estimates <- as.data.frame(result)
   rd_se <- estimates$std.err[estimates$effect == "rd"]
 
@@ -701,7 +702,7 @@ for (spec in list(
         outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
         oracle_se <- coherent_rd_se(fit, data)
 
-        result <- propensity::ipw(fit, outcome_mod)
+        result <- ipw(fit, outcome_mod)
         estimates <- as.data.frame(result)
         rd_se <- estimates$std.err[estimates$effect == "rd"]
 
@@ -729,7 +730,7 @@ test_that("ipw() risk-difference standard error is coherent with sampling weight
   outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
   oracle_se <- coherent_rd_se(fit, data, sampling = data$sw)
 
-  result <- propensity::ipw(fit, outcome_mod)
+  result <- ipw(fit, outcome_mod)
   estimates <- as.data.frame(result)
   rd_se <- estimates$std.err[estimates$effect == "rd"]
 
@@ -749,7 +750,7 @@ test_that("ipw() standard errors track a nonparametric bootstrap", {
   w <- as.numeric(stats::weights(fit))
   outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
 
-  result <- propensity::ipw(fit, outcome_mod)
+  result <- ipw(fit, outcome_mod)
   estimates <- as.data.frame(result)
   rd_se <- estimates$std.err[estimates$effect == "rd"]
 
@@ -1070,8 +1071,8 @@ for (spec in list(
           stats::gaussian()
         )
 
-        binary <- propensity::ipw(fit, binary_mod)
-        continuous <- propensity::ipw(fit, continuous_mod)
+        binary <- ipw(fit, binary_mod)
+        continuous <- ipw(fit, continuous_mod)
         binary_estimates <- as.data.frame(binary)
         continuous_estimates <- as.data.frame(continuous)
 
@@ -1170,7 +1171,7 @@ test_that("ipw() standardizes an adjusted model over the untreated for an atc fi
   treated <- adjusted_means(outcome_mod, data, focal_level = "1")
   oracle_se <- adjusted_rd_se(fit, outcome_mod, data)
 
-  result <- propensity::ipw(fit, outcome_mod)
+  result <- ipw(fit, outcome_mod)
   estimates <- as.data.frame(result)
 
   expect_equal(result$fit$theta[["mu0"]], untreated$mu0, tolerance = 1e-8)
@@ -1209,7 +1210,7 @@ test_that("ipw() standardizes an adjusted model over the sampling weights", {
   w <- as.numeric(stats::weights(fit))
   outcome_mod <- fit_outcome(y ~ exposure + x1 + x2, data, w, stats::binomial())
 
-  result <- propensity::ipw(fit, outcome_mod)
+  result <- ipw(fit, outcome_mod)
   estimates <- as.data.frame(result)
   means <- adjusted_means(outcome_mod, data, sampling = data$sw)
   unweighted <- adjusted_means(outcome_mod, data)
@@ -1296,7 +1297,7 @@ for (spec in list(
         )
         oracle_se <- adjusted_rd_se(fit, outcome_mod, data)
 
-        estimates <- as.data.frame(propensity::ipw(fit, outcome_mod))
+        estimates <- as.data.frame(ipw(fit, outcome_mod))
         rd_se <- estimates$std.err[estimates$effect == "rd"]
 
         expect_equal(rd_se, oracle_se, tolerance = 1e-8)
@@ -1320,7 +1321,7 @@ test_that("the adjusted-model standard error is coherent with sampling weights",
   outcome_mod <- fit_outcome(y ~ exposure + x1 + x2, data, w, stats::binomial())
   oracle_se <- adjusted_rd_se(fit, outcome_mod, data, sampling = data$sw)
 
-  estimates <- as.data.frame(propensity::ipw(fit, outcome_mod))
+  estimates <- as.data.frame(ipw(fit, outcome_mod))
   rd_se <- estimates$std.err[estimates$effect == "rd"]
 
   expect_equal(rd_se, oracle_se, tolerance = 1e-8)
@@ -1345,7 +1346,7 @@ test_that("ipw() adjusted-model standard errors track a bootstrap for entropy at
   w <- as.numeric(stats::weights(fit))
   outcome_mod <- fit_outcome(y ~ exposure + x1 + x2, data, w, stats::binomial())
 
-  estimates <- as.data.frame(propensity::ipw(fit, outcome_mod))
+  estimates <- as.data.frame(ipw(fit, outcome_mod))
   rd_se <- estimates$std.err[estimates$effect == "rd"]
   boot_se <- adjusted_boot_rd_se(
     data,
@@ -1373,7 +1374,7 @@ test_that("ipw() adjusted-model standard errors track a bootstrap for bw_ipt att
   w <- as.numeric(stats::weights(fit))
   outcome_mod <- fit_outcome(y ~ exposure + x1 + x2, data, w, stats::binomial())
 
-  estimates <- as.data.frame(propensity::ipw(fit, outcome_mod))
+  estimates <- as.data.frame(ipw(fit, outcome_mod))
   rd_se <- estimates$std.err[estimates$effect == "rd"]
   boot_se <- adjusted_boot_rd_se(
     data,
@@ -1406,7 +1407,7 @@ test_that("ipw() adjusted-model standard errors track a bootstrap for bw_ipt ate
   w <- as.numeric(stats::weights(fit))
   outcome_mod <- fit_outcome(y ~ exposure + x1 + x2, data, w, stats::binomial())
 
-  estimates <- as.data.frame(propensity::ipw(fit, outcome_mod))
+  estimates <- as.data.frame(ipw(fit, outcome_mod))
   rd_se <- estimates$std.err[estimates$effect == "rd"]
   boot_se <- adjusted_boot_rd_se(
     data,
@@ -1451,7 +1452,7 @@ test_that("supporting adjusted outcome models leaves the marginal ones alone", {
     outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
     means <- marginal_means(outcome_mod, data)
 
-    estimates <- as.data.frame(propensity::ipw(fit, outcome_mod))
+    estimates <- as.data.frame(ipw(fit, outcome_mod))
     rd <- estimates$estimate[estimates$effect == "rd"]
     rd_se <- estimates$std.err[estimates$effect == "rd"]
 
@@ -1485,16 +1486,16 @@ test_that("ipw() requires the exposure among the outcome model's predictors", {
   )
   covariates_only <- fit_outcome(y ~ x1 + x2, data, w, stats::binomial())
 
-  expect_s3_class(propensity::ipw(fit, adjusted_mod), "ipw")
+  expect_s3_class(ipw(fit, adjusted_mod), "ipw")
   expect_error(
-    propensity::ipw(fit, covariates_only),
+    ipw(fit, covariates_only),
     class = "balancing_ipw_input_error"
   )
 
   # The refusal has to say which model would be accepted, since the neighbouring
   # mistake is a model that adjusts for the covariates and forgets the exposure.
   cnd <- rlang::catch_cnd(
-    propensity::ipw(fit, covariates_only),
+    ipw(fit, covariates_only),
     classes = "balancing_ipw_input_error"
   )
   expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
@@ -1535,7 +1536,7 @@ test_that("ipw() supports an interaction between the exposure and a covariate", 
     outcome_mod <- fit_outcome(y ~ exposure * x1, data, w, stats::binomial())
     means <- adjusted_means(outcome_mod, data, focal_level = spec$focal_level)
 
-    result <- propensity::ipw(spec$fit, outcome_mod)
+    result <- ipw(spec$fit, outcome_mod)
     estimates <- as.data.frame(result)
 
     expect_equal(result$fit$theta[["mu0"]], means$mu0, tolerance = 1e-8)
@@ -1564,8 +1565,8 @@ test_that("ipw() respects conf_level", {
   w <- as.numeric(stats::weights(fit))
   outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
 
-  wide <- as.data.frame(propensity::ipw(fit, outcome_mod, conf_level = 0.95))
-  narrow <- as.data.frame(propensity::ipw(fit, outcome_mod, conf_level = 0.80))
+  wide <- as.data.frame(ipw(fit, outcome_mod, conf_level = 0.95))
+  narrow <- as.data.frame(ipw(fit, outcome_mod, conf_level = 0.80))
 
   wide_width <- wide$ci.upper - wide$ci.lower
   narrow_width <- narrow$ci.upper - narrow$ci.lower
@@ -1587,12 +1588,12 @@ test_that("ipw() rejects an estimand that contradicts the fit", {
   outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
 
   expect_error(
-    propensity::ipw(fit, outcome_mod, estimand = "att"),
+    ipw(fit, outcome_mod, estimand = "att"),
     class = "balancing_estimand_error"
   )
 
   cnd <- rlang::catch_cnd(
-    propensity::ipw(fit, outcome_mod, estimand = "att"),
+    ipw(fit, outcome_mod, estimand = "att"),
     classes = "balancing_estimand_error"
   )
   expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
@@ -1611,7 +1612,7 @@ test_that("ipw() rejects an outcome model that is not a glm or lm", {
   )
 
   cnd <- rlang::catch_cnd(
-    propensity::ipw(fit, list(coefficients = 1)),
+    ipw(fit, list(coefficients = 1)),
     classes = "balancing_ipw_input_error"
   )
   expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
@@ -1632,7 +1633,7 @@ test_that("ipw() rejects a supplied data frame without two exposure levels", {
   one_level$exposure <- 1L
 
   expect_error(
-    propensity::ipw(fit, outcome_mod, .data = one_level),
+    ipw(fit, outcome_mod, .data = one_level),
     class = "balancing_ipw_input_error"
   )
 })
@@ -1666,14 +1667,14 @@ test_that("ipw() rejects an outcome model fitted without weights", {
   # The remedy has to be actionable, so the message names the accessor that
   # produces the weights the fit expects rather than only reporting a mismatch.
   expect_error(
-    propensity::ipw(fit, outcome_mod),
+    ipw(fit, outcome_mod),
     class = "balancing_ipw_input_error",
     regexp = "weights(fit)",
     fixed = TRUE
   )
 
   cnd <- rlang::catch_cnd(
-    propensity::ipw(fit, outcome_mod),
+    ipw(fit, outcome_mod),
     classes = "balancing_ipw_input_error"
   )
   expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
@@ -1696,7 +1697,7 @@ test_that("ipw() rejects an unweighted lm on a weighted fit", {
   expect_null(stats::weights(outcome_mod))
 
   expect_error(
-    propensity::ipw(fit, outcome_mod),
+    ipw(fit, outcome_mod),
     class = "balancing_ipw_input_error"
   )
 })
@@ -1714,7 +1715,7 @@ test_that("ipw() rejects an outcome model fitted with the wrong weights", {
   noise <- withr::with_seed(909, stats::runif(nrow(data), 0.5, 2))
   noise_mod <- fit_outcome(y ~ exposure, data, noise, stats::binomial())
   expect_error(
-    propensity::ipw(fit, noise_mod),
+    ipw(fit, noise_mod),
     class = "balancing_ipw_input_error"
   )
 
@@ -1734,7 +1735,7 @@ test_that("ipw() rejects an outcome model fitted with the wrong weights", {
     stats::binomial()
   )
   expect_error(
-    propensity::ipw(fit, other_mod),
+    ipw(fit, other_mod),
     class = "balancing_ipw_input_error"
   )
 })
@@ -1775,8 +1776,8 @@ test_that("ipw() honors an offset term in the outcome model", {
     stats::gaussian()
   )
 
-  binary <- as.data.frame(propensity::ipw(fit, binary_mod))
-  continuous <- as.data.frame(propensity::ipw(fit, continuous_mod))
+  binary <- as.data.frame(ipw(fit, binary_mod))
+  continuous <- as.data.frame(ipw(fit, continuous_mod))
 
   binary_means <- marginal_means(binary_mod, data)
   continuous_means <- marginal_means(continuous_mod, data)
@@ -1819,7 +1820,7 @@ test_that("ipw() honors an offset argument in the outcome model", {
     offset = log_time
   ))
 
-  estimates <- as.data.frame(propensity::ipw(fit, outcome_mod))
+  estimates <- as.data.frame(ipw(fit, outcome_mod))
   means <- marginal_means(outcome_mod, data)
 
   expect_equal(
@@ -1852,7 +1853,7 @@ test_that("ipw() standard errors with an offset come from the variance engine", 
     stats::binomial()
   )
 
-  estimates <- as.data.frame(propensity::ipw(fit, outcome_mod))
+  estimates <- as.data.frame(ipw(fit, outcome_mod))
   engine <- ipw_deli_sandwich(
     container = estimating_equations(fit),
     outcome_mod = outcome_mod,
@@ -1897,12 +1898,12 @@ test_that("ipw() rejects a poisson outcome model", {
   outcome_mod <- fit_outcome(y_count ~ exposure, data, w, stats::poisson())
 
   expect_error(
-    propensity::ipw(fit, outcome_mod),
+    ipw(fit, outcome_mod),
     class = "balancing_ipw_input_error"
   )
 
   cnd <- rlang::catch_cnd(
-    propensity::ipw(fit, outcome_mod),
+    ipw(fit, outcome_mod),
     classes = "balancing_ipw_input_error"
   )
   expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
@@ -1946,11 +1947,11 @@ test_that("ipw() rejects the quasipoisson and inverse gaussian families", {
   )
 
   expect_error(
-    propensity::ipw(fit, quasipoisson_mod),
+    ipw(fit, quasipoisson_mod),
     class = "balancing_ipw_input_error"
   )
   expect_error(
-    propensity::ipw(fit, inverse_mod),
+    ipw(fit, inverse_mod),
     class = "balancing_ipw_input_error"
   )
 })
@@ -1979,10 +1980,10 @@ test_that("ipw() accepts the binomial, quasibinomial, gaussian, and lm families"
   gaussian_mod <- fit_outcome(y_cont ~ exposure, data, w, stats::gaussian())
   lm_mod <- stats::lm(y_cont ~ exposure, data = data, weights = .wts)
 
-  binomial_result <- as.data.frame(propensity::ipw(fit, binomial_mod))
-  quasi_result <- as.data.frame(propensity::ipw(fit, quasi_mod))
-  gaussian_result <- as.data.frame(propensity::ipw(fit, gaussian_mod))
-  lm_result <- as.data.frame(propensity::ipw(fit, lm_mod))
+  binomial_result <- as.data.frame(ipw(fit, binomial_mod))
+  quasi_result <- as.data.frame(ipw(fit, quasi_mod))
+  gaussian_result <- as.data.frame(ipw(fit, gaussian_mod))
+  lm_result <- as.data.frame(ipw(fit, lm_mod))
 
   expect_identical(binomial_result$effect, c("rd", "log(rr)", "log(or)"))
   expect_identical(quasi_result$effect, c("rd", "log(rr)", "log(or)"))
@@ -2023,8 +2024,8 @@ test_that("ipw() gives identical results for numeric and factor binary outcomes"
   numeric_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
   factor_mod <- fit_outcome(y_factor ~ exposure, data, w, stats::binomial())
 
-  numeric_result <- as.data.frame(propensity::ipw(fit, numeric_mod))
-  factor_result <- as.data.frame(propensity::ipw(fit, factor_mod))
+  numeric_result <- as.data.frame(ipw(fit, numeric_mod))
+  factor_result <- as.data.frame(ipw(fit, factor_mod))
 
   expect_identical(factor_result$effect, numeric_result$effect)
   expect_equal(factor_result$estimate, numeric_result$estimate)
@@ -2066,12 +2067,12 @@ test_that("ipw() rejects a factor outcome model fitted without its response", {
   expect_null(factor_mod$y)
 
   expect_error(
-    propensity::ipw(fit, factor_mod),
+    ipw(fit, factor_mod),
     class = "balancing_ipw_input_error"
   )
 
   cnd <- rlang::catch_cnd(
-    propensity::ipw(fit, factor_mod),
+    ipw(fit, factor_mod),
     classes = "balancing_ipw_input_error"
   )
   expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
@@ -2109,8 +2110,8 @@ test_that("ipw() gives identical results for a numeric response with y = FALSE",
   expect_false(is.null(stored$y))
   expect_null(dropped$y)
 
-  stored_result <- as.data.frame(propensity::ipw(fit, stored))
-  dropped_result <- as.data.frame(propensity::ipw(fit, dropped))
+  stored_result <- as.data.frame(ipw(fit, stored))
+  dropped_result <- as.data.frame(ipw(fit, dropped))
 
   expect_identical(dropped_result$effect, stored_result$effect)
   expect_equal(dropped_result$estimate, stored_result$estimate)
@@ -2144,8 +2145,8 @@ test_that("ipw() gives identical results for an lm and a gaussian glm", {
   expect_false(is.null(glm_mod$y))
   expect_null(lm_mod$y)
 
-  glm_result <- as.data.frame(propensity::ipw(fit, glm_mod))
-  lm_result <- as.data.frame(propensity::ipw(fit, lm_mod))
+  glm_result <- as.data.frame(ipw(fit, glm_mod))
+  lm_result <- as.data.frame(ipw(fit, lm_mod))
 
   expect_identical(lm_result$effect, "diff")
   expect_identical(lm_result$effect, glm_result$effect)
@@ -2236,7 +2237,7 @@ test_that("ipw() rejects a tolerance-relaxed entropy fit", {
   outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
 
   expect_error(
-    propensity::ipw(fit, outcome_mod),
+    ipw(fit, outcome_mod),
     class = "balancing_ipw_unsupported_error"
   )
 })
@@ -2254,7 +2255,7 @@ test_that("ipw() rejects an over-identified bw_cbps fit", {
   outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
 
   expect_error(
-    propensity::ipw(fit, outcome_mod),
+    ipw(fit, outcome_mod),
     class = "balancing_ipw_unsupported_error"
   )
 })
@@ -2273,7 +2274,7 @@ test_that("ipw() rejects a continuous-exposure bw_cbps fit", {
   outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
 
   expect_error(
-    propensity::ipw(fit, outcome_mod),
+    ipw(fit, outcome_mod),
     class = "balancing_ipw_unsupported_error"
   )
 })
@@ -2297,12 +2298,12 @@ test_that("ipw() rejects a categorical-exposure fit that has a container", {
   outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
 
   expect_error(
-    propensity::ipw(fit, outcome_mod),
+    ipw(fit, outcome_mod),
     class = "balancing_ipw_unsupported_error"
   )
 
   cnd <- rlang::catch_cnd(
-    propensity::ipw(fit, outcome_mod),
+    ipw(fit, outcome_mod),
     classes = "balancing_ipw_unsupported_error"
   )
   expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
@@ -2323,7 +2324,7 @@ test_that("ipw() rejects a categorical-exposure bw_ipt fit", {
   outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
 
   expect_error(
-    propensity::ipw(fit, outcome_mod),
+    ipw(fit, outcome_mod),
     class = "balancing_ipw_unsupported_error"
   )
 })
@@ -2343,7 +2344,7 @@ test_that("ipw() rejects a continuous-exposure fit that has a container", {
   outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::gaussian())
 
   expect_error(
-    propensity::ipw(fit, outcome_mod),
+    ipw(fit, outcome_mod),
     class = "balancing_ipw_unsupported_error"
   )
 })
@@ -2386,16 +2387,16 @@ test_that("ipw() rejects a fit whose container carries no re-evaluation hooks", 
   no_psi <- without_hooks(NULL, ee@weights_fn)
   no_weights <- without_hooks(ee@psi_fn, NULL)
   expect_error(
-    propensity::ipw(no_psi, outcome_mod),
+    ipw(no_psi, outcome_mod),
     class = "balancing_ipw_unsupported_error"
   )
   expect_error(
-    propensity::ipw(no_weights, outcome_mod),
+    ipw(no_weights, outcome_mod),
     class = "balancing_ipw_unsupported_error"
   )
 
   cnd <- rlang::catch_cnd(
-    propensity::ipw(without_hooks(NULL, NULL), outcome_mod),
+    ipw(without_hooks(NULL, NULL), outcome_mod),
     classes = "balancing_ipw_unsupported_error"
   )
   expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
@@ -2415,7 +2416,7 @@ test_that("the unsupported-weights ipw error carries the bootstrap pointer", {
   outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
 
   cnd <- rlang::catch_cnd(
-    propensity::ipw(fit, outcome_mod),
+    ipw(fit, outcome_mod),
     classes = "balancing_ipw_unsupported_error"
   )
   expect_snapshot(

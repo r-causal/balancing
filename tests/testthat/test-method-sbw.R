@@ -1071,7 +1071,7 @@ test_that("ipw() rejects a stable balancing fit", {
   )
   outcome <- stats::lm(x1 ~ exposure, data = data)
   expect_error(
-    propensity::ipw(fit, outcome),
+    ipw(fit, outcome),
     class = "balancing_ipw_unsupported_error"
   )
 })
