@@ -1,11 +1,11 @@
 # The variance for a balancing fit is a stacked M-estimator, and this file
 # assembles that stack as a single estimating-function closure that deli
-# differentiates and sandwiches. Where the hand-assembled path writes each block
-# of the bread out analytically, here the whole system is written once as the
-# estimating functions themselves and `deli::compute_sandwich()` finite
-# differences the bread from them. Nothing is re-solved: every parameter enters
-# at the value its own fit already found, and the closure only re-evaluates the
-# estimating functions around that point.
+# differentiates and sandwiches. Rather than writing each block of the bread out
+# analytically, the whole system is written once as the estimating functions
+# themselves and `deli::compute_sandwich()` finite differences the bread from
+# them. Nothing is re-solved: every parameter enters at the value its own fit
+# already found, and the closure only re-evaluates the estimating functions
+# around that point.
 #
 # The stack is ordered [theta_w | beta | mu0 | mu1 | contrasts]. The weight
 # parameters come first because everything downstream depends on them and
@@ -48,9 +48,9 @@ ipw_deli_sandwich <- function(
   offset <- outcome_mod$offset
 
   # The marginal-mean equations predict the outcome model with the exposure
-  # fixed to each level, so they reuse the same fixed-exposure designs the
-  # hand-assembled path builds. An offset is part of the linear predictor rather
-  # than of the design, so it is carried alongside and added to eta.
+  # fixed to each level, so they build a design per level from the model's own
+  # terms. An offset is part of the linear predictor rather than of the design,
+  # so it is carried alongside and added to eta.
   levels <- sort(unique(frame[[exposure_name]]))
   design0 <- fixed_exposure_pieces(
     outcome_mod,
@@ -157,7 +157,7 @@ ipw_deli_sandwich <- function(
     # The contrasts are deterministic functions of the two means, so their rows
     # are the same value for every unit. They contribute nothing to the meat at
     # the solution, where that value is zero, and everything to the bread, which
-    # is where the delta method they replace used to be applied.
+    # is what carries their standard errors without a delta method.
     contrast_rows <- matrix(
       ipw_contrast_values(mean0, mean1, continuous) - contrast_theta,
       nrow = k,

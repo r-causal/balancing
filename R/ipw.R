@@ -2,10 +2,12 @@
 # balancing object can drive the same bring-your-own-model workflow as a
 # propensity score fit. The variance is a stacked M-estimator: the weight
 # parameters solve the estimating equations the fit carries, the outcome model
-# supplies its score equations, and the marginal means supply their own, all
-# sandwiched together so the standard errors account for having estimated the
-# weights. R performs only generic matrix algebra with the container pieces and
-# the outcome-model family functions; it never re-derives the balancing math.
+# supplies its score equations, and the marginal means and effect contrasts
+# supply their own, all sandwiched together so the standard errors account for
+# having estimated the weights. This file validates the inputs and reads the
+# effect table off that system; the system itself is assembled in ipw-deli.R,
+# where the container's own hooks and the outcome-model family functions are the
+# only sources of method math.
 
 #' Inverse probability weighting for a balancing fit
 #'
@@ -45,21 +47,17 @@
 #' covariate-adjusted outcome model raises `balancing_ipw_input_error`; use the
 #' bootstrap workflow in the inference vignette for those models.
 #'
-#' Three further conditions on the outcome model raise the same condition. Its
+#' Two further conditions on the outcome model raise the same condition. Its
 #' family must be binomial, quasibinomial, or gaussian, which includes a plain
 #' [stats::lm()], since the reported effects are the contrasts derived for those
-#' families' marginal means. It must carry no offset, a restriction the
-#' inference vignette's bootstrap workflow covers in the meantime. And it must
-#' have been fitted with the weights the fit produced, since the stacked
-#' variance differentiates the outcome-model score through those weights: the
-#' model's weights are compared against the fit's, per unit at a relative
-#' tolerance of 1e-6.
+#' families' marginal means. And it must have been fitted with the weights the
+#' fit produced, since the stacked variance differentiates the outcome-model
+#' score through those weights: the model's weights are compared against the
+#' fit's, per unit at a relative tolerance of 1e-6.
 #'
-#' The outcome-model score block uses the expected (Fisher) information, which
-#' equals the observed information for a canonical link, including the
-#' logit link for a binary outcome and the identity link for a continuous
-#' outcome. For a non-canonical link, such as a probit outcome model, it is an
-#' approximation.
+#' An offset is supported. It is carried through both the outcome-model score
+#' and the fixed-exposure linear predictors, so the marginal means are the
+#' g-computation means with each unit's offset held at its observed value.
 #'
 #' @references
 #' Kostouraki A, Hajage D, Rachet B, et al. On variance estimation of the
@@ -129,6 +127,9 @@ method(causalgenerics_ipw, balancing) <- function(
       exposure_type = ps_mod@exposure_type
     )
   }
+  if (is.null(container@psi_fn) || is.null(container@weights_fn)) {
+    abort_ipw_unsupported(reason = "no_hooks")
+  }
 
   estimand <- resolve_ipw_estimand(estimand, ps_mod@estimand)
 
@@ -166,71 +167,68 @@ method(causalgenerics_ipw, balancing) <- function(
     )
   }
 
-  outcome <- resolve_outcome_response(outcome_mod)
-  family <- stats::family(outcome_mod)
-  continuous <- is_gaussian_outcome(outcome_mod)
-
-  # The fitted outcome model supplies its own design and working residuals; the
-  # fixed-exposure designs supply the marginal-mean equations. All of these come
-  # from generic model-matrix and family machinery.
-  fitted <- outcome_model_pieces(outcome_mod, family)
-  design0 <- fixed_exposure_pieces(outcome_mod, frame, exposure_name, levels[1])
-  design1 <- fixed_exposure_pieces(outcome_mod, frame, exposure_name, levels[2])
-
-  mu0 <- mean(design0$mu)
-  mu1 <- mean(design1$mu)
-
-  covariance <- stacked_sandwich(
+  # The variance engine composes the sampling weights onto the weights the
+  # container's own hook returns, so it takes the fit's sampling weights raw.
+  # The preflight above compares against the composed weights instead, because
+  # those are the weights the outcome model was fitted with.
+  variance_system <- ipw_deli_sandwich(
     container = container,
-    weights = weights,
-    outcome = outcome,
-    fitted = fitted,
-    design0 = design0,
-    design1 = design1,
-    mu0 = mu0,
-    mu1 = mu1
+    outcome_mod = outcome_mod,
+    frame = frame,
+    exposure_name = exposure_name,
+    sampling_weights = ps_mod@sampling_weights
   )
 
   estimates <- ipw_estimates(
-    mu0 = mu0,
-    mu1 = mu1,
-    covariance = covariance,
+    theta = variance_system$theta,
+    vcov = variance_system$vcov,
     conf_level = conf_level,
-    continuous = continuous
+    continuous = is_gaussian_outcome(outcome_mod)
   )
 
+  # The result carries the same fields propensity's own method returns. The
+  # stacked parameter vector and its covariance are the whole of the fitted
+  # variance system here, so they stand in for the solver object propensity
+  # reports: nothing was solved, since every parameter entered at the value its
+  # own fit had already found.
   structure(
     list(
       estimand = estimand,
       ps_mod = ps_mod,
       outcome_mod = outcome_mod,
-      estimates = estimates
+      estimates = estimates,
+      se_method = "mestimation",
+      fit = variance_system
     ),
     class = "ipw"
   )
 }
 
 # The unsupported condition is shared by every configuration ipw() cannot
-# handle, so both the missing-equations path and the non-binary path route
-# through one message that names the reason and points to the bootstrap
-# workflow.
+# handle, so the missing-equations path, the non-binary path, and the
+# missing-hooks path all route through one message that names the reason and
+# points to the bootstrap workflow.
 abort_ipw_unsupported <- function(
-  reason = c("no_equations", "exposure_type"),
+  reason = c("no_equations", "exposure_type", "no_hooks"),
   exposure_type = NULL,
   call = rlang::caller_env()
 ) {
   reason <- rlang::arg_match(reason)
-  detail <- if (identical(reason, "no_equations")) {
-    c(
+  detail <- switch(
+    reason,
+    no_equations = c(
       x = "This fit's weights do not solve smooth estimating equations, so the stacked variance is unavailable.",
       i = "Estimating equations come from the estimating-equation family (entropy balancing, inverse probability tilting, just-identified covariate balancing propensity score) with exact balance."
-    )
-  } else {
-    c(
+    ),
+    exposure_type = c(
       x = "This fit has a {exposure_type} exposure, and only binary exposures are supported.",
       i = "The stacked variance is derived for a binary exposure."
+    ),
+    no_hooks = c(
+      x = "This fit's container does not carry re-evaluation hooks, which the stacked variance differentiates the weight path through.",
+      i = "The hooks re-evaluate the estimating functions and the reported weights at new weight parameters."
     )
-  }
+  )
   abort(
     c(
       "{.fun ipw} cannot compute a stacked variance for this balancing fit.",
@@ -315,8 +313,14 @@ validate_ipw_outcome_model <- function(
     )
   }
   validate_ipw_outcome_family(outcome_mod, call = call)
-  validate_ipw_outcome_offset(outcome_mod, call = call)
   validate_ipw_weight_consistency(outcome_mod, expected_weights, call = call)
+
+  # Resolving the response is itself a check: it refuses a factor response the
+  # model discarded. The variance engine resolves it again for its own use, but
+  # doing it here as well is what attributes the refusal to ipw() rather than to
+  # the engine the caller never named.
+  resolve_outcome_response(outcome_mod, call = call)
+  invisible(NULL)
 }
 
 # The effects the method reports are contrasts of two marginal means, and each
@@ -348,37 +352,6 @@ validate_ipw_outcome_family <- function(
       x = "Its family is {.val {family}}.",
       i = "The supported families are {.val {supported}}.",
       i = "See the inference vignette for a bootstrap workflow with other families."
-    ),
-    error_class = "balancing_ipw_input_error",
-    call = call
-  )
-}
-
-# An offset is refused for now. The variance engine underneath carries one
-# through both the outcome-model score and the fixed-exposure linear predictors,
-# so the restriction lifts when the method reads its variance from that engine.
-# What is refused today is not the offset but a silent answer: the assembly the
-# method currently uses builds its fixed-exposure predictions without the
-# offset, so the marginal means would come from a linear predictor the model
-# never used and the effect table would look entirely ordinary.
-#
-# Both spellings reach the same place. An offset written into the formula is
-# recorded on the model's terms and shows up in the model frame; one passed
-# through the `offset` argument shows up only on the fitted object. Checking
-# both is what makes the refusal complete.
-validate_ipw_outcome_offset <- function(
-  outcome_mod,
-  call = rlang::caller_env()
-) {
-  frame_offset <- stats::model.offset(stats::model.frame(outcome_mod))
-  if (is.null(frame_offset) && is.null(outcome_mod$offset)) {
-    return(invisible(NULL))
-  }
-  abort(
-    c(
-      "{.arg outcome_mod} must not carry an offset.",
-      x = "Its linear predictor includes an offset, which the stacked variance does not yet carry.",
-      i = "See the inference vignette for a bootstrap workflow."
     ),
     error_class = "balancing_ipw_input_error",
     call = call
@@ -474,21 +447,26 @@ resolve_outcome_response <- function(outcome_mod, call = rlang::caller_env()) {
   as.numeric(response)
 }
 
-# The fitted outcome model's design, working residual, and working weight. The
-# working residual is the score contribution per unit and the working weight is
-# the Fisher-scoring weight, both from the family's mean and variance functions,
-# so the assembly stays generic across families.
-outcome_model_pieces <- function(outcome_mod, family) {
-  design <- stats::model.matrix(outcome_mod)
-  eta <- as.numeric(design %*% stats::coef(outcome_mod))
-  mu <- family$linkinv(eta)
-  mu_eta <- family$mu.eta(eta)
-  variance <- family$variance(mu)
-  list(
-    design = design,
-    mu = mu,
-    mu_eta = mu_eta,
-    variance = variance
+# The outcome model's terms with the response and any offset removed, so that
+# they describe the design alone. The offset has to go for two reasons. It is
+# not a column of the design, and the fitted model already carries its per-unit
+# value, so re-deriving it is redundant. And an offset written into the formula
+# cannot be re-derived from the model frame at all: the frame stores it under
+# the deparsed call, `offset(v)`, while the terms ask for the variable `v`,
+# which is not a column of the frame. Rebuilding the terms from the term labels,
+# which never include an offset, keeps a formula offset and an `offset` argument
+# on the same path.
+design_terms <- function(outcome_mod) {
+  terms <- stats::delete.response(stats::terms(outcome_mod))
+  if (is.null(attr(terms, "offset"))) {
+    return(terms)
+  }
+  stats::terms(
+    stats::reformulate(
+      attr(terms, "term.labels"),
+      intercept = attr(terms, "intercept") == 1L,
+      env = environment(terms)
+    )
   )
 }
 
@@ -507,7 +485,7 @@ fixed_exposure_pieces <- function(
   offset = NULL
 ) {
   frame[[exposure_name]] <- level
-  terms <- stats::delete.response(stats::terms(outcome_mod))
+  terms <- design_terms(outcome_mod)
   model_frame <- stats::model.frame(terms, frame, xlev = outcome_mod$xlevels)
   design <- stats::model.matrix(
     terms,
@@ -527,116 +505,26 @@ fixed_exposure_pieces <- function(
   )
 }
 
-# The stacked sandwich covariance of (theta, beta, mu0, mu1). The bread is the
-# derivative of the per-unit estimating functions with respect to the stacked
-# parameters; the meat is their average outer product. The weight block's rows
-# come from the container, the outcome-score rows carry the weight derivatives
-# so the weight uncertainty propagates, and the marginal-mean rows close the
-# system. Only the marginal-mean covariance block is returned, since the effect
-# contrasts touch only those parameters.
-stacked_sandwich <- function(
-  container,
-  weights,
-  outcome,
-  fitted,
-  design0,
-  design1,
-  mu0,
-  mu1
-) {
-  psi <- container@psi
-  jacobian <- container@jacobian
-  weight_jacobian <- container@weight_jacobian
-
-  design <- fitted$design
-  n <- nrow(design)
-  p <- ncol(psi)
-  q <- ncol(design)
-
-  # The outcome-score derivative uses the expected (Fisher-scoring) information,
-  # which equals the observed information for a canonical link such as the logit
-  # for a binomial outcome or the identity for a gaussian one.
-  residual <- (outcome - fitted$mu) * fitted$mu_eta / fitted$variance
-  working_weight <- weights * fitted$mu_eta^2 / fitted$variance
-  score <- (weights * residual) * design
-
-  moment0 <- design0$mu - mu0
-  moment1 <- design1$mu - mu1
-
-  stacked <- cbind(psi, score, moment0, moment1)
-  meat <- crossprod(stacked) / n
-
-  # The score, meat, and outcome-information blocks use the weights the outcome
-  # model was fitted with, which compose the sampling weights onto the reported
-  # balancing weights. The container's weight derivatives are stored at each
-  # method's own weight scale, so the coupling block rescales each unit's row by
-  # the ratio of the model weight to that scale. The ratio is the sampling weight
-  # for methods whose container is already at the reported scale, and the
-  # sampling weight times the per-group reporting factor otherwise. The
-  # per-group factor's own parameter derivative cancels for the marginal outcome
-  # model, so the level ratio is the whole correction.
-  coupling <- weight_jacobian * (weights / container@weights_raw)
-
-  size <- p + q + 2L
-  theta <- seq_len(p)
-  beta <- p + seq_len(q)
-  index0 <- p + q + 1L
-  index1 <- p + q + 2L
-
-  bread <- matrix(0, size, size)
-  bread[theta, theta] <- jacobian / n
-  bread[beta, theta] <- crossprod(design * residual, coupling) / n
-  bread[beta, beta] <- -crossprod(design * working_weight, design) / n
-  bread[index0, beta] <- colSums(design0$mu_eta * design0$design) / n
-  bread[index1, beta] <- colSums(design1$mu_eta * design1$design) / n
-  bread[index0, index0] <- -1
-  bread[index1, index1] <- -1
-
-  bread_inv <- solve(bread)
-  covariance <- bread_inv %*% meat %*% t(bread_inv) / n
-  covariance[c(index0, index1), c(index0, index1), drop = FALSE]
-}
-
-# The effect rows and their delta-method standard errors. Each effect is a
-# smooth contrast of the two marginal means, so its variance is the gradient
-# quadratic form against the marginal-mean covariance block.
-ipw_estimates <- function(mu0, mu1, covariance, conf_level, continuous) {
+# The effect rows. Each effect is a parameter of the stacked system, so its
+# estimate is that parameter's entry in the stacked parameter vector and its
+# standard error is the square root of the matching diagonal entry of the
+# covariance. Nothing is contrasted or differentiated here, which is what keeps
+# the contrast formulas stated once, in the stack itself.
+ipw_estimates <- function(theta, vcov, conf_level, continuous) {
+  effects <- ipw_contrast_names(continuous)
+  estimate <- unname(theta[effects])
+  std_err <- unname(sqrt(diag(vcov)[effects]))
+  z <- estimate / std_err
   z_value <- stats::qnorm(1 - (1 - conf_level) / 2)
 
-  effect_row <- function(effect, estimate, gradient) {
-    std_err <- sqrt(as.numeric(t(gradient) %*% covariance %*% gradient))
-    z <- estimate / std_err
-    data.frame(
-      effect = effect,
-      estimate = estimate,
-      std.err = std_err,
-      z = z,
-      ci.lower = estimate - z_value * std_err,
-      ci.upper = estimate + z_value * std_err,
-      conf.level = conf_level,
-      p.value = 2 * (1 - stats::pnorm(abs(z)))
-    )
-  }
-
-  difference <- effect_row(
-    if (continuous) "diff" else "rd",
-    mu1 - mu0,
-    c(-1, 1)
+  data.frame(
+    effect = effects,
+    estimate = estimate,
+    std.err = std_err,
+    z = z,
+    ci.lower = estimate - z_value * std_err,
+    ci.upper = estimate + z_value * std_err,
+    conf.level = conf_level,
+    p.value = 2 * (1 - stats::pnorm(abs(z)))
   )
-  if (continuous) {
-    return(difference)
-  }
-
-  log_rr <- effect_row(
-    "log(rr)",
-    log(mu1) - log(mu0),
-    c(-1 / mu0, 1 / mu1)
-  )
-  log_or <- effect_row(
-    "log(or)",
-    log(mu1 / (1 - mu1)) - log(mu0 / (1 - mu0)),
-    c(-1 / (mu0 * (1 - mu0)), 1 / (mu1 * (1 - mu1)))
-  )
-
-  rbind(difference, log_rr, log_or)
 }

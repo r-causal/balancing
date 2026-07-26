@@ -61,16 +61,6 @@
       x Its weights differ from the fit's, compared per unit at relative tolerance 1e-6.
       i Refit it with `weights = weights(fit)`, where `fit` is the balancing fit.
 
-# ipw() rejects an outcome model with an offset term
-
-    Code
-      stop(cnd)
-    Condition <balancing_ipw_input_error>
-      Error in `propensity::ipw()`:
-      ! `outcome_mod` must not carry an offset.
-      x Its linear predictor includes an offset, which the stacked variance does not yet carry.
-      i See the inference vignette for a bootstrap workflow.
-
 # ipw() rejects a poisson outcome model
 
     Code
@@ -101,6 +91,17 @@
       ! `ipw()` cannot compute a stacked variance for this balancing fit.
       x This fit has a categorical exposure, and only binary exposures are supported.
       i The stacked variance is derived for a binary exposure.
+      i See the inference vignette for a bootstrap workflow.
+
+# ipw() rejects a fit whose container carries no re-evaluation hooks
+
+    Code
+      stop(cnd)
+    Condition <balancing_ipw_unsupported_error>
+      Error in `propensity::ipw()`:
+      ! `ipw()` cannot compute a stacked variance for this balancing fit.
+      x This fit's container does not carry re-evaluation hooks, which the stacked variance differentiates the weight path through.
+      i The hooks re-evaluate the estimating functions and the reported weights at new weight parameters.
       i See the inference vignette for a bootstrap workflow.
 
 # the unsupported-weights ipw error carries the bootstrap pointer
