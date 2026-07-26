@@ -2103,6 +2103,81 @@ test_that("ipw_deli_sandwich() refuses a stack whose bread is not finite", {
   )
 })
 
+# ---- Hook evaluations through the deli engine ------------------------------
+
+# The stacked closure reaches the weight path only through the container's two
+# hooks, and both read the weight block alone. A central difference evaluates
+# the closure once at the fitted parameters and twice more per stacked
+# coordinate, but a perturbation of a coordinate outside the weight block leaves
+# the weight sub-vector at its fitted value. Only the fitted sub-vector and one
+# up and one down perturbation per weight coordinate therefore ever reach the
+# hooks, so each hook has `2 * p + 1` distinct arguments no matter how long the
+# rest of the stack is. Calling them more often than that is repeated work on
+# arguments already seen, and it is the container hooks, not the rest of the
+# closure, that carry the cost: each one crosses into the method's solver
+# entrypoint over the full data.
+#
+# A container wrapping a real one's hooks with a counter records both how often
+# each hook ran and which sub-vectors it saw. The parity assertions against the
+# undoctored container are what keep the economy honest: skipping a call is only
+# admissible when the answer is bit-for-bit the one the call would have given.
+counting_container <- function(ee) {
+  calls <- new.env(parent = emptyenv())
+  calls$psi <- 0L
+  calls$weights <- 0L
+  calls$seen <- list()
+  container <- balancing_estimating_equations(
+    parameters = ee@parameters,
+    psi = ee@psi,
+    jacobian = ee@jacobian,
+    weight_jacobian = ee@weight_jacobian,
+    weights_raw = ee@weights_raw,
+    psi_fn = function(theta) {
+      calls$psi <- calls$psi + 1L
+      calls$seen <- c(calls$seen, list(unname(as.numeric(theta))))
+      ee@psi_fn(theta)
+    },
+    weights_fn = function(theta) {
+      calls$weights <- calls$weights + 1L
+      ee@weights_fn(theta)
+    }
+  )
+  list(container = container, calls = calls)
+}
+
+test_that("the deli sandwich evaluates each hook once per distinct weight vector", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  ee <- estimating_equations(fit)
+  p <- length(ee@parameters)
+  counted <- counting_container(ee)
+
+  plain <- call_deli_sandwich(fit, outcome_mod, data)
+  doctored <- ipw_deli_sandwich(
+    container = counted$container,
+    outcome_mod = outcome_mod,
+    frame = data,
+    exposure_name = fit@exposure,
+    sampling_weights = fit@sampling_weights
+  )
+
+  expect_identical(doctored$theta, plain$theta)
+  expect_identical(doctored$vcov, plain$vcov)
+
+  expect_identical(length(unique(counted$calls$seen)), 2L * p + 1L)
+  expect_identical(counted$calls$psi, 2L * p + 1L)
+  expect_identical(counted$calls$weights, 2L * p + 1L)
+})
+
 # ---- Outcome families through the deli engine ------------------------------
 
 # deli has no quasibinomial estimating equation and does not need one. The

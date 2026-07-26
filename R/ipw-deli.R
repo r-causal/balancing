@@ -98,14 +98,45 @@ ipw_deli_sandwich <- function(
   # from the container, so no method's math is restated. Differentiating the
   # score block through `weights_fn()` is what propagates the uncertainty in the
   # weights into the effect standard errors.
+  #
+  # Those two hooks are the expensive part of the closure: each crosses into the
+  # method's own evaluation entrypoint over the whole data set. Both are pure
+  # functions of the weight block, and the finite difference presents the same
+  # weight sub-vector many times over, because perturbing a coordinate outside
+  # that block leaves the sub-vector exactly at its fitted value. Two cached
+  # entries cover every repeat. The fitted sub-vector is pinned, since each of
+  # the central difference's two sweeps returns to it in a long run and a single
+  # most-recent entry would lose it in between; one further entry holds the most
+  # recent perturbation, which a sweep asks for twice in succession. The keys
+  # are short numeric vectors, so comparing them outright is cheaper than
+  # hashing them.
+  evaluate_hooks <- function(weight_theta) {
+    list(
+      key = weight_theta,
+      weights = as.numeric(container@weights_fn(weight_theta)),
+      psi = t(container@psi_fn(weight_theta))
+    )
+  }
+  base_hooks <- evaluate_hooks(as.numeric(weight_parameters))
+  recent_hooks <- base_hooks
+  hooks_at <- function(weight_theta) {
+    if (identical(weight_theta, base_hooks$key)) {
+      return(base_hooks)
+    }
+    if (!identical(weight_theta, recent_hooks$key)) {
+      recent_hooks <<- evaluate_hooks(weight_theta)
+    }
+    recent_hooks
+  }
+
   stacked_equations <- function(theta) {
-    weight_theta <- theta[seq_len(p)]
     beta <- theta[p + seq_len(q)]
     mean0 <- theta[[p + q + 1L]]
     mean1 <- theta[[p + q + 2L]]
     contrast_theta <- theta[p + q + 2L + seq_len(k)]
 
-    weights <- as.numeric(container@weights_fn(weight_theta)) * sampling
+    hooks <- hooks_at(as.numeric(theta[seq_len(p)]))
+    weights <- hooks$weights * sampling
     score <- deli::ee_glm(
       beta,
       X = design,
@@ -134,7 +165,7 @@ ipw_deli_sandwich <- function(
     )
 
     rbind(
-      t(container@psi_fn(weight_theta)),
+      hooks$psi,
       score,
       family$linkinv(eta0) - mean0,
       family$linkinv(eta1) - mean1,
