@@ -21,6 +21,16 @@
       ---
       Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 
+# ipw() requires the exposure among the outcome model's predictors
+
+    Code
+      stop(cnd)
+    Condition <balancing_ipw_input_error>
+      Error in `propensity::ipw()`:
+      ! `outcome_mod` must include the exposure among its predictors.
+      x The exposure "exposure" is not one of its terms.
+      i The model may adjust for covariates alongside the exposure.
+
 # ipw() rejects an estimand that contradicts the fit
 
     Code
@@ -40,16 +50,6 @@
       ! `outcome_mod` must be a fitted outcome model.
       i Supply a model of class <glm> or <lm>.
       x `outcome_mod` has class <list>.
-
-# ipw() rejects a covariate-adjusted outcome model
-
-    Code
-      stop(cnd)
-    Condition <balancing_ipw_input_error>
-      Error in `propensity::ipw()`:
-      ! `outcome_mod` must be the marginal outcome model.
-      i The exposure "exposure" must be its only predictor.
-      i See the inference vignette for a bootstrap workflow with covariate-adjusted outcome models.
 
 # ipw() rejects an outcome model fitted without weights
 

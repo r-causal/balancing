@@ -6,9 +6,9 @@
 \arguments{
 \item{ps_mod}{A \link{balancing} fit that produced the weights.}
 
-\item{outcome_mod}{A weighted marginal outcome model of class \code{\link[stats:glm]{stats::glm()}}
-or \code{\link[stats:lm]{stats::lm()}}, fitted with the balancing weights and with the exposure as
-its only predictor.}
+\item{outcome_mod}{A weighted outcome model of class \code{\link[stats:glm]{stats::glm()}} or
+\code{\link[stats:lm]{stats::lm()}}, fitted with the balancing weights and carrying the exposure
+among its predictors. It may adjust for covariates alongside the exposure.}
 
 \item{.data}{The data frame holding the exposure and outcome. If \code{NULL}, the
 values are taken from the outcome model frame.}
@@ -45,7 +45,8 @@ having estimated the weights.
 }
 \details{
 The point estimates are the g-computation marginal means: the outcome model
-is predicted with the exposure fixed to each level and averaged. For a binary
+is predicted with the exposure fixed to each level and averaged over the
+estimand's target population. For a binary
 outcome the method returns the risk difference (\code{rd}), the log risk ratio
 (\code{log(rr)}), and the log odds ratio (\code{log(or)}); for a continuous outcome it
 returns the difference in means (\code{diff}).
@@ -58,9 +59,11 @@ and the effect contrasts. Their estimating functions are, in the same order,
 the weight-parameter estimating equations the fit carries, re-evaluated at
 new weight parameters through the hooks the fit's
 \link{balancing_estimating_equations} container supplies; the outcome-model score,
-from \code{\link[deli:ee_glm]{deli::ee_glm()}}, carrying the balancing weights; the marginal-mean
-equations, which predict the outcome model with the exposure fixed to each
-level; and one deterministic row per contrast, setting the contrast parameter
+from \code{\link[deli:ee_glm]{deli::ee_glm()}}, carrying the balancing weights as the fit would have
+reported them at those parameters, per-group renormalization included; the
+marginal-mean equations, which predict the outcome model with the exposure
+fixed to each level and standardize over the estimand's target population;
+and one deterministic row per contrast, setting the contrast parameter
 equal to its formula in the two means.
 \code{\link[deli:compute_sandwich]{deli::compute_sandwich()}} differentiates that system at the fitted values
 and returns its empirical sandwich covariance.
@@ -84,19 +87,32 @@ fit, or a categorical or continuous exposure, raises
 \code{balancing_ipw_unsupported_error} and points to the bootstrap workflow
 described in the inference vignette.
 
-The outcome model must be the marginal model whose only predictor is the
-exposure, such as \code{y ~ exposure}. With a binary exposure that model is
-saturated, one free parameter per exposure level, so absent an offset its
-marginal means are the weighted group means whatever link the family carries
-and the point estimates do not depend on the link. Where the link does enter,
-in the outcome-model score, it enters exactly: the bread is differentiated
-from the estimating functions themselves rather than read off an
-information-matrix formula, so a non-canonical link such as probit or cloglog
-is handled exactly rather than approximately. A covariate-adjusted outcome
-model raises \code{balancing_ipw_input_error}; use the bootstrap workflow in the
-inference vignette for those models.
+The outcome model must carry the exposure among its predictors, and may
+adjust for covariates alongside it, including in interactions with the
+exposure: \code{y ~ exposure}, \code{y ~ exposure + x1 + x2}, and \code{y ~ exposure * x1}
+are all supported. A model without an exposure term raises
+\code{balancing_ipw_input_error}, since its two fixed-exposure predictions would
+be the same prediction and every contrast it reported would be zero.
 
-Two further conditions on the outcome model raise the same condition. Its
+Which population the marginal means are averaged over is part of the
+estimand, and matters as soon as the outcome model adjusts for anything. The
+marginal model of a binary exposure is saturated, one free parameter per
+exposure level, so absent an offset it predicts a single value per level, its
+marginal means are the weighted group means whatever link the family carries,
+and no choice of population can change them. An adjusted model predicts a
+value per unit, so the means are standardized over the estimand's target
+population: every unit for a pooled estimand, and the focal group's units for
+\code{"att"} or \code{"atc"}. Sampling weights, where the fit has them, weight that
+average as well.
+
+The link enters the outcome-model score, and it enters exactly: the bread is
+differentiated from the estimating functions themselves rather than read off
+an information-matrix formula, so a non-canonical link such as probit or
+cloglog is handled exactly rather than approximately, for an adjusted model
+as much as for a marginal one.
+
+Two further conditions on the outcome model raise the same
+\code{balancing_ipw_input_error}. Its
 family must be binomial, quasibinomial, or gaussian, which includes a plain
 \code{\link[stats:lm]{stats::lm()}}, since the reported effects are the contrasts derived for those
 families' marginal means. And it must have been fitted with the weights the
@@ -126,6 +142,17 @@ df$.wts <- as.numeric(weights(fit))
 outcome_mod <- glm(y ~ exposure, data = df, family = binomial(), weights = .wts)
 
 ipw(fit, outcome_mod)
+
+# The outcome model may also adjust for covariates, in which case the
+# marginal means are standardized over the estimand's target population.
+adjusted_mod <- glm(
+  y ~ exposure + x1,
+  data = df,
+  family = binomial(),
+  weights = .wts
+)
+
+ipw(fit, adjusted_mod)
 
 }
 \references{

@@ -795,6 +795,761 @@ test_that("ipw() standard errors track a nonparametric bootstrap", {
   expect_equal(rd_se, boot_se, tolerance = 0.15)
 })
 
+# ---- Covariate-adjusted outcome models ------------------------------------
+
+# The outcome model may adjust for covariates alongside the exposure. The
+# reported effects are still the g-computation contrasts, with one difference
+# the marginal form hides. A saturated marginal model predicts a single value
+# per exposure level, so every population of units averages those predictions to
+# the same pair of means; an adjusted model predicts a value per unit, and the
+# population those predictions are averaged over is then part of the estimand.
+# The marginal means therefore standardize over the estimand's target
+# population: every unit for the average treatment effect, the focal group's
+# units for a focal estimand, sampling-weighted in both cases. This is
+# propensity's tilted g-computation with the tilt read off the data rather than
+# off a model: propensity standardizes with the tilting function h of its fitted
+# propensity score, and a balancing fit carries no propensity model, so the
+# tilt here is the target population's indicator, which is parameter-free.
+
+# The tilt-standardized g-computation, written with `predict()` and plain
+# arithmetic so it shares nothing with the engine's own fixed-exposure design. A
+# `NULL` focal level standardizes over every unit, which is the average
+# treatment effect; a focal level standardizes over that group alone.
+adjusted_means <- function(
+  outcome_mod,
+  data,
+  focal_level = NULL,
+  sampling = NULL
+) {
+  levels <- sort(unique(data$exposure))
+  d0 <- d1 <- data
+  d0$exposure <- levels[[1]]
+  d1$exposure <- levels[[2]]
+  indicator <- if (is.null(focal_level)) {
+    rep(1, nrow(data))
+  } else {
+    as.numeric(as.character(data$exposure) == focal_level)
+  }
+  weight <- indicator * (sampling %||% rep(1, nrow(data)))
+  standardize <- function(newdata) {
+    prediction <- stats::predict(
+      outcome_mod,
+      newdata = newdata,
+      type = "response"
+    )
+    sum(weight * prediction) / sum(weight)
+  }
+  list(mu0 = standardize(d0), mu1 = standardize(d1))
+}
+
+# An independent risk-difference standard error for an adjusted outcome model,
+# built by hand from the container's stored matrices. The marginal oracle above
+# builds its stack at the scale the container stores natively, which it may do
+# because a per-group rescale of the weights leaves a marginal model's
+# coefficients alone. An adjusted model's coefficients move under that rescale,
+# so this oracle has to be built at the scale the outcome model was actually
+# fitted at, the reported one, and therefore has to differentiate the reported
+# weight map itself.
+#
+# That map carries each exposure group's weights to a target total that does not
+# depend on the parameters, w_i(theta) = raw_i(theta) * target_g / sum_g(theta),
+# so its derivative is the raw derivative rescaled, less the term that comes from
+# the group sum moving with the parameters:
+#
+#   d w_i / d theta = c_g * d raw_i / d theta - w_i * (d sum_g / d theta) / sum_g
+#
+# with c_g the per-group reporting factor. Dropping the second term is the
+# tempting shortcut, since it vanishes for a marginal model, and this oracle
+# exists to say what dropping it costs: the term is what separates the two
+# candidate couplings, and no bootstrap of a feasible size resolves the
+# difference between them.
+adjusted_rd_se <- function(fit, outcome_mod, data, sampling = NULL) {
+  ee <- estimating_equations(fit)
+  n <- nrow(data)
+  s <- sampling %||% rep(1, n)
+  reported <- as.numeric(stats::weights(fit, include_sampling_weights = FALSE))
+  composed <- s * reported
+
+  family <- stats::family(outcome_mod)
+  design <- stats::model.matrix(outcome_mod)
+  q <- ncol(design)
+  beta <- stats::coef(outcome_mod)
+  eta <- as.numeric(design %*% beta)
+  mu <- family$linkinv(eta)
+  mu_eta <- family$mu.eta(eta)
+  variance <- family$variance(mu)
+  residual <- (as.numeric(outcome_mod$y) - mu) * mu_eta / variance
+  working_weight <- composed * mu_eta^2 / variance
+  score <- (composed * residual) * design
+
+  groups <- split(seq_len(n), as.character(data[[fit@exposure]]))
+  raw <- ee@weights_raw
+  ratio <- reported / raw
+  ratio[!is.finite(ratio)] <- 1
+  weight_derivative <- matrix(0, n, ncol(ee@weight_jacobian))
+  for (level in names(groups)) {
+    idx <- groups[[level]]
+    group_sum <- sum(s[idx] * raw[idx])
+    group_derivative <- colSums(
+      s[idx] * ee@weight_jacobian[idx, , drop = FALSE]
+    )
+    weight_derivative[idx, ] <- ratio[idx] *
+      ee@weight_jacobian[idx, , drop = FALSE] -
+      outer(reported[idx], group_derivative) / group_sum
+  }
+
+  levels <- sort(unique(data[[fit@exposure]]))
+  terms <- stats::delete.response(stats::terms(outcome_mod))
+  fixed_design <- function(level) {
+    fixed <- data
+    fixed[[fit@exposure]] <- level
+    stats::model.matrix(terms, stats::model.frame(terms, fixed))
+  }
+  x0 <- fixed_design(levels[[1]])
+  x1 <- fixed_design(levels[[2]])
+  eta0 <- as.numeric(x0 %*% beta)
+  eta1 <- as.numeric(x1 %*% beta)
+  pred0 <- family$linkinv(eta0)
+  pred1 <- family$linkinv(eta1)
+
+  indicator <- if (is.null(fit@focal_level)) {
+    rep(1, n)
+  } else {
+    as.numeric(as.character(data[[fit@exposure]]) == fit@focal_level)
+  }
+  tilt <- indicator * s
+  mu0 <- sum(tilt * pred0) / sum(tilt)
+  mu1 <- sum(tilt * pred1) / sum(tilt)
+
+  psi <- ee@psi
+  p <- ncol(psi)
+  stacked <- cbind(psi, score, tilt * (pred0 - mu0), tilt * (pred1 - mu1))
+  meat <- crossprod(stacked) / n
+
+  size <- p + q + 2L
+  theta <- seq_len(p)
+  beta_index <- p + seq_len(q)
+  index0 <- p + q + 1L
+  index1 <- p + q + 2L
+  bread <- matrix(0, size, size)
+  bread[theta, theta] <- ee@jacobian / n
+  bread[beta_index, theta] <- crossprod(
+    design * residual,
+    s * weight_derivative
+  ) /
+    n
+  bread[beta_index, beta_index] <- -crossprod(design * working_weight, design) /
+    n
+  bread[index0, beta_index] <- colSums(tilt * family$mu.eta(eta0) * x0) / n
+  bread[index1, beta_index] <- colSums(tilt * family$mu.eta(eta1) * x1) / n
+  bread[index0, index0] <- -sum(tilt) / n
+  bread[index1, index1] <- -sum(tilt) / n
+
+  bread_inv <- solve(bread)
+  cov <- bread_inv %*% meat %*% t(bread_inv) / n
+  contrast <- numeric(size)
+  contrast[index1] <- 1
+  contrast[index0] <- -1
+  sqrt(as.numeric(t(contrast) %*% cov %*% contrast))
+}
+
+# A nonparametric bootstrap of the adjusted-model risk difference. Each
+# replicate refits the balancing weights, refits the adjusted outcome model at
+# those weights, and recomputes the tilt-standardized contrast, which is the
+# same shape and the same replicate count as the marginal-model bootstrap above
+# so the two cost about the same.
+adjusted_boot_rd_se <- function(
+  data,
+  method,
+  estimand,
+  focal,
+  formula,
+  replicates = 200
+) {
+  n <- nrow(data)
+  draws <- withr::with_seed(2024, {
+    vapply(
+      seq_len(replicates),
+      function(b) {
+        idx <- sample.int(n, n, replace = TRUE)
+        resampled <- data[idx, , drop = FALSE]
+        # A resampled data set can legitimately fail to converge; that replicate
+        # drops out through the error handler, and its convergence warning is
+        # suppressed so it does not leak into the suite output.
+        tryCatch(
+          suppressWarnings({
+            boot_fit <- balance(
+              resampled,
+              exposure,
+              c(x1, x2),
+              method = eval(method),
+              estimand = estimand,
+              focal_level = focal
+            )
+            boot_w <- as.numeric(stats::weights(boot_fit))
+            boot_mod <- fit_outcome(
+              formula,
+              resampled,
+              boot_w,
+              stats::binomial()
+            )
+            means <- adjusted_means(boot_mod, resampled, focal_level = focal)
+            means$mu1 - means$mu0
+          }),
+          error = function(e) NA_real_
+        )
+      },
+      numeric(1)
+    )
+  })
+  stats::sd(draws, na.rm = TRUE)
+}
+
+# The whole estimating-equation family accepts an adjusted model, across
+# estimands and across both outcome families. Each case pins three things at
+# once: that the model is accepted at all, that its marginal means are the
+# tilt-standardized g-computation rather than a plain average of the
+# predictions, and that every reported standard error is a real number a reader
+# could quote. The focal case is the one that separates the two
+# standardizations, since its target population is a strict subset of the units.
+
+for (spec in list(
+  list(
+    label = "an entropy ate fit",
+    method = quote(bw_entropy()),
+    estimand = "ate",
+    focal = NULL
+  ),
+  list(
+    label = "an bw_ipt ate fit",
+    method = quote(bw_ipt()),
+    estimand = "ate",
+    focal = NULL
+  ),
+  list(
+    label = "an bw_ipt att fit",
+    method = quote(bw_ipt()),
+    estimand = "att",
+    focal = "1"
+  ),
+  list(
+    label = "a just-identified bw_cbps ate fit",
+    method = quote(bw_cbps()),
+    estimand = "ate",
+    focal = NULL
+  )
+)) {
+  local({
+    spec <- spec
+    test_that(
+      paste0(
+        "ipw() standardizes a covariate-adjusted outcome model for ",
+        spec$label
+      ),
+      {
+        data <- ipw_fixture()
+        fit <- balance(
+          data,
+          exposure,
+          c(x1, x2),
+          method = eval(spec$method),
+          estimand = spec$estimand,
+          focal_level = spec$focal
+        )
+        w <- as.numeric(stats::weights(fit))
+        binary_mod <- fit_outcome(
+          y ~ exposure + x1 + x2,
+          data,
+          w,
+          stats::binomial()
+        )
+        continuous_mod <- fit_outcome(
+          y_cont ~ exposure + x1,
+          data,
+          w,
+          stats::gaussian()
+        )
+
+        binary <- propensity::ipw(fit, binary_mod)
+        continuous <- propensity::ipw(fit, continuous_mod)
+        binary_estimates <- as.data.frame(binary)
+        continuous_estimates <- as.data.frame(continuous)
+
+        binary_means <- adjusted_means(
+          binary_mod,
+          data,
+          focal_level = spec$focal
+        )
+        continuous_means <- adjusted_means(
+          continuous_mod,
+          data,
+          focal_level = spec$focal
+        )
+
+        expect_identical(binary_estimates$effect, c("rd", "log(rr)", "log(or)"))
+        expect_identical(continuous_estimates$effect, "diff")
+
+        expect_equal(
+          binary$fit$theta[["mu0"]],
+          binary_means$mu0,
+          tolerance = 1e-8
+        )
+        expect_equal(
+          binary$fit$theta[["mu1"]],
+          binary_means$mu1,
+          tolerance = 1e-8
+        )
+        expect_equal(
+          continuous$fit$theta[["mu0"]],
+          continuous_means$mu0,
+          tolerance = 1e-8
+        )
+        expect_equal(
+          continuous$fit$theta[["mu1"]],
+          continuous_means$mu1,
+          tolerance = 1e-8
+        )
+
+        expect_equal(
+          binary_estimates$estimate,
+          c(
+            binary_means$mu1 - binary_means$mu0,
+            log(binary_means$mu1) - log(binary_means$mu0),
+            stats::qlogis(binary_means$mu1) - stats::qlogis(binary_means$mu0)
+          ),
+          tolerance = 1e-8
+        )
+        expect_equal(
+          continuous_estimates$estimate,
+          continuous_means$mu1 - continuous_means$mu0,
+          tolerance = 1e-8
+        )
+
+        # A focal estimand standardizes over a strict subset of the units, so
+        # its means are not the plain average of the predictions. Pinning that
+        # the two readings differ here is what makes the assertions above a
+        # check on the standardization rather than on the predictions alone.
+        if (!is.null(spec$focal)) {
+          pooled_means <- adjusted_means(binary_mod, data)
+          expect_false(isTRUE(all.equal(pooled_means$mu0, binary_means$mu0)))
+          expect_false(isTRUE(all.equal(pooled_means$mu1, binary_means$mu1)))
+        }
+
+        expect_true(all(is.finite(binary_estimates$std.err)))
+        expect_true(all(binary_estimates$std.err > 0))
+        expect_true(all(is.finite(continuous_estimates$std.err)))
+        expect_true(all(continuous_estimates$std.err > 0))
+      }
+    )
+  })
+}
+
+# The average effect on the untreated is the case where the target population
+# could be read off the wrong group. The fit resolves the focal level to the
+# group it holds fixed, which is the untreated one here, so the standardization
+# population is that group rather than its complement. Both readings are
+# available and they differ, so the assertions separate them: the means are
+# pinned against the untreated-standardized oracle and against not being the
+# treated-standardized one, and the standard error is pinned against the oracle,
+# which reads the focal level from the fit and would move with a swap.
+
+test_that("ipw() standardizes an adjusted model over the untreated for an atc fit", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "atc"
+  )
+  expect_identical(fit@focal_level, "0")
+
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure + x1 + x2, data, w, stats::binomial())
+  untreated <- adjusted_means(outcome_mod, data, focal_level = "0")
+  treated <- adjusted_means(outcome_mod, data, focal_level = "1")
+  oracle_se <- adjusted_rd_se(fit, outcome_mod, data)
+
+  result <- propensity::ipw(fit, outcome_mod)
+  estimates <- as.data.frame(result)
+
+  expect_equal(result$fit$theta[["mu0"]], untreated$mu0, tolerance = 1e-8)
+  expect_equal(result$fit$theta[["mu1"]], untreated$mu1, tolerance = 1e-8)
+  expect_false(isTRUE(all.equal(treated$mu0, untreated$mu0)))
+  expect_false(isTRUE(all.equal(treated$mu1, untreated$mu1)))
+  expect_equal(
+    estimates$estimate[estimates$effect == "rd"],
+    untreated$mu1 - untreated$mu0,
+    tolerance = 1e-8
+  )
+  expect_equal(
+    estimates$std.err[estimates$effect == "rd"],
+    oracle_se,
+    tolerance = 1e-8
+  )
+})
+
+# Sampling weights enter the standardization as well as the balancing weights: a
+# unit standing for more of the target population contributes more of the
+# marginal mean. The two readings are far enough apart on this fixture to tell
+# apart, so pinning the sampling-weighted one rules out a standardization that
+# averages the predictions over the units alone.
+
+test_that("ipw() standardizes an adjusted model over the sampling weights", {
+  data <- ipw_fixture()
+  data$sw <- withr::with_seed(7, stats::runif(nrow(data), 0.5, 2))
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate",
+    sampling_weights = sw
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure + x1 + x2, data, w, stats::binomial())
+
+  result <- propensity::ipw(fit, outcome_mod)
+  estimates <- as.data.frame(result)
+  means <- adjusted_means(outcome_mod, data, sampling = data$sw)
+  unweighted <- adjusted_means(outcome_mod, data)
+
+  expect_false(isTRUE(all.equal(means$mu0, unweighted$mu0)))
+  expect_equal(result$fit$theta[["mu0"]], means$mu0, tolerance = 1e-8)
+  expect_equal(result$fit$theta[["mu1"]], means$mu1, tolerance = 1e-8)
+  expect_true(all(is.finite(estimates$std.err)))
+  expect_true(all(estimates$std.err > 0))
+})
+
+# The whole family is compared against the independent oracle, across estimands
+# and with sampling weights, at a tolerance the finite-differenced bread clears
+# by two orders of magnitude. The tolerance is what gives these cases their
+# second job. Entropy reports its weights at the scale its container stores, so
+# the reporting factor is one and the group sums do not move with the
+# parameters; tilting and the covariate balancing propensity score renormalize
+# by a real per-group factor, so for those two the shortcut of holding the
+# reporting scale fixed misses the oracle by three to four orders of magnitude
+# more than the tolerance allows, while carrying the renormalization through
+# meets it.
+
+for (spec in list(
+  list(
+    label = "an entropy ate fit",
+    method = quote(bw_entropy()),
+    estimand = "ate",
+    focal = NULL
+  ),
+  list(
+    label = "an entropy att fit",
+    method = quote(bw_entropy()),
+    estimand = "att",
+    focal = "1"
+  ),
+  list(
+    label = "an bw_ipt ate fit",
+    method = quote(bw_ipt()),
+    estimand = "ate",
+    focal = NULL
+  ),
+  list(
+    label = "an bw_ipt att fit",
+    method = quote(bw_ipt()),
+    estimand = "att",
+    focal = "1"
+  ),
+  list(
+    label = "a just-identified bw_cbps ate fit",
+    method = quote(bw_cbps()),
+    estimand = "ate",
+    focal = NULL
+  ),
+  list(
+    label = "a just-identified bw_cbps att fit",
+    method = quote(bw_cbps()),
+    estimand = "att",
+    focal = "1"
+  )
+)) {
+  local({
+    spec <- spec
+    test_that(
+      paste0(
+        "the adjusted-model risk-difference standard error matches the oracle for ",
+        spec$label
+      ),
+      {
+        data <- ipw_fixture()
+        fit <- balance(
+          data,
+          exposure,
+          c(x1, x2),
+          method = eval(spec$method),
+          estimand = spec$estimand,
+          focal_level = spec$focal
+        )
+        w <- as.numeric(stats::weights(fit))
+        outcome_mod <- fit_outcome(
+          y ~ exposure + x1 + x2,
+          data,
+          w,
+          stats::binomial()
+        )
+        oracle_se <- adjusted_rd_se(fit, outcome_mod, data)
+
+        estimates <- as.data.frame(propensity::ipw(fit, outcome_mod))
+        rd_se <- estimates$std.err[estimates$effect == "rd"]
+
+        expect_equal(rd_se, oracle_se, tolerance = 1e-8)
+      }
+    )
+  })
+}
+
+test_that("the adjusted-model standard error is coherent with sampling weights", {
+  data <- ipw_fixture()
+  data$sw <- withr::with_seed(7, stats::runif(nrow(data), 0.5, 2))
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate",
+    sampling_weights = sw
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure + x1 + x2, data, w, stats::binomial())
+  oracle_se <- adjusted_rd_se(fit, outcome_mod, data, sampling = data$sw)
+
+  estimates <- as.data.frame(propensity::ipw(fit, outcome_mod))
+  rd_se <- estimates$std.err[estimates$effect == "rd"]
+
+  expect_equal(rd_se, oracle_se, tolerance = 1e-8)
+})
+
+# The bootstrap is the external check that the adjusted stack is calibrated:
+# every source of uncertainty the standard error claims to carry is one the
+# resampling actually shows. Both a pooled and a focal estimand are pinned,
+# since the focal case standardizes over a subset whose composition varies from
+# replicate to replicate and the pooled case does not.
+
+test_that("ipw() adjusted-model standard errors track a bootstrap for entropy ate", {
+  skip_on_cran()
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure + x1 + x2, data, w, stats::binomial())
+
+  estimates <- as.data.frame(propensity::ipw(fit, outcome_mod))
+  rd_se <- estimates$std.err[estimates$effect == "rd"]
+  boot_se <- adjusted_boot_rd_se(
+    data,
+    quote(bw_entropy()),
+    "ate",
+    NULL,
+    y ~ exposure + x1 + x2
+  )
+
+  # The bootstrap is noisy at this replicate count, so the agreement is loose.
+  expect_equal(rd_se, boot_se, tolerance = 0.15)
+})
+
+test_that("ipw() adjusted-model standard errors track a bootstrap for bw_ipt att", {
+  skip_on_cran()
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "att",
+    focal_level = "1"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure + x1 + x2, data, w, stats::binomial())
+
+  estimates <- as.data.frame(propensity::ipw(fit, outcome_mod))
+  rd_se <- estimates$std.err[estimates$effect == "rd"]
+  boot_se <- adjusted_boot_rd_se(
+    data,
+    quote(bw_ipt()),
+    "att",
+    "1",
+    y ~ exposure + x1 + x2
+  )
+
+  expect_equal(rd_se, boot_se, tolerance = 0.15)
+})
+
+# The bootstrap at a larger sample size, where the sandwich and the resampling
+# should agree closely and a disagreement is therefore easier to attribute. The
+# two candidate weight couplings move this standard error by under a tenth of a
+# percent, far less than a bootstrap of any feasible size resolves, so the
+# choice between them is settled against the oracle above and what this case
+# pins is the calibration of the adjusted stack as a whole.
+
+test_that("ipw() adjusted-model standard errors track a bootstrap for bw_ipt ate", {
+  skip_on_cran()
+  data <- ipw_fixture(600)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure + x1 + x2, data, w, stats::binomial())
+
+  estimates <- as.data.frame(propensity::ipw(fit, outcome_mod))
+  rd_se <- estimates$std.err[estimates$effect == "rd"]
+  boot_se <- adjusted_boot_rd_se(
+    data,
+    quote(bw_ipt()),
+    "ate",
+    NULL,
+    y ~ exposure + x1 + x2
+  )
+
+  expect_equal(rd_se, boot_se, tolerance = 0.15)
+})
+
+# Accepting adjusted models must not disturb the marginal ones. The
+# standardization gains a target-population indicator and the weight map gains a
+# renormalization, and both reduce to what the marginal path already did: the
+# indicator scales a marginal model's mean rows by one constant per row, which
+# leaves the sandwich alone because those rows are zero at the solution, and the
+# renormalization cancels in the coupling. Pinning the marginal results against
+# the frozen coherent oracle rather than against a recorded number is what makes
+# this a check on the estimator instead of a check on the last run.
+
+test_that("supporting adjusted outcome models leaves the marginal ones alone", {
+  data <- ipw_fixture()
+  pooled <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  focal <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "att",
+    focal_level = "1"
+  )
+
+  for (fit in list(pooled, focal)) {
+    w <- as.numeric(stats::weights(fit))
+    outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+    means <- marginal_means(outcome_mod, data)
+
+    estimates <- as.data.frame(propensity::ipw(fit, outcome_mod))
+    rd <- estimates$estimate[estimates$effect == "rd"]
+    rd_se <- estimates$std.err[estimates$effect == "rd"]
+
+    expect_equal(rd, means$mu1 - means$mu0, tolerance = 1e-8)
+    expect_equal(rd_se, coherent_rd_se(fit, data), tolerance = 1e-8)
+  }
+})
+
+# The exposure is what the marginal means are computed by fixing, so a model
+# that does not carry it describes no contrast at all: its two fixed-exposure
+# designs are the same design, and the effect table would report a risk
+# difference of zero as though it were an estimate. Adjusting for covariates is
+# what is now allowed, not dropping the exposure, so the two are pinned
+# together.
+
+test_that("ipw() requires the exposure among the outcome model's predictors", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  adjusted_mod <- fit_outcome(
+    y ~ exposure + x1 + x2,
+    data,
+    w,
+    stats::binomial()
+  )
+  covariates_only <- fit_outcome(y ~ x1 + x2, data, w, stats::binomial())
+
+  expect_s3_class(propensity::ipw(fit, adjusted_mod), "ipw")
+  expect_error(
+    propensity::ipw(fit, covariates_only),
+    class = "balancing_ipw_input_error"
+  )
+
+  # The refusal has to say which model would be accepted, since the neighbouring
+  # mistake is a model that adjusts for the covariates and forgets the exposure.
+  cnd <- rlang::catch_cnd(
+    propensity::ipw(fit, covariates_only),
+    classes = "balancing_ipw_input_error"
+  )
+  expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
+})
+
+# An interaction between the exposure and a covariate needs no special handling.
+# The fixed-exposure design is rebuilt from the model's own terms with the
+# exposure column set to one level, so `model.matrix()` recomputes the
+# interaction columns from that level, exactly as propensity's stacked system
+# builds its counterfactual designs. The effect is then a genuinely
+# heterogeneous one averaged over the target population, which is the case where
+# the choice of population matters most, so the focal fit is pinned beside the
+# pooled one.
+
+test_that("ipw() supports an interaction between the exposure and a covariate", {
+  data <- ipw_fixture()
+  pooled <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  focal <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "att",
+    focal_level = "1"
+  )
+
+  for (spec in list(
+    list(fit = pooled, focal_level = NULL),
+    list(fit = focal, focal_level = "1")
+  )) {
+    w <- as.numeric(stats::weights(spec$fit))
+    outcome_mod <- fit_outcome(y ~ exposure * x1, data, w, stats::binomial())
+    means <- adjusted_means(outcome_mod, data, focal_level = spec$focal_level)
+
+    result <- propensity::ipw(spec$fit, outcome_mod)
+    estimates <- as.data.frame(result)
+
+    expect_equal(result$fit$theta[["mu0"]], means$mu0, tolerance = 1e-8)
+    expect_equal(result$fit$theta[["mu1"]], means$mu1, tolerance = 1e-8)
+    expect_equal(
+      estimates$estimate[estimates$effect == "rd"],
+      means$mu1 - means$mu0,
+      tolerance = 1e-8
+    )
+    expect_true(all(is.finite(estimates$std.err)))
+    expect_true(all(estimates$std.err > 0))
+  }
+})
+
 # ---- Arguments: conf_level and estimand -----------------------------------
 
 test_that("ipw() respects conf_level", {
@@ -857,25 +1612,6 @@ test_that("ipw() rejects an outcome model that is not a glm or lm", {
 
   cnd <- rlang::catch_cnd(
     propensity::ipw(fit, list(coefficients = 1)),
-    classes = "balancing_ipw_input_error"
-  )
-  expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
-})
-
-test_that("ipw() rejects a covariate-adjusted outcome model", {
-  data <- ipw_fixture()
-  fit <- balance(
-    data,
-    exposure,
-    c(x1, x2),
-    method = bw_entropy(),
-    estimand = "ate"
-  )
-  w <- as.numeric(stats::weights(fit))
-  outcome_mod <- fit_outcome(y ~ exposure + x1, data, w, stats::binomial())
-
-  cnd <- rlang::catch_cnd(
-    propensity::ipw(fit, outcome_mod),
     classes = "balancing_ipw_input_error"
   )
   expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))

@@ -29,7 +29,9 @@
   workflow as a propensity score model. For the estimating-equation methods with
   a binary exposure, standard errors come from a stacked M-estimator that
   accounts for having estimated the weights, exposed through
-  `estimating_equations()`.
+  `estimating_equations()`. The outcome model may adjust for covariates
+  alongside the exposure, in which case the marginal means are standardized over
+  the estimand's target population.
 
 * Added the `bw` weight vector class, a sibling of `propensity::psw` under the
   shared `causal_wts` parent.

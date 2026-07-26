@@ -15,6 +15,30 @@
 # effect contrasts close the system. Making each contrast a parameter of the
 # stack is what removes the delta method from the caller: the contrast's
 # standard error is already on the diagonal of the returned covariance.
+#
+# Two details of that system are there for the outcome models that adjust for
+# covariates, and both reduce to what a marginal model already did.
+#
+# The marginal means standardize over the estimand's target population rather
+# than over every unit. A marginal model predicts one value per exposure level,
+# so which units are averaged over cannot matter; an adjusted model predicts a
+# value per unit, and the population averaged over is then part of the estimand.
+# The mean rows therefore carry the target population's indicator, which is
+# every unit for a pooled estimand and the focal group for a focal one, times
+# the sampling weights. This is the tilted g-computation the propensity package
+# performs with the tilting function of its fitted score; a balancing fit
+# carries no propensity model, so the population is read off the data and the
+# indicator contributes nothing to the derivative.
+#
+# The weights the outcome score carries are the reported weights re-derived at
+# the perturbed weight parameters, renormalization included. The reported scale
+# carries each exposure group to a target total, and holding that per-group
+# factor at the value the fit found would drop the part of the derivative that
+# comes from the total itself moving. For a marginal model the dropped part
+# contributes nothing, since the per-group weighted score sums vanish in every
+# design direction and a per-group rescale therefore leaves the coefficients
+# alone. For an adjusted model the covariate directions do not vanish, so the
+# renormalization is applied again at each set of weight parameters.
 
 #' The deli-backed stacked sandwich for a balancing fit
 #'
@@ -23,10 +47,13 @@
 #' the sandwich covariance of the whole system.
 #'
 #' @param container The fit's [balancing_estimating_equations].
-#' @param outcome_mod The fitted weighted marginal outcome model.
+#' @param outcome_mod The fitted weighted outcome model.
 #' @param frame The data frame holding the exposure.
 #' @param exposure_name The exposure column name.
 #' @param sampling_weights The fit's sampling weights, or `NULL`.
+#' @param focal_level The fit's focal exposure level, or `NULL` for a pooled
+#'   estimand. It names the target population the marginal means standardize
+#'   over and the group total the reported weights are carried to.
 #'
 #' @return A list with `theta`, the stacked parameter vector, and `vcov`, its
 #'   covariance on the standard-error scale, both named by stacked block order.
@@ -37,7 +64,8 @@ ipw_deli_sandwich <- function(
   outcome_mod,
   frame,
   exposure_name,
-  sampling_weights = NULL
+  sampling_weights = NULL,
+  focal_level = NULL
 ) {
   n <- nrow(frame)
   family <- stats::family(outcome_mod)
@@ -67,15 +95,43 @@ ipw_deli_sandwich <- function(
     offset = offset
   )
 
+  # The sampling weights compose multiplicatively onto the reported balancing
+  # weights, which is the scale the outcome model was fitted at. Holding them
+  # fixed here is correct: they are a design quantity, not an estimate.
+  sampling <- sampling_weights %||% rep(1, n)
+
+  # The standardization weight, one per unit: the target population's indicator
+  # times the sampling weights. A pooled estimand targets every unit, so the
+  # indicator is one throughout and the means are the sampling-weighted averages
+  # of the fixed-exposure predictions; a focal estimand targets the focal group,
+  # which is the treated group for the average effect on the treated and the
+  # untreated group for the average effect on the untreated, since the fit
+  # resolves the focal level to the group it holds fixed. Nothing here depends
+  # on the parameters, so the standardization contributes no derivative of its
+  # own.
+  #
+  # The exposure groups and the totals the reported weights are carried to come
+  # from the same two facts, so they are built once here for the weight map
+  # below.
+  key <- as.character(frame[[exposure_name]])
+  groups <- split(seq_len(n), key)
+  targets <- group_target_sums(sampling, groups, focal_level)
+  tilt <- if (is.null(focal_level)) {
+    sampling
+  } else {
+    sampling * (key == focal_level)
+  }
+
   # Every parameter enters at the value its own fit already produced: the weight
   # parameters from the container, the coefficients from the outcome model, and
-  # the means and contrasts as plug-in values of those two.
+  # the means and contrasts as plug-in values of those two. The means are the
+  # standardized ones, which is the root of the mean rows the closure returns.
   weight_parameters <- container@parameters
   p <- length(weight_parameters)
   coefficients <- stats::coef(outcome_mod)
   q <- length(coefficients)
-  mu0 <- mean(design0$mu)
-  mu1 <- mean(design1$mu)
+  mu0 <- sum(tilt * design0$mu) / sum(tilt)
+  mu1 <- sum(tilt * design1$mu) / sum(tilt)
   contrasts <- ipw_contrast_values(mu0, mu1, continuous)
   effects <- ipw_contrast_names(continuous)
   k <- length(effects)
@@ -89,15 +145,21 @@ ipw_deli_sandwich <- function(
     effects
   )
 
-  # The sampling weights compose multiplicatively onto the reported balancing
-  # weights, which is the scale the outcome model was fitted at. Holding them
-  # fixed here is correct: they are a design quantity, not an estimate.
-  sampling <- sampling_weights %||% rep(1, n)
-
   # The reported weights and the weight-parameter estimating functions both come
   # from the container, so no method's math is restated. Differentiating the
   # score block through `weights_fn()` is what propagates the uncertainty in the
   # weights into the effect standard errors.
+  #
+  # The container's hook carries the reporting scale as the fixed per-group
+  # factor the fit found, which is the scale its `weight_jacobian` describes and
+  # the contract its own tests pin. Renormalizing the hook's result to the group
+  # totals recovers the reported weight map itself, the one an outcome model
+  # refitted at other weight parameters would have been given: the hook's fixed
+  # factor is constant within a group, so it cancels between the numerator and
+  # the group sum, leaving the raw weights carried to the target total. The
+  # renormalization is a per-group rescale of the hook's output rather than
+  # another crossing into the method, so it is cheap and it caches with the
+  # values it is derived from.
   #
   # Those two hooks are the expensive part of the closure: each crosses into the
   # method's own evaluation entrypoint over the whole data set. Both are pure
@@ -113,7 +175,12 @@ ipw_deli_sandwich <- function(
   evaluate_hooks <- function(weight_theta) {
     list(
       key = weight_theta,
-      weights = as.numeric(container@weights_fn(weight_theta)),
+      weights = renormalize_group_weights(
+        as.numeric(container@weights_fn(weight_theta)),
+        sampling,
+        groups,
+        targets
+      ),
       psi = t(container@psi_fn(weight_theta))
     )
   }
@@ -164,11 +231,16 @@ ipw_deli_sandwich <- function(
       ncol = n
     )
 
+    # The mean rows are weighted by the standardization weight, so their root is
+    # the mean of the fixed-exposure predictions over the target population
+    # rather than over every unit. A marginal model predicts one value per
+    # exposure level, which makes the weighted row a constant multiple of the
+    # unweighted one and leaves the sandwich exactly where it was.
     rbind(
       hooks$psi,
       score,
-      family$linkinv(eta0) - mean0,
-      family$linkinv(eta1) - mean1,
+      tilt * (family$linkinv(eta0) - mean0),
+      tilt * (family$linkinv(eta1) - mean1),
       contrast_rows
     )
   }

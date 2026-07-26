@@ -86,7 +86,30 @@ data.frame(
 )
 ```
 
-`ipw()` computes this variance for a binary exposure, an estimating-equation fit at exact balance, and a marginal outcome model whose only predictor is the exposure, the form the stacked system is derived for. The outcome model may be a `glm()` with a binomial, quasibinomial, or gaussian family, or a plain `lm()`. Any link those families carry is handled exactly, including a non-canonical one such as probit, because the sandwich differentiates the score it is given rather than assuming an information matrix. Model offsets are supported natively, written either as an `offset()` term in the formula or passed through the model's `offset` argument, and are carried through both the outcome-model score and the marginal means.
+`ipw()` computes this variance for a binary exposure and an estimating-equation fit at exact balance. The outcome model may be a `glm()` with a binomial, quasibinomial, or gaussian family, or a plain `lm()`. Any link those families carry is handled exactly, including a non-canonical one such as probit, because the sandwich differentiates the score it is given rather than assuming an information matrix. Model offsets are supported natively, written either as an `offset()` term in the formula or passed through the model's `offset` argument, and are carried through both the outcome-model score and the marginal means.
+
+### Covariate-adjusted outcome models
+
+The outcome model must carry the exposure among its predictors, but it may adjust for covariates alongside it, and may interact them with the exposure. Adjusting for the same covariates the weights balance is a common way to reduce residual confounding and tighten the estimate.
+
+```{r adjusted}
+adjusted_mod <- glm(
+  event ~ exposure + age + score,
+  data = study,
+  family = quasibinomial(),
+  weights = w
+)
+
+ipw(fit, adjusted_mod)
+```
+
+Adjustment changes what the marginal means average over. A marginal model of a binary exposure predicts one value per exposure level, so it makes no difference which units you average across; an adjusted model predicts a value per unit, and the population you average across becomes part of the estimand. `ipw()` standardizes over the estimand's target population: every unit for the ATE, and the focal group's units for the ATT or the ATC. Sampling weights, where the fit has them, weight that average as well. The standard error accounts for the adjustment the same way it accounts for everything else, by carrying the adjusted model's own score equations in the stack.
+
+A model that leaves the exposure out has nothing to contrast, so it is refused rather than reported as a null effect.
+
+```{r no-exposure, error = TRUE}
+ipw(fit, glm(event ~ age + score, data = study, family = quasibinomial(), weights = w))
+```
 
 Everything else takes the bootstrap. The quadratic-program methods (`bw_energy()`, `bw_cfd()`, and `bw_sbw()`) and an entropy fit at a positive tolerance solve inequality-constrained problems, whose solutions are characterized by which constraints bind at the optimum rather than by a smooth system set to zero. An over-identified `bw_cbps()` fit minimizes a generalized-method-of-moments criterion in more moment conditions than it has parameters, so its balancing conditions are not solved to zero either. None of these has an estimating-equation representation to stack, so the fit carries none and `ipw()` raises an error pointing here. Inverse probability tilting is the exception to the tolerance rule: it solves the same smooth estimating equations whatever tolerance is requested, so `ipw()` handles it at any tolerance.
 
@@ -103,7 +126,7 @@ ipw(sbw_fit, outcome_mod)
 
 ## Bootstrapping the other fits
 
-Where a fit carries no estimating equations, inference uses resampling instead. The recipe is a standard nonparametric bootstrap: resample the rows with replacement, refit the weights and the outcome model on each resample, and take the spread of the effect estimates across resamples as the standard error. The important detail is that the reweighting is refit inside the loop, so every source of variation, including the estimation of the weights, is captured. The example below uses `bw_sbw()`, but the recipe is the same for any fit and it also covers the cases `ipw()` declines for reasons other than the weights, such as a covariate-adjusted outcome model.
+Where a fit carries no estimating equations, inference uses resampling instead. The recipe is a standard nonparametric bootstrap: resample the rows with replacement, refit the weights and the outcome model on each resample, and take the spread of the effect estimates across resamples as the standard error. The important detail is that the reweighting is refit inside the loop, so every source of variation, including the estimation of the weights, is captured. The example below uses `bw_sbw()`, but the recipe is the same for any fit and it also covers the cases `ipw()` declines for reasons other than the weights, such as a categorical exposure.
 
 We keep the example small so it runs quickly: a few hundred resamples on a modest sample.
 
@@ -157,4 +180,4 @@ A production analysis would use more resamples, typically at least one or two th
 
 ## Choosing an approach
 
-Use `ipw()` when the method carries estimating equations, which is the estimating-equation family with a binary exposure and exact balance. It is faster and needs no tuning. Use the bootstrap for the quadratic-program methods, for an entropy fit at a positive tolerance, for an over-identified `bw_cbps()` fit, for covariate-adjusted outcome models, and for exposure types beyond binary. The bootstrap is more general but more expensive, and its precision improves with the number of resamples.
+Use `ipw()` when the method carries estimating equations, which is the estimating-equation family with a binary exposure and exact balance. It is faster and needs no tuning. Use the bootstrap for the quadratic-program methods, for an entropy fit at a positive tolerance, for an over-identified `bw_cbps()` fit, and for exposure types beyond binary. Covariate-adjusted outcome models need neither route in particular: `ipw()` stacks them directly. The bootstrap is more general but more expensive, and its precision improves with the number of resamples.

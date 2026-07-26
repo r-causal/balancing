@@ -20,7 +20,8 @@
 #'
 #' @details
 #' The point estimates are the g-computation marginal means: the outcome model
-#' is predicted with the exposure fixed to each level and averaged. For a binary
+#' is predicted with the exposure fixed to each level and averaged over the
+#' estimand's target population. For a binary
 #' outcome the method returns the risk difference (`rd`), the log risk ratio
 #' (`log(rr)`), and the log odds ratio (`log(or)`); for a continuous outcome it
 #' returns the difference in means (`diff`).
@@ -33,9 +34,11 @@
 #' the weight-parameter estimating equations the fit carries, re-evaluated at
 #' new weight parameters through the hooks the fit's
 #' [balancing_estimating_equations] container supplies; the outcome-model score,
-#' from [deli::ee_glm()], carrying the balancing weights; the marginal-mean
-#' equations, which predict the outcome model with the exposure fixed to each
-#' level; and one deterministic row per contrast, setting the contrast parameter
+#' from [deli::ee_glm()], carrying the balancing weights as the fit would have
+#' reported them at those parameters, per-group renormalization included; the
+#' marginal-mean equations, which predict the outcome model with the exposure
+#' fixed to each level and standardize over the estimand's target population;
+#' and one deterministic row per contrast, setting the contrast parameter
 #' equal to its formula in the two means.
 #' [deli::compute_sandwich()] differentiates that system at the fitted values
 #' and returns its empirical sandwich covariance.
@@ -59,19 +62,32 @@
 #' `balancing_ipw_unsupported_error` and points to the bootstrap workflow
 #' described in the inference vignette.
 #'
-#' The outcome model must be the marginal model whose only predictor is the
-#' exposure, such as `y ~ exposure`. With a binary exposure that model is
-#' saturated, one free parameter per exposure level, so absent an offset its
-#' marginal means are the weighted group means whatever link the family carries
-#' and the point estimates do not depend on the link. Where the link does enter,
-#' in the outcome-model score, it enters exactly: the bread is differentiated
-#' from the estimating functions themselves rather than read off an
-#' information-matrix formula, so a non-canonical link such as probit or cloglog
-#' is handled exactly rather than approximately. A covariate-adjusted outcome
-#' model raises `balancing_ipw_input_error`; use the bootstrap workflow in the
-#' inference vignette for those models.
+#' The outcome model must carry the exposure among its predictors, and may
+#' adjust for covariates alongside it, including in interactions with the
+#' exposure: `y ~ exposure`, `y ~ exposure + x1 + x2`, and `y ~ exposure * x1`
+#' are all supported. A model without an exposure term raises
+#' `balancing_ipw_input_error`, since its two fixed-exposure predictions would
+#' be the same prediction and every contrast it reported would be zero.
 #'
-#' Two further conditions on the outcome model raise the same condition. Its
+#' Which population the marginal means are averaged over is part of the
+#' estimand, and matters as soon as the outcome model adjusts for anything. The
+#' marginal model of a binary exposure is saturated, one free parameter per
+#' exposure level, so absent an offset it predicts a single value per level, its
+#' marginal means are the weighted group means whatever link the family carries,
+#' and no choice of population can change them. An adjusted model predicts a
+#' value per unit, so the means are standardized over the estimand's target
+#' population: every unit for a pooled estimand, and the focal group's units for
+#' `"att"` or `"atc"`. Sampling weights, where the fit has them, weight that
+#' average as well.
+#'
+#' The link enters the outcome-model score, and it enters exactly: the bread is
+#' differentiated from the estimating functions themselves rather than read off
+#' an information-matrix formula, so a non-canonical link such as probit or
+#' cloglog is handled exactly rather than approximately, for an adjusted model
+#' as much as for a marginal one.
+#'
+#' Two further conditions on the outcome model raise the same
+#' `balancing_ipw_input_error`. Its
 #' family must be binomial, quasibinomial, or gaussian, which includes a plain
 #' [stats::lm()], since the reported effects are the contrasts derived for those
 #' families' marginal means. And it must have been fitted with the weights the
@@ -96,9 +112,9 @@
 #' 2024;43(13):2672-2694. \doi{10.1002/sim.10078}
 #'
 #' @param ps_mod A [balancing] fit that produced the weights.
-#' @param outcome_mod A weighted marginal outcome model of class [stats::glm()]
-#'   or [stats::lm()], fitted with the balancing weights and with the exposure as
-#'   its only predictor.
+#' @param outcome_mod A weighted outcome model of class [stats::glm()] or
+#'   [stats::lm()], fitted with the balancing weights and carrying the exposure
+#'   among its predictors. It may adjust for covariates alongside the exposure.
 #' @param .data The data frame holding the exposure and outcome. If `NULL`, the
 #'   values are taken from the outcome model frame.
 #' @param estimand The causal estimand. If `NULL`, the fit's estimand is used.
@@ -132,6 +148,17 @@
 #' outcome_mod <- glm(y ~ exposure, data = df, family = binomial(), weights = .wts)
 #'
 #' ipw(fit, outcome_mod)
+#'
+#' # The outcome model may also adjust for covariates, in which case the
+#' # marginal means are standardized over the estimand's target population.
+#' adjusted_mod <- glm(
+#'   y ~ exposure + x1,
+#'   data = df,
+#'   family = binomial(),
+#'   weights = .wts
+#' )
+#'
+#' ipw(fit, adjusted_mod)
 #'
 #' @name ipw.balancing
 #' @importFrom causalgenerics ipw
@@ -210,13 +237,17 @@ method(causalgenerics_ipw, balancing) <- function(
   # The variance engine composes the sampling weights onto the weights the
   # container's own hook returns, so it takes the fit's sampling weights raw.
   # The preflight above compares against the composed weights instead, because
-  # those are the weights the outcome model was fitted with.
+  # those are the weights the outcome model was fitted with. The focal level
+  # goes with them: it names both the population the marginal means standardize
+  # over and the group total the reported weights are carried to, and the
+  # container records neither.
   variance_system <- ipw_deli_sandwich(
     container = container,
     outcome_mod = outcome_mod,
     frame = frame,
     exposure_name = exposure_name,
-    sampling_weights = ps_mod@sampling_weights
+    sampling_weights = ps_mod@sampling_weights,
+    focal_level = ps_mod@focal_level
   )
 
   estimates <- ipw_estimates(
@@ -313,16 +344,17 @@ is_gaussian_outcome <- function(outcome_mod) {
   TRUE
 }
 
-# The stacked variance is derived for the marginal outcome model, whose only
-# predictor is the exposure. That form makes the g-computation means equal the
-# weighted group means and makes the per-group score sums vanish, which the
-# variance relies on. A covariate-adjusted model would return a silently wrong
-# standard error, so the contract is validated rather than trusted.
+# The outcome model may adjust for covariates, and may interact them with the
+# exposure, but it must carry the exposure itself. The marginal means are
+# computed by fixing the exposure to each level and predicting, so a model
+# without an exposure term has two identical fixed-exposure designs: every
+# contrast it reports would be zero, and the table would look like an estimate
+# of no effect rather than the absence of an estimator.
 #
 # The shape checks come first, since a model of the wrong class or the wrong
 # form cannot be interrogated for anything else. The three that follow all guard
-# against the same failure mode as the marginal-form check: a model that runs
-# and returns an effect table nobody could tell was wrong.
+# against the same failure mode as the exposure check: a model that runs and
+# returns an effect table nobody could tell was wrong.
 validate_ipw_outcome_model <- function(
   outcome_mod,
   exposure_name,
@@ -341,12 +373,12 @@ validate_ipw_outcome_model <- function(
     )
   }
   term_labels <- attr(stats::terms(outcome_mod), "term.labels")
-  if (!identical(term_labels, exposure_name)) {
+  if (!exposure_name %in% term_labels) {
     abort(
       c(
-        "{.arg outcome_mod} must be the marginal outcome model.",
-        i = "The exposure {.val {exposure_name}} must be its only predictor.",
-        i = "See the inference vignette for a bootstrap workflow with covariate-adjusted outcome models."
+        "{.arg outcome_mod} must include the exposure among its predictors.",
+        x = "The exposure {.val {exposure_name}} is not one of its terms.",
+        i = "The model may adjust for covariates alongside the exposure."
       ),
       error_class = "balancing_ipw_input_error",
       call = call
