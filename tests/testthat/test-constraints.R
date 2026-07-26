@@ -49,7 +49,9 @@ test_that("balance_terms() rejects a negative tolerance", {
 # ---- build_constraint_matrix(): base columns and factors ------------------
 
 test_that("numeric covariates become one mean-balance column each", {
-  data <- data.frame(x1 = c(-1, 0, 1, 2), x2 = c(2, 1, 0, -1))
+  # The two covariates are linearly independent of one another, so both survive
+  # the aliasing check and each contributes exactly one column.
+  data <- data.frame(x1 = c(-1, 0, 1, 2), x2 = c(2, 1, 0, 5))
   built <- build_constraint_matrix(
     data,
     c("x1", "x2"),
@@ -236,6 +238,130 @@ test_that("aliased columns are dropped with an alert", {
     )
   )
   expect_identical(ncol(built$matrix), 1L)
+})
+
+test_that("a shift-related covariate drops like an exact duplicate", {
+  withr::local_options(balancing.quiet = FALSE)
+  data <- data.frame(x1 = c(-1, 0, 1, 2, 0.5, -0.5))
+  data$duplicate <- data$x1
+  data$shifted <- data$x1 + 5
+
+  expect_message(
+    duplicated_pair <- build_constraint_matrix(
+      data,
+      c("x1", "duplicate"),
+      balance_terms(),
+      exposure_type = "binary"
+    )
+  )
+  expect_message(
+    shifted_pair <- build_constraint_matrix(
+      data,
+      c("x1", "shifted"),
+      balance_terms(),
+      exposure_type = "binary"
+    )
+  )
+
+  # Centering removes the shift, so the two covariates contribute the same
+  # constraint column and the shifted pair must drop exactly as the exact
+  # duplicate does.
+  expect_identical(ncol(duplicated_pair$matrix), 1L)
+  expect_identical(ncol(shifted_pair$matrix), 1L)
+  expect_equal(shifted_pair$matrix[, 1], duplicated_pair$matrix[, 1])
+})
+
+test_that("an affine-related covariate drops", {
+  withr::local_options(balancing.quiet = FALSE)
+  data <- data.frame(x1 = c(-1, 0, 1, 2, 0.5, -0.5))
+  data$reversed <- 1 - data$x1
+
+  expect_message(
+    built <- build_constraint_matrix(
+      data,
+      c("x1", "reversed"),
+      balance_terms(),
+      exposure_type = "binary"
+    )
+  )
+  expect_identical(ncol(built$matrix), 1L)
+})
+
+test_that("indicator, quantile, and factor columns keep their full set", {
+  withr::local_seed(404)
+  n <- 60
+  data <- data.frame(
+    x1 = stats::rnorm(n),
+    x2 = stats::rnorm(n),
+    b = rep(c(0, 1), length.out = n),
+    f = factor(rep(c("a", "b", "c"), length.out = n))
+  )
+  built <- build_constraint_matrix(
+    data,
+    c("x1", "x2", "b", "f"),
+    balance_terms(moments = 2L, quantiles = c(0.25, 0.75)),
+    exposure_type = "binary"
+  )
+  terms <- vapply(built$recipe, function(record) record$term, character(1))
+
+  # A zero/one indicator, a quantile indicator, and a full set of factor level
+  # indicators are all linearly independent of one another, so nothing here is
+  # aliased and every column survives.
+  expect_identical(
+    terms,
+    c(
+      "x1",
+      "x1^2",
+      "x2",
+      "x2^2",
+      "b",
+      "f_a",
+      "f_b",
+      "f_c",
+      "x1_q0.25",
+      "x1_q0.75",
+      "x2_q0.25",
+      "x2_q0.75"
+    )
+  )
+})
+
+test_that("interactions with a factor keep their aliased-column drops", {
+  withr::local_options(balancing.quiet = FALSE)
+  withr::local_seed(505)
+  n <- 60
+  data <- data.frame(
+    x1 = stats::rnorm(n),
+    b = rep(c(0, 1), length.out = n),
+    f = factor(rep(c("a", "b", "c"), length.out = n))
+  )
+  expect_message(
+    built <- build_constraint_matrix(
+      data,
+      c("x1", "b", "f"),
+      balance_terms(interactions = TRUE),
+      exposure_type = "binary"
+    )
+  )
+  terms <- vapply(built$recipe, function(record) record$term, character(1))
+
+  # Each covariate crossed with the full set of factor indicators sums back to
+  # the covariate itself, so one product per covariate is redundant.
+  expect_identical(
+    terms,
+    c(
+      "x1",
+      "b",
+      "f_a",
+      "f_b",
+      "f_c",
+      "x1:b",
+      "x1:f_a",
+      "x1:f_b",
+      "b:f_a",
+      "b:f_b"
+    )
+  )
 })
 
 # ---- rebuild_constraint_matrix(): round trip ------------------------------

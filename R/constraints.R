@@ -312,7 +312,7 @@ build_constraint_matrix <- function(
   }
 
   matrix <- rebuild_constraint_matrix(records, .data)
-  dropped <- aliased_columns(records, .data)
+  dropped <- aliased_columns(matrix)
   if (length(dropped) > 0) {
     dropped_terms <- vapply(
       records[dropped],
@@ -418,30 +418,21 @@ quantile_records <- function(covariates, data, quantiles, tolerances) {
   records
 }
 
-# The raw, uncentered value of one column, used only for the rank check. Genuine
-# duplication (an identical covariate) is detected here, while covariates related
-# by an affine shift, which become collinear only after centering, stay distinct.
-raw_check_column <- function(record, data) {
-  switch(
-    record$type,
-    numeric = as.numeric(data[[record$source]])^record$power,
-    indicator = base_values(record$source, record$level, data),
-    interaction = base_values(record$source, record$level, data) *
-      base_values(record$partner, record$partner_level, data),
-    quantile = as.numeric(as.numeric(data[[record$source]]) <= record$cutpoint)
-  )
-}
-
-# Positions of columns a rank-revealing QR identifies as aliased.
-aliased_columns <- function(records, data) {
-  if (length(records) <= 1) {
+# Positions of columns a rank-revealing QR identifies as aliased. The check runs
+# on the assembled constraint columns, which is the geometry the solver actually
+# sees. A covariate that is another covariate plus a constant is the same
+# constraint once the columns are centered, so it is detected here alongside an
+# exact duplicate. A column the decomposition finds redundant constrains nothing
+# the surviving columns do not already constrain, while leaving it in place would
+# make the estimating equations rank deficient.
+aliased_columns <- function(columns) {
+  if (ncol(columns) <= 1) {
     return(integer(0))
   }
-  raw <- do.call(cbind, lapply(records, raw_check_column, data = data))
-  decomposition <- qr(raw)
-  if (decomposition$rank == ncol(raw)) {
+  decomposition <- qr(columns)
+  if (decomposition$rank == ncol(columns)) {
     return(integer(0))
   }
   kept <- decomposition$pivot[seq_len(decomposition$rank)]
-  sort(setdiff(seq_len(ncol(raw)), kept))
+  sort(setdiff(seq_len(ncol(columns)), kept))
 }

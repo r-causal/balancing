@@ -752,6 +752,55 @@ test_that("ipw() standard errors are finite and positive", {
   expect_true(all(estimates$std.err > 0))
 })
 
+test_that("a shift-related covariate leaves the ipw() chain identified", {
+  # A covariate that is another covariate plus a constant contributes the same
+  # constraint column once the columns are centered, so the expansion drops it
+  # and the fit is the fit on the source covariate alone. Carrying both leaves
+  # the estimating equations rank deficient and the stacked variance resting on
+  # a singular bread.
+  data <- ipw_fixture()
+  data$x1_shifted <- data$x1 + 5
+
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x1_shifted),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  reduced <- balance(
+    data,
+    exposure,
+    x1,
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+
+  expect_length(fit@recipe, 1L)
+  jacobian <- estimating_equations(fit)@jacobian
+  expect_identical(qr(jacobian)$rank, ncol(jacobian))
+
+  outcome_mod <- fit_outcome(
+    y ~ exposure,
+    data,
+    as.numeric(stats::weights(fit)),
+    stats::binomial()
+  )
+  reduced_mod <- fit_outcome(
+    y ~ exposure,
+    data,
+    as.numeric(stats::weights(reduced)),
+    stats::binomial()
+  )
+  estimates <- as.data.frame(ipw(fit, outcome_mod))
+  reduced_estimates <- as.data.frame(ipw(reduced, reduced_mod))
+
+  expect_true(all(is.finite(estimates$std.err)))
+  expect_true(all(estimates$std.err > 0))
+  expect_equal(estimates$estimate, reduced_estimates$estimate)
+  expect_equal(estimates$std.err, reduced_estimates$std.err)
+})
+
 test_that("ipw() standard errors differ from the naive weights-fixed sandwich", {
   data <- ipw_fixture()
   fit <- balance(
