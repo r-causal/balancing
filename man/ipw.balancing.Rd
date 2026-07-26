@@ -61,6 +61,16 @@ form, where the g-computation means reduce to the weighted group means. A
 covariate-adjusted outcome model raises \code{balancing_ipw_input_error}; use the
 bootstrap workflow in the inference vignette for those models.
 
+Three further conditions on the outcome model raise the same condition. Its
+family must be binomial, quasibinomial, or gaussian, which includes a plain
+\code{\link[stats:lm]{stats::lm()}}, since the reported effects are the contrasts derived for those
+families' marginal means. It must carry no offset, a restriction the
+inference vignette's bootstrap workflow covers in the meantime. And it must
+have been fitted with the weights the fit produced, since the stacked
+variance differentiates the outcome-model score through those weights: the
+model's weights are compared against the fit's, per unit at a relative
+tolerance of 1e-6.
+
 The outcome-model score block uses the expected (Fisher) information, which
 equals the observed information for a canonical link, including the
 logit link for a binary outcome and the identity link for a continuous

@@ -45,6 +45,16 @@
 #' covariate-adjusted outcome model raises `balancing_ipw_input_error`; use the
 #' bootstrap workflow in the inference vignette for those models.
 #'
+#' Three further conditions on the outcome model raise the same condition. Its
+#' family must be binomial, quasibinomial, or gaussian, which includes a plain
+#' [stats::lm()], since the reported effects are the contrasts derived for those
+#' families' marginal means. It must carry no offset, a restriction the
+#' inference vignette's bootstrap workflow covers in the meantime. And it must
+#' have been fitted with the weights the fit produced, since the stacked
+#' variance differentiates the outcome-model score through those weights: the
+#' model's weights are compared against the fit's, per unit at a relative
+#' tolerance of 1e-6.
+#'
 #' The outcome-model score block uses the expected (Fisher) information, which
 #' equals the observed information for a canonical link, including the
 #' logit link for a binary outcome and the identity link for a continuous
@@ -123,7 +133,8 @@ method(causalgenerics_ipw, balancing) <- function(
   estimand <- resolve_ipw_estimand(estimand, ps_mod@estimand)
 
   exposure_name <- ps_mod@exposure
-  validate_ipw_outcome_model(outcome_mod, exposure_name)
+  weights <- as.numeric(weights(ps_mod))
+  validate_ipw_outcome_model(outcome_mod, exposure_name, weights)
 
   frame <- if (is.null(.data)) stats::model.frame(outcome_mod) else .data
   if (!is.null(.data) && nrow(frame) != ps_mod@n) {
@@ -155,7 +166,6 @@ method(causalgenerics_ipw, balancing) <- function(
     )
   }
 
-  weights <- as.numeric(weights(ps_mod))
   outcome <- resolve_outcome_response(outcome_mod)
   family <- stats::family(outcome_mod)
   continuous <- is_gaussian_outcome(outcome_mod)
@@ -270,9 +280,15 @@ is_gaussian_outcome <- function(outcome_mod) {
 # weighted group means and makes the per-group score sums vanish, which the
 # variance relies on. A covariate-adjusted model would return a silently wrong
 # standard error, so the contract is validated rather than trusted.
+#
+# The shape checks come first, since a model of the wrong class or the wrong
+# form cannot be interrogated for anything else. The three that follow all guard
+# against the same failure mode as the marginal-form check: a model that runs
+# and returns an effect table nobody could tell was wrong.
 validate_ipw_outcome_model <- function(
   outcome_mod,
   exposure_name,
+  expected_weights,
   call = rlang::caller_env()
 ) {
   if (!inherits(outcome_mod, c("glm", "lm"))) {
@@ -298,6 +314,131 @@ validate_ipw_outcome_model <- function(
       call = call
     )
   }
+  validate_ipw_outcome_family(outcome_mod, call = call)
+  validate_ipw_outcome_offset(outcome_mod, call = call)
+  validate_ipw_weight_consistency(outcome_mod, expected_weights, call = call)
+}
+
+# The effects the method reports are contrasts of two marginal means, and each
+# contrast is derived for a particular reading of those means. A binary outcome
+# gives probabilities, whose contrasts are the risk difference, the log risk
+# ratio, and the log odds ratio; a gaussian outcome gives conditional means,
+# whose contrast is their difference. A family outside that set has marginal
+# means neither reading describes. A count outcome is the clearest case: its
+# means are rates, so the odds ratio is undefined and its row would be reported
+# as a missing value beside a risk difference the label does not fit.
+#
+# The quasibinomial family belongs with the binomial one. It shares the binomial
+# variance function, so the marginal means are probabilities and every contrast
+# reads the same; only the dispersion differs, and the dispersion does not enter
+# the sandwich. A plain lm reports a gaussian family through the same accessor,
+# so it needs no separate branch.
+validate_ipw_outcome_family <- function(
+  outcome_mod,
+  call = rlang::caller_env()
+) {
+  supported <- c("binomial", "quasibinomial", "gaussian")
+  family <- stats::family(outcome_mod)$family
+  if (family %in% supported) {
+    return(invisible(NULL))
+  }
+  abort(
+    c(
+      "{.arg outcome_mod} must come from a supported outcome family.",
+      x = "Its family is {.val {family}}.",
+      i = "The supported families are {.val {supported}}.",
+      i = "See the inference vignette for a bootstrap workflow with other families."
+    ),
+    error_class = "balancing_ipw_input_error",
+    call = call
+  )
+}
+
+# An offset is refused for now. The variance engine underneath carries one
+# through both the outcome-model score and the fixed-exposure linear predictors,
+# so the restriction lifts when the method reads its variance from that engine.
+# What is refused today is not the offset but a silent answer: the assembly the
+# method currently uses builds its fixed-exposure predictions without the
+# offset, so the marginal means would come from a linear predictor the model
+# never used and the effect table would look entirely ordinary.
+#
+# Both spellings reach the same place. An offset written into the formula is
+# recorded on the model's terms and shows up in the model frame; one passed
+# through the `offset` argument shows up only on the fitted object. Checking
+# both is what makes the refusal complete.
+validate_ipw_outcome_offset <- function(
+  outcome_mod,
+  call = rlang::caller_env()
+) {
+  frame_offset <- stats::model.offset(stats::model.frame(outcome_mod))
+  if (is.null(frame_offset) && is.null(outcome_mod$offset)) {
+    return(invisible(NULL))
+  }
+  abort(
+    c(
+      "{.arg outcome_mod} must not carry an offset.",
+      x = "Its linear predictor includes an offset, which the stacked variance does not yet carry.",
+      i = "See the inference vignette for a bootstrap workflow."
+    ),
+    error_class = "balancing_ipw_input_error",
+    call = call
+  )
+}
+
+# The stacked variance differentiates the outcome-model score through the
+# weights the fit produced, so it describes the system that was actually solved
+# only when the outcome model was fitted at those weights. Fitted at any other
+# weights, or at none, the model's coefficients and its variance describe two
+# different estimators, and the result is still an ordinary-looking effect
+# table. The weights compared against are the fit's composed weights, which
+# already carry the sampling weights, since those are the weights the outcome
+# model is meant to have been fitted with.
+#
+# The comparison is per unit and relative: every unit's model weight must agree
+# with the weight the fit reports for it to within 1e-6 of that weight's own
+# magnitude. A mean relative difference would let one badly wrong unit hide
+# behind the rest, and an absolute difference would not travel across weight
+# scales, since a fit reporting weights that sum to the sample size and one
+# reporting weights that average one differ by a factor of that size. Weights
+# below one are compared against one, which makes the tolerance absolute in that
+# range rather than demanding relative agreement near zero that floating point
+# arithmetic cannot deliver.
+#
+# A model fitted without weights records none at all rather than a vector of
+# ones, so a missing vector is read as ones. That is what such a model actually
+# fitted, and reading it that way is what makes an unweighted model on a
+# weighted fit an error rather than a case that quietly skips the check.
+validate_ipw_weight_consistency <- function(
+  outcome_mod,
+  expected_weights,
+  call = rlang::caller_env()
+) {
+  model_weights <- stats::weights(outcome_mod)
+  if (is.null(model_weights)) {
+    model_weights <- rep(1, length(expected_weights))
+  }
+  model_weights <- as.numeric(model_weights)
+
+  # A weight vector of a different length cannot belong to this fit, so it is
+  # reported as a mismatch rather than compared through a recycled subtraction.
+  magnitude <- pmax(abs(expected_weights), 1)
+  deviation <- if (length(model_weights) == length(expected_weights)) {
+    max(abs(model_weights - expected_weights) / magnitude)
+  } else {
+    Inf
+  }
+  if (deviation <= 1e-6) {
+    return(invisible(NULL))
+  }
+  abort(
+    c(
+      "{.arg outcome_mod} must be fitted with the weights from {.arg ps_mod}.",
+      x = "Its weights differ from the fit's, compared per unit at relative tolerance 1e-6.",
+      i = "Refit it with {.code weights = weights(fit)}, where {.arg fit} is the balancing fit."
+    ),
+    error_class = "balancing_ipw_input_error",
+    call = call
+  )
 }
 
 # The sandwich needs the response on the scale the outcome model actually

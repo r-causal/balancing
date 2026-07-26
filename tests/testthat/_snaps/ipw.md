@@ -51,6 +51,37 @@
       i The exposure "exposure" must be its only predictor.
       i See the inference vignette for a bootstrap workflow with covariate-adjusted outcome models.
 
+# ipw() rejects an outcome model fitted without weights
+
+    Code
+      stop(cnd)
+    Condition <balancing_ipw_input_error>
+      Error in `propensity::ipw()`:
+      ! `outcome_mod` must be fitted with the weights from `ps_mod`.
+      x Its weights differ from the fit's, compared per unit at relative tolerance 1e-6.
+      i Refit it with `weights = weights(fit)`, where `fit` is the balancing fit.
+
+# ipw() rejects an outcome model with an offset term
+
+    Code
+      stop(cnd)
+    Condition <balancing_ipw_input_error>
+      Error in `propensity::ipw()`:
+      ! `outcome_mod` must not carry an offset.
+      x Its linear predictor includes an offset, which the stacked variance does not yet carry.
+      i See the inference vignette for a bootstrap workflow.
+
+# ipw() rejects a poisson outcome model
+
+    Code
+      stop(cnd)
+    Condition <balancing_ipw_input_error>
+      Error in `propensity::ipw()`:
+      ! `outcome_mod` must come from a supported outcome family.
+      x Its family is "poisson".
+      i The supported families are "binomial", "quasibinomial", and "gaussian".
+      i See the inference vignette for a bootstrap workflow with other families.
+
 # ipw() rejects a factor outcome model fitted without its response
 
     Code

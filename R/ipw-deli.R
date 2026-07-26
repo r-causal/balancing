@@ -199,19 +199,35 @@ ipw_contrast_names <- function(continuous) {
 # raises deli's own error rather than being silently mapped onto a different
 # variance function.
 #
+# The quasibinomial family is the one deliberate rename. deli carries no quasi
+# families and needs none: the quasibinomial variance function is the binomial
+# one, so the estimating equations are the same equations. The dispersion the
+# quasi family estimates never reaches the sandwich, which is built from the
+# score alone, and scaling a score by a constant scales the bread by that
+# constant and the meat by its square, leaving the sandwich unchanged. Mapping
+# the family onto deli's binomial therefore reproduces the binomial answer
+# rather than approximating it.
+#
 # The gamma and negative binomial estimating equations are the exception that
 # has to be caught here rather than there. Both estimate a dispersion parameter
 # alongside the coefficients, so they read the last element of the coefficient
 # vector as a log dispersion and return an extra row. Passed a plain coefficient
 # vector they would return a wrong-shaped block built from a misread parameter,
-# which no downstream check would notice.
+# which no downstream check would notice. A negative binomial fit spells its
+# estimated dispersion into the family name itself, as "Negative Binomial(2)",
+# so the refusal matches on the prefix; an equality test against a fixed spelling
+# would never fire.
 deli_distribution <- function(family, call = rlang::caller_env()) {
   distribution <- switch(
     family$family,
     inverse.gaussian = "inverse_normal",
+    quasibinomial = "binomial",
     tolower(family$family)
   )
-  if (distribution %in% c("gamma", "negative_binomial", "nb")) {
+  estimates_dispersion <- distribution %in%
+    c("gamma", "negative_binomial", "nb") ||
+    startsWith(distribution, "negative binomial")
+  if (estimates_dispersion) {
     abort(
       c(
         "{.fun ipw} cannot compute a stacked variance for a {.val {family$family}} outcome model.",

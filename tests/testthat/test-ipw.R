@@ -566,6 +566,12 @@ for (spec in list(
     focal = NULL
   ),
   list(
+    label = "an entropy att fit",
+    method = quote(bw_entropy()),
+    estimand = "att",
+    focal = "1"
+  ),
+  list(
     label = "an bw_ipt ate fit",
     method = quote(bw_ipt()),
     estimand = "ate",
@@ -809,6 +815,296 @@ test_that("ipw() rejects a supplied data frame without two exposure levels", {
     propensity::ipw(fit, outcome_mod, .data = one_level),
     class = "balancing_ipw_input_error"
   )
+})
+
+# ---- Weight consistency between the fit and the outcome model -------------
+
+# The stacked variance differentiates the outcome-model score through the
+# weights the fit produced, so it describes the system that was actually solved
+# only when the outcome model was fitted at those weights. A model fitted at any
+# other weights, or at none, leaves the point estimates and the standard errors
+# internally inconsistent, and nothing downstream notices: the result still
+# looks like a well-formed effect table. The preflight compares the model's
+# prior weights against the fit's composed weights, which already carry the
+# sampling weights, at a relative tolerance of 1e-6.
+
+test_that("ipw() rejects an outcome model fitted without weights", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  outcome_mod <- stats::glm(
+    y ~ exposure,
+    data = data,
+    family = stats::binomial()
+  )
+
+  # The remedy has to be actionable, so the message names the accessor that
+  # produces the weights the fit expects rather than only reporting a mismatch.
+  expect_error(
+    propensity::ipw(fit, outcome_mod),
+    class = "balancing_ipw_input_error",
+    regexp = "weights(fit)",
+    fixed = TRUE
+  )
+
+  cnd <- rlang::catch_cnd(
+    propensity::ipw(fit, outcome_mod),
+    classes = "balancing_ipw_input_error"
+  )
+  expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
+})
+
+# An lm fitted without weights records none at all, where a glm records a vector
+# of ones. Reading the missing vector as ones is what makes an unweighted lm on
+# a weighted fit an error rather than a case the preflight quietly skips.
+
+test_that("ipw() rejects an unweighted lm on a weighted fit", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  outcome_mod <- stats::lm(y_cont ~ exposure, data = data)
+  expect_null(stats::weights(outcome_mod))
+
+  expect_error(
+    propensity::ipw(fit, outcome_mod),
+    class = "balancing_ipw_input_error"
+  )
+})
+
+test_that("ipw() rejects an outcome model fitted with the wrong weights", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+
+  noise <- withr::with_seed(909, stats::runif(nrow(data), 0.5, 2))
+  noise_mod <- fit_outcome(y ~ exposure, data, noise, stats::binomial())
+  expect_error(
+    propensity::ipw(fit, noise_mod),
+    class = "balancing_ipw_input_error"
+  )
+
+  # The realistic mistake is weights from a neighbouring fit rather than from
+  # noise: they are close enough to the right ones that no result looks wrong.
+  other_fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate"
+  )
+  other_mod <- fit_outcome(
+    y ~ exposure,
+    data,
+    as.numeric(stats::weights(other_fit)),
+    stats::binomial()
+  )
+  expect_error(
+    propensity::ipw(fit, other_mod),
+    class = "balancing_ipw_input_error"
+  )
+})
+
+# ---- Offsets in the outcome model -----------------------------------------
+
+# An offset is rejected for now, and the rejection is interim. The deli-backed
+# variance engine carries an offset through both the outcome-model score and the
+# fixed-exposure linear predictors, so the restriction lifts when ipw() switches
+# engines. Until then the hand-assembled path builds its fixed-exposure
+# predictions with no offset at all, so an offset model would report marginal
+# means read off a linear predictor the model never used. Both spellings reach
+# the same place, the formula term and the `offset` argument, so both are pinned.
+
+test_that("ipw() rejects an outcome model with an offset term", {
+  data <- ipw_fixture()
+  data$log_time <- withr::with_seed(11, stats::rnorm(nrow(data), 0, 0.3))
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(
+    y ~ exposure + offset(log_time),
+    data,
+    w,
+    stats::binomial()
+  )
+
+  expect_error(
+    propensity::ipw(fit, outcome_mod),
+    class = "balancing_ipw_input_error"
+  )
+
+  cnd <- rlang::catch_cnd(
+    propensity::ipw(fit, outcome_mod),
+    classes = "balancing_ipw_input_error"
+  )
+  expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
+})
+
+test_that("ipw() rejects an outcome model with an offset argument", {
+  data <- ipw_fixture()
+  data$log_time <- withr::with_seed(11, stats::rnorm(nrow(data), 0, 0.3))
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  data$.wts <- as.numeric(stats::weights(fit))
+  outcome_mod <- suppressWarnings(stats::glm(
+    y ~ exposure,
+    data = data,
+    family = stats::binomial(),
+    weights = .wts,
+    offset = log_time
+  ))
+
+  expect_error(
+    propensity::ipw(fit, outcome_mod),
+    class = "balancing_ipw_input_error"
+  )
+})
+
+# ---- Outcome model family -------------------------------------------------
+
+# The reported effects are contrasts of two marginal means read as
+# probabilities: a risk difference, a log risk ratio, and a log odds ratio. A
+# count outcome has marginal means that are rates, so the odds ratio is not
+# defined for it and the method returns NaN for that row while still labelling
+# the first row a risk difference. Rather than report a table whose labels do
+# not describe its contents, the accepted families are restricted to the ones
+# whose marginal means the effect rows are derived for.
+
+test_that("ipw() rejects a poisson outcome model", {
+  data <- ipw_fixture()
+  data$y_count <- withr::with_seed(
+    13,
+    stats::rpois(nrow(data), exp(0.2 + 0.3 * data$exposure))
+  )
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y_count ~ exposure, data, w, stats::poisson())
+
+  expect_error(
+    propensity::ipw(fit, outcome_mod),
+    class = "balancing_ipw_input_error"
+  )
+
+  cnd <- rlang::catch_cnd(
+    propensity::ipw(fit, outcome_mod),
+    classes = "balancing_ipw_input_error"
+  )
+  expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
+})
+
+# The restriction is an allowlist rather than a list of known-bad families, so
+# a quasi family and a family with a positive continuous response are refused
+# for the same reason the count family is: their marginal means are not the
+# quantities the effect rows contrast.
+
+test_that("ipw() rejects the quasipoisson and inverse gaussian families", {
+  data <- ipw_fixture()
+  data$y_count <- withr::with_seed(
+    13,
+    stats::rpois(nrow(data), exp(0.2 + 0.3 * data$exposure))
+  )
+  data$y_pos <- withr::with_seed(
+    17,
+    stats::rgamma(nrow(data), shape = 2, rate = 1) + 0.1
+  )
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+
+  quasipoisson_mod <- fit_outcome(
+    y_count ~ exposure,
+    data,
+    w,
+    stats::quasipoisson()
+  )
+  inverse_mod <- fit_outcome(
+    y_pos ~ exposure,
+    data,
+    w,
+    stats::inverse.gaussian(link = "log")
+  )
+
+  expect_error(
+    propensity::ipw(fit, quasipoisson_mod),
+    class = "balancing_ipw_input_error"
+  )
+  expect_error(
+    propensity::ipw(fit, inverse_mod),
+    class = "balancing_ipw_input_error"
+  )
+})
+
+# The restriction must not over-reach. A binomial or quasibinomial glm, a
+# gaussian glm, and a plain lm all stay supported, so each is pinned beside the
+# rejection. The quasibinomial case is the one most easily lost to a family
+# check written against `binomial` alone: it shares the binomial fit's
+# coefficients and its variance function, and its dispersion never enters the
+# sandwich, so it must return the binomial answer exactly.
+
+test_that("ipw() accepts the binomial, quasibinomial, gaussian, and lm families", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  data$.wts <- w
+
+  binomial_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+  quasi_mod <- fit_outcome(y ~ exposure, data, w, stats::quasibinomial())
+  gaussian_mod <- fit_outcome(y_cont ~ exposure, data, w, stats::gaussian())
+  lm_mod <- stats::lm(y_cont ~ exposure, data = data, weights = .wts)
+
+  binomial_result <- as.data.frame(propensity::ipw(fit, binomial_mod))
+  quasi_result <- as.data.frame(propensity::ipw(fit, quasi_mod))
+  gaussian_result <- as.data.frame(propensity::ipw(fit, gaussian_mod))
+  lm_result <- as.data.frame(propensity::ipw(fit, lm_mod))
+
+  expect_identical(binomial_result$effect, c("rd", "log(rr)", "log(or)"))
+  expect_identical(quasi_result$effect, c("rd", "log(rr)", "log(or)"))
+  expect_identical(gaussian_result$effect, "diff")
+  expect_identical(lm_result$effect, "diff")
+
+  expect_equal(quasi_result$estimate, binomial_result$estimate)
+  expect_equal(quasi_result$std.err, binomial_result$std.err)
 })
 
 # ---- Outcome response scale -----------------------------------------------
@@ -1387,6 +1683,12 @@ test_that("ipw_deli_sandwich() names its blocks for a continuous outcome", {
 # The parity grid is the one the hand-assembled sandwich is already pinned on,
 # widened to both outcome families. Each case asserts that swapping the variance
 # engine changes nothing a caller can see.
+#
+# The entropy focal fit is the case the grid most needs: its focal group is
+# reported at weights that do not move with the parameters, so its rows of the
+# weight coupling vanish while every other row carries a per-group reporting
+# factor. An engine that reached the weights any way other than through
+# `weights_fn()` would show it here.
 
 for (spec in list(
   list(
@@ -1394,6 +1696,12 @@ for (spec in list(
     method = quote(bw_entropy()),
     estimand = "ate",
     focal = NULL
+  ),
+  list(
+    label = "an entropy att fit",
+    method = quote(bw_entropy()),
+    estimand = "att",
+    focal = "1"
   ),
   list(
     label = "an bw_ipt ate fit",
@@ -1495,6 +1803,12 @@ for (spec in list(
     method = quote(bw_entropy()),
     estimand = "ate",
     focal = NULL
+  ),
+  list(
+    label = "an entropy att fit",
+    method = quote(bw_entropy()),
+    estimand = "att",
+    focal = "1"
   ),
   list(
     label = "an bw_ipt ate fit",
@@ -1738,4 +2052,301 @@ test_that("ipw_deli_sandwich() refuses a rank-deficient stack", {
     ),
     regexp = "singular"
   )
+})
+
+# A container whose estimating functions go missing away from the solution
+# leaves the finite-differenced bread full of missing values. deli answers that
+# with a warning and a `NULL` rather than an error, which would otherwise
+# surface much later as a complaint about dimnames applied to a non-array, so
+# the engine names the cause where it is still legible. deli's warning is its
+# own unclassed one, so it is suppressed rather than pinned: pinning it would
+# tie this test to another package's wording.
+na_psi_container <- function(ee) {
+  balancing_estimating_equations(
+    parameters = ee@parameters,
+    psi = ee@psi,
+    jacobian = ee@jacobian,
+    weight_jacobian = ee@weight_jacobian,
+    weights_raw = ee@weights_raw,
+    psi_fn = function(theta) {
+      psi <- ee@psi_fn(theta)
+      if (!isTRUE(all.equal(unname(theta), unname(ee@parameters)))) {
+        psi[] <- NA_real_
+      }
+      psi
+    },
+    weights_fn = ee@weights_fn
+  )
+}
+
+test_that("ipw_deli_sandwich() refuses a stack whose bread is not finite", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  expect_error(
+    suppressWarnings(ipw_deli_sandwich(
+      container = na_psi_container(estimating_equations(fit)),
+      outcome_mod = outcome_mod,
+      frame = data,
+      exposure_name = fit@exposure,
+      sampling_weights = fit@sampling_weights
+    )),
+    class = "balancing_ipw_unsupported_error"
+  )
+})
+
+# ---- Outcome families through the deli engine ------------------------------
+
+# deli has no quasibinomial estimating equation and does not need one. The
+# quasibinomial variance function is the binomial one, and the dispersion the
+# quasi family estimates never enters the sandwich, which is built from the
+# score equations alone. Mapping quasibinomial onto deli's binomial therefore
+# has to reproduce the binomial result rather than merely approximate it: the
+# two fits share their coefficients, so every block of the stack coincides.
+
+test_that("the deli sandwich treats a quasibinomial outcome model as binomial", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  binomial_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+  quasi_mod <- fit_outcome(y ~ exposure, data, w, stats::quasibinomial())
+
+  binomial_result <- call_deli_sandwich(fit, binomial_mod, data)
+  quasi_result <- call_deli_sandwich(fit, quasi_mod, data)
+
+  expect_named(quasi_result$theta, names(binomial_result$theta))
+  expect_equal(quasi_result$theta, binomial_result$theta, tolerance = 1e-10)
+  expect_equal(quasi_result$vcov, binomial_result$vcov, tolerance = 1e-10)
+})
+
+# A gamma fit estimates a dispersion alongside the coefficients in deli's
+# estimating equation, which reads the last element of the parameter vector as a
+# log dispersion and returns an extra row. Passed the plain coefficient vector
+# the stack carries, it would build a wrong-shaped block out of a misread
+# parameter, and no downstream check would notice, so the family is refused
+# before the closure is ever evaluated.
+
+test_that("the deli sandwich rejects a gamma outcome model", {
+  data <- ipw_fixture()
+  data$y_pos <- withr::with_seed(
+    17,
+    stats::rgamma(nrow(data), shape = 2, rate = 1) + 0.1
+  )
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(
+    y_pos ~ exposure,
+    data,
+    w,
+    stats::Gamma(link = "log")
+  )
+
+  expect_error(
+    call_deli_sandwich(fit, outcome_mod, data),
+    class = "balancing_ipw_unsupported_error"
+  )
+})
+
+# A negative binomial fit reports its family as "Negative Binomial(theta)", with
+# the estimated dispersion spelled into the family name itself. A refusal
+# written as an exact string comparison against "negative_binomial" therefore
+# never fires, and the call falls through to deli's own unclassed complaint
+# about an unknown distribution. The refusal has to match on the family prefix,
+# which is what this pins. The dispersion the fit estimates is exactly the
+# parameter the stack does not carry, so the family belongs with gamma.
+
+test_that("the deli sandwich rejects a negative binomial outcome model", {
+  skip_if_not_installed("MASS")
+  data <- ipw_fixture()
+  data$y_count <- withr::with_seed(
+    13,
+    stats::rpois(nrow(data), exp(0.2 + 0.3 * data$exposure))
+  )
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  data$.wts <- as.numeric(stats::weights(fit))
+  outcome_mod <- MASS::glm.nb(y_count ~ exposure, data = data, weights = .wts)
+
+  expect_match(stats::family(outcome_mod)$family, "^Negative Binomial")
+  expect_error(
+    call_deli_sandwich(fit, outcome_mod, data),
+    class = "balancing_ipw_unsupported_error"
+  )
+})
+
+# ---- Offsets through the deli engine ---------------------------------------
+
+# The deli engine carries an offset through both the outcome-model score and the
+# fixed-exposure linear predictors, which is the capability the user-facing
+# rejection of offsets is waiting on. Three pins bracket it. An offset that is
+# identically zero must change nothing at all, since it enters only as an
+# addition of zero to the linear predictor. A constant offset must move the
+# intercept and nothing else, because the model is a reparametrization of the
+# same fit. A genuinely unit-varying offset must reach the same marginal means a
+# predict()-based g-computation does, which is the check that the offset is
+# actually carried into the fixed-exposure predictions rather than dropped.
+
+test_that("the deli sandwich is unchanged by an offset of zero", {
+  data <- ipw_fixture()
+  data$zero <- 0
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+
+  plain <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+  offset_mod <- fit_outcome(
+    y ~ exposure + offset(zero),
+    data,
+    w,
+    stats::binomial()
+  )
+
+  plain_result <- call_deli_sandwich(fit, plain, data)
+  offset_result <- call_deli_sandwich(fit, offset_mod, data)
+
+  expect_identical(offset_result$theta, plain_result$theta)
+  expect_identical(offset_result$vcov, plain_result$vcov)
+})
+
+test_that("the deli sandwich absorbs a constant offset into the intercept", {
+  data <- ipw_fixture()
+  shift <- 0.4
+  data$shift <- shift
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+
+  plain <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+  offset_mod <- fit_outcome(
+    y ~ exposure + offset(shift),
+    data,
+    w,
+    stats::binomial()
+  )
+
+  # The reparametrization is exact at the coefficient level, which is what makes
+  # every quantity the stack reports comparable between the two fits.
+  expect_equal(
+    stats::coef(offset_mod)[["(Intercept)"]],
+    stats::coef(plain)[["(Intercept)"]] - shift,
+    tolerance = 1e-8
+  )
+  expect_equal(
+    stats::coef(offset_mod)[["exposure"]],
+    stats::coef(plain)[["exposure"]],
+    tolerance = 1e-8
+  )
+
+  plain_result <- call_deli_sandwich(fit, plain, data)
+  offset_result <- call_deli_sandwich(fit, offset_mod, data)
+
+  # The two fits differ only in where the constant sits, so the means, the
+  # contrasts, and their standard errors must agree to well past the
+  # finite-difference bread's own accuracy.
+  reported <- c("mu0", "mu1", "rd", "log(rr)", "log(or)")
+  expect_equal(
+    offset_result$theta[reported],
+    plain_result$theta[reported],
+    tolerance = 1e-8
+  )
+  expect_equal(
+    sqrt(diag(offset_result$vcov))[reported],
+    sqrt(diag(plain_result$vcov))[reported],
+    tolerance = 1e-8
+  )
+})
+
+test_that("the deli sandwich carries a unit-varying offset into the means", {
+  data <- ipw_fixture()
+  data$log_time <- withr::with_seed(11, stats::rnorm(nrow(data), 0, 0.3))
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+
+  binary_mod <- fit_outcome(
+    y ~ exposure + offset(log_time),
+    data,
+    w,
+    stats::binomial()
+  )
+  continuous_mod <- fit_outcome(
+    y_cont ~ exposure + offset(log_time),
+    data,
+    w,
+    stats::gaussian()
+  )
+
+  binary_result <- call_deli_sandwich(fit, binary_mod, data)
+  continuous_result <- call_deli_sandwich(fit, continuous_mod, data)
+
+  binary_means <- marginal_means(binary_mod, data)
+  continuous_means <- marginal_means(continuous_mod, data)
+
+  expect_equal(
+    binary_result$theta[["mu0"]],
+    binary_means$mu0,
+    tolerance = 1e-10
+  )
+  expect_equal(
+    binary_result$theta[["mu1"]],
+    binary_means$mu1,
+    tolerance = 1e-10
+  )
+  expect_equal(
+    binary_result$theta[["rd"]],
+    binary_means$mu1 - binary_means$mu0,
+    tolerance = 1e-10
+  )
+  expect_equal(
+    continuous_result$theta[["diff"]],
+    continuous_means$mu1 - continuous_means$mu0,
+    tolerance = 1e-10
+  )
+
+  binary_se <- sqrt(diag(binary_result$vcov))
+  continuous_se <- sqrt(diag(continuous_result$vcov))
+  expect_true(all(is.finite(binary_se)))
+  expect_true(all(binary_se > 0))
+  expect_true(all(is.finite(continuous_se)))
+  expect_true(all(continuous_se > 0))
 })
