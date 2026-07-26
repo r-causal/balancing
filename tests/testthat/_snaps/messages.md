@@ -45,11 +45,71 @@
     Condition <balancing_ignored_argument_warning>
       Warning in `method(fit_method, balancing::bw_cbps)`:
       `two_step` applies only to the over-identified fit and is ignored.
-      i Set `over_identified = TRUE` in `bw_cbps()` to use the two-step weighting matrix.
+      i The two-step weighting matrix belongs to the over-identified criterion, which `bw_cbps()` fits for a binary exposure with `over_identified = TRUE`.
     Output
       
       -- Covariate balancing propensity score ----------------------------------------
       Exposure: "exposure" (binary)
+      Estimand: "ate"
+      Observations: 500
+      Solver: converged in 4 iterations
+      Constraints: 2 terms (tolerance 0)
+      Largest imbalance: 0.0000 (standardized mean difference)
+
+# balancing_ignored_argument_warning: over_identified for a categorical exposure
+
+    Code
+      balance(data, exposure, c(x1, x2), method = bw_cbps(over_identified = TRUE),
+      estimand = "ate")
+    Condition <balancing_ignored_argument_warning>
+      Warning in `method(fit_method, balancing::bw_cbps)`:
+      `over_identified` applies only to a binary exposure and is ignored.
+      i A categorical exposure has no over-identified criterion, so the fit balances its moment conditions exactly.
+    Output
+      
+      -- Covariate balancing propensity score ----------------------------------------
+      Exposure: "exposure" (categorical)
+      Estimand: "ate"
+      Observations: 500
+      Solver: converged in 4 iterations
+      Constraints: 2 terms (tolerance 0)
+      Largest imbalance: 0.0000 (standardized mean difference)
+
+# balancing_ignored_argument_warning: over_identified for a continuous exposure
+
+    Code
+      balance(data, exposure, c(x1, x2), method = bw_cbps(over_identified = TRUE),
+      estimand = "ate")
+    Condition <balancing_ignored_argument_warning>
+      Warning in `method(fit_method, balancing::bw_cbps)`:
+      `over_identified` applies only to a binary exposure and is ignored.
+      i A continuous exposure has no over-identified criterion, so the fit balances its moment conditions exactly.
+    Output
+      
+      -- Covariate balancing propensity score ----------------------------------------
+      Exposure: "exposure" (continuous)
+      Estimand: "ate"
+      Observations: 500
+      Solver: converged in 6 iterations
+      Constraints: 2 terms (tolerance 0)
+      Largest imbalance: 0.0000 (correlation)
+
+# balancing_ignored_argument_warning: every argument a categorical fit ignores
+
+    Code
+      balance(data, exposure, c(x1, x2), method = bw_cbps(over_identified = TRUE,
+        two_step = FALSE), estimand = "ate")
+    Condition <balancing_ignored_argument_warning>
+      Warning in `method(fit_method, balancing::bw_cbps)`:
+      `over_identified` applies only to a binary exposure and is ignored.
+      i A categorical exposure has no over-identified criterion, so the fit balances its moment conditions exactly.
+      Warning in `method(fit_method, balancing::bw_cbps)`:
+      `two_step` applies only to the over-identified fit and is ignored.
+      i The two-step weighting matrix belongs to the over-identified criterion, which `bw_cbps()` fits for a binary exposure with `over_identified = TRUE`.
+    Output
+      
+      -- Covariate balancing propensity score ----------------------------------------
+      Exposure: "exposure" (categorical)
       Estimand: "ate"
       Observations: 500
       Solver: converged in 4 iterations

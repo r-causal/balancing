@@ -1911,6 +1911,46 @@ test_that("a categorical continuous outcome reports one difference per level", {
   )
 })
 
+test_that("a categorical bw_cbps fit works after its over-identified request is ignored", {
+  # The over-identified criterion belongs to a binary exposure, so a categorical
+  # specification that asks for it is warned and fits the just-identified form.
+  # That fit is an ordinary categorical covariate balancing fit, so the stacked
+  # variance is available on it exactly as it is for the plain specification.
+  data <- ipw_categorical_fixture()
+  fit <- suppressWarnings(balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_cbps(over_identified = TRUE),
+    estimand = "ate"
+  ))
+  reference <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_cbps(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  result <- ipw(fit, outcome_mod)
+  expected <- ipw(
+    reference,
+    fit_outcome(
+      y ~ exposure,
+      data,
+      as.numeric(stats::weights(reference)),
+      stats::binomial()
+    )
+  )
+
+  expect_s3_class(result, "ipw")
+  expect_identical(result$se_method, "mestimation")
+  expect_equal(result$fit$theta, expected$fit$theta, tolerance = 1e-12)
+  expect_equal(result$fit$vcov, expected$fit$vcov, tolerance = 1e-12)
+})
+
 test_that("a categorical ipw() result prints its comparisons", {
   data <- ipw_categorical_fixture()
   fit <- balance(

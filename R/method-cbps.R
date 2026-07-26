@@ -34,11 +34,14 @@
 #' Setting `over_identified = TRUE` stacks the propensity model's own score
 #' equations onto the balancing conditions and minimizes a generalized-method-of-
 #' moments criterion. Balance is then approximate, the fit records the criterion
-#' value on its objective, and it supplies no estimating equations. `two_step`
-#' selects the two-step weighting matrix for that criterion; it has no effect on
-#' the just-identified fit and is warned and ignored there. Every just-identified
+#' value on its objective, and it supplies no estimating equations. That
+#' criterion is defined for a binary exposure alone: a categorical or continuous
+#' exposure has no over-identified form, so the request is warned and ignored and
+#' the fit balances its moment conditions exactly. `two_step` selects the
+#' two-step weighting matrix for that criterion; it has no effect on a fit that
+#' is not over-identified and is warned and ignored there. Every just-identified
 #' discrete fit, the overlap estimand included, supplies estimating equations;
-#' only the over-identified form and a continuous exposure do not.
+#' only the binary over-identified form and a continuous exposure do not.
 #'
 #' For a continuous exposure the covariate balancing conditions require the
 #' weighted exposure mean to match the sample mean and the weighted covariance
@@ -53,10 +56,11 @@
 #'
 #' @param over_identified Whether to add the propensity model's score equations
 #'   and minimize the generalized-method-of-moments criterion. `FALSE` fits the
-#'   just-identified form, whose balance is exact.
+#'   just-identified form, whose balance is exact. Binary exposures only;
+#'   ignored, with a warning, for a categorical or continuous exposure.
 #' @param two_step Whether to use the two-step weighting matrix for the
 #'   over-identified criterion, rather than the continuously updating criterion.
-#'   Ignored, with a warning, when `over_identified` is `FALSE`.
+#'   Ignored, with a warning, whenever the fit is not over-identified.
 #' @param link The propensity link, one of `"logit"`, `"probit"`, or
 #'   `"cloglog"`. Binary exposures only.
 #' @param convergence_tolerance The solver convergence tolerance.
@@ -159,10 +163,14 @@ method(supported_estimands, bw_cbps) <- function(method, exposure_type) {
   )
 }
 
-# The just-identified discrete form supplies smooth estimating equations. The
-# over-identified form minimizes a generalized-method-of-moments criterion and a
+# The just-identified discrete form supplies smooth estimating equations. A
 # continuous exposure balances the exposure-covariate covariance through an
-# exponential tilt, so neither carries estimating equations.
+# exponential tilt and carries none. The over-identified form minimizes a
+# generalized-method-of-moments criterion and carries none either, but only a
+# binary exposure fits that criterion: a categorical exposure ignores the
+# request, with a warning from fit_method(), and fits the just-identified form,
+# whose container is real. With no exposure type supplied the answer covers the
+# binary reading, where the request does take effect.
 method(supports_estimating_equations, bw_cbps) <- function(
   method,
   ...,
@@ -170,10 +178,10 @@ method(supports_estimating_equations, bw_cbps) <- function(
   constraints = NULL
 ) {
   rlang::check_dots_empty()
-  if (method@over_identified) {
+  if (identical(exposure_type, "continuous")) {
     return(FALSE)
   }
-  if (identical(exposure_type, "continuous")) {
+  if (method@over_identified && !identical(exposure_type, "categorical")) {
     return(FALSE)
   }
   TRUE
@@ -194,14 +202,36 @@ cbps_options <- function(method) {
 }
 
 method(fit_method, bw_cbps) <- function(method, prepared) {
+  # The over-identified criterion stacks the propensity model's score equations
+  # onto the balancing conditions, a form the core minimizes for a binary
+  # exposure alone. The categorical and continuous solvers have no such
+  # criterion, so the request cannot be honored there and the fit is the
+  # just-identified one. Warn and proceed rather than fail validation, so that a
+  # setting the exposure type cannot use is announced rather than dropped.
+  exposure_type <- prepared$exposure_type
+  over_identified <- method@over_identified &&
+    identical(exposure_type, "binary")
+
+  if (method@over_identified && !over_identified) {
+    warn(
+      c(
+        "{.arg over_identified} applies only to a binary exposure and is ignored.",
+        i = "A {exposure_type} exposure has no over-identified criterion, so the fit balances its moment conditions exactly."
+      ),
+      warning_class = "balancing_ignored_argument_warning"
+    )
+  }
+
   # The two-step weighting matrix belongs to the over-identified criterion.
   # Setting it while the fit is just-identified has no effect, so warn and
-  # proceed rather than fail validation.
-  if (!method@over_identified && !method@two_step) {
+  # proceed rather than fail validation. A request the exposure type ignores
+  # leaves the fit just-identified too, so the reading is the effective form
+  # rather than the requested one.
+  if (!over_identified && !method@two_step) {
     warn(
       c(
         "{.arg two_step} applies only to the over-identified fit and is ignored.",
-        i = "Set {.code over_identified = TRUE} in {.fn bw_cbps} to use the two-step weighting matrix."
+        i = "The two-step weighting matrix belongs to the over-identified criterion, which {.fn bw_cbps} fits for a binary exposure with {.code over_identified = TRUE}."
       ),
       warning_class = "balancing_ignored_argument_warning"
     )

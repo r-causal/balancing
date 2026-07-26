@@ -53,6 +53,52 @@ test_that("balancing_ignored_argument_warning: two_step without over_identified"
   )
 })
 
+test_that("balancing_ignored_argument_warning: over_identified for a categorical exposure", {
+  # The over-identified criterion is defined for a binary exposure alone, so a
+  # categorical fit warns that the request is ignored and returns the exactly
+  # balancing solution. The message names the exposure type it was raised for.
+  data <- sim_categorical()
+  expect_balancing_warning(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_cbps(over_identified = TRUE),
+      estimand = "ate"
+    )
+  )
+})
+
+test_that("balancing_ignored_argument_warning: over_identified for a continuous exposure", {
+  data <- sim_continuous()
+  expect_balancing_warning(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_cbps(over_identified = TRUE),
+      estimand = "ate"
+    )
+  )
+})
+
+test_that("balancing_ignored_argument_warning: every argument a categorical fit ignores", {
+  # Once the over-identified request is ignored the fit is not over-identified,
+  # so the two-step weighting matrix has no criterion to weight either. Each
+  # ignored argument carries its own warning rather than the first standing in
+  # for both.
+  data <- sim_categorical()
+  expect_balancing_warning(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_cbps(over_identified = TRUE, two_step = FALSE),
+      estimand = "ate"
+    )
+  )
+})
+
 # ---- Class-downgrade warning ----------------------------------------------
 
 test_that("balancing_class_downgrade_warning: mismatched estimands", {

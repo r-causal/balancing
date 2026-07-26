@@ -16,11 +16,12 @@ bw_cbps(
 \arguments{
 \item{over_identified}{Whether to add the propensity model's score equations
 and minimize the generalized-method-of-moments criterion. \code{FALSE} fits the
-just-identified form, whose balance is exact.}
+just-identified form, whose balance is exact. Binary exposures only;
+ignored, with a warning, for a categorical or continuous exposure.}
 
 \item{two_step}{Whether to use the two-step weighting matrix for the
 over-identified criterion, rather than the continuously updating criterion.
-Ignored, with a warning, when \code{over_identified} is \code{FALSE}.}
+Ignored, with a warning, whenever the fit is not over-identified.}
 
 \item{link}{The propensity link, one of \code{"logit"}, \code{"probit"}, or
 \code{"cloglog"}. Binary exposures only.}
@@ -59,11 +60,14 @@ produce the same weights.
 Setting \code{over_identified = TRUE} stacks the propensity model's own score
 equations onto the balancing conditions and minimizes a generalized-method-of-
 moments criterion. Balance is then approximate, the fit records the criterion
-value on its objective, and it supplies no estimating equations. \code{two_step}
-selects the two-step weighting matrix for that criterion; it has no effect on
-the just-identified fit and is warned and ignored there. Every just-identified
+value on its objective, and it supplies no estimating equations. That
+criterion is defined for a binary exposure alone: a categorical or continuous
+exposure has no over-identified form, so the request is warned and ignored and
+the fit balances its moment conditions exactly. \code{two_step} selects the
+two-step weighting matrix for that criterion; it has no effect on a fit that
+is not over-identified and is warned and ignored there. Every just-identified
 discrete fit, the overlap estimand included, supplies estimating equations;
-only the over-identified form and a continuous exposure do not.
+only the binary over-identified form and a continuous exposure do not.
 
 For a continuous exposure the covariate balancing conditions require the
 weighted exposure mean to match the sample mean and the weighted covariance

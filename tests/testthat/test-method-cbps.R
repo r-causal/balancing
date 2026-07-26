@@ -195,8 +195,9 @@ test_that("supports_estimating_equations() follows the design's rules", {
     exposure_type = "categorical"
   ))
 
-  # The over-identified form minimizes a GMM criterion and has none, whatever
-  # the exposure type.
+  # The over-identified form minimizes a GMM criterion and has none. Only a
+  # binary exposure fits that criterion, so with no exposure type supplied the
+  # answer covers the binary reading.
   expect_false(supports_estimating_equations(bw_cbps(over_identified = TRUE)))
   expect_false(supports_estimating_equations(
     bw_cbps(over_identified = TRUE),
@@ -608,6 +609,140 @@ test_that("two_step is warned and ignored without over_identified", {
     as.numeric(stats::weights(fit)),
     as.numeric(stats::weights(reference)),
     tolerance = 1e-6
+  )
+})
+
+# ---- over_identified outside a binary exposure ----------------------------
+
+test_that("over_identified is warned and ignored for a categorical exposure", {
+  # The generalized-method-of-moments criterion stacks the propensity model's
+  # score equations onto the balancing conditions, which the core minimizes for a
+  # binary exposure alone. A categorical fit cannot honor the request, so it
+  # announces the setting as ignored on the convention two_step follows and
+  # returns the just-identified solution.
+  data <- sim_categorical()
+  expect_warning(
+    fit <- balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_cbps(over_identified = TRUE),
+      estimand = "ate"
+    ),
+    class = "balancing_ignored_argument_warning"
+  )
+  reference <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_cbps(),
+    estimand = "ate"
+  )
+  expect_equal(
+    as.numeric(stats::weights(fit)),
+    as.numeric(stats::weights(reference)),
+    tolerance = 1e-12
+  )
+})
+
+test_that("over_identified is warned and ignored for a continuous exposure", {
+  # The continuous form balances the exposure-covariate covariance through an
+  # exponential tilt and has no criterion to over-identify, so the request is
+  # ignored the same way.
+  data <- sim_continuous()
+  expect_warning(
+    fit <- balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_cbps(over_identified = TRUE),
+      estimand = "ate"
+    ),
+    class = "balancing_ignored_argument_warning"
+  )
+  reference <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_cbps(),
+    estimand = "ate"
+  )
+  expect_equal(
+    as.numeric(stats::weights(fit)),
+    as.numeric(stats::weights(reference)),
+    tolerance = 1e-12
+  )
+})
+
+test_that("a binary fit honors over_identified without the ignored warning", {
+  # The binary path is the one that fits the criterion, so nothing is ignored
+  # there and the solution genuinely departs from the just-identified one.
+  data <- sim_binary()
+  fit <- expect_no_warning(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_cbps(over_identified = TRUE),
+      estimand = "ate"
+    ),
+    class = "balancing_ignored_argument_warning"
+  )
+  reference <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_cbps(),
+    estimand = "ate"
+  )
+  expect_false(isTRUE(all.equal(
+    as.numeric(stats::weights(fit)),
+    as.numeric(stats::weights(reference))
+  )))
+})
+
+test_that("the categorical over-identified capability matches its container", {
+  # A caller reads supports_estimating_equations() to decide whether
+  # estimating_equations() will answer, so the two must agree. The categorical
+  # path ignores the over-identified request, which leaves a just-identified fit
+  # whose container is real.
+  data <- sim_categorical()
+  fit <- suppressWarnings(balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_cbps(over_identified = TRUE),
+    estimand = "ate"
+  ))
+  expect_true(supports_estimating_equations(
+    bw_cbps(over_identified = TRUE),
+    exposure_type = "categorical"
+  ))
+  ee <- estimating_equations(fit)
+  expect_true(S7::S7_inherits(ee, balancing_estimating_equations))
+  expect_equal(nrow(ee@psi), nrow(data))
+  expect_lt(max(abs(colSums(ee@psi))), 1e-6)
+  expect_false(is.null(ee@psi_fn))
+  expect_false(is.null(ee@weights_fn))
+})
+
+test_that("the continuous over-identified capability matches its container", {
+  data <- sim_continuous()
+  fit <- suppressWarnings(balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_cbps(over_identified = TRUE),
+    estimand = "ate"
+  ))
+  expect_false(supports_estimating_equations(
+    bw_cbps(over_identified = TRUE),
+    exposure_type = "continuous"
+  ))
+  expect_null(fit@estimating_equations)
+  expect_error(
+    estimating_equations(fit),
+    class = "balancing_ipw_unsupported_error"
   )
 })
 
