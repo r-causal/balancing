@@ -26,11 +26,21 @@
 #' (`log(rr)`), and the log odds ratio (`log(or)`); for a continuous outcome it
 #' returns the difference in means (`diff`).
 #'
+#' A categorical exposure reports those same measures for each non-reference
+#' level against the reference level, which is the first of the fit's own levels:
+#' a factor's declared level order for a factor exposure, and the sorted values
+#' otherwise. A K-level exposure therefore contributes K marginal means and one
+#' block of measures per non-reference level, and the estimates table gains a
+#' `comparison` column, placed after `effect`, naming each contrast as
+#' `"<level> vs <reference>"`. A binary exposure keeps the table it has always
+#' returned, with no `comparison` column.
+#'
 #' The standard errors come from a stacked M-estimator that the deli package
 #' differentiates and sandwiches. The stacked parameter vector holds four
 #' blocks: the
-#' weight parameters, the outcome-model coefficients, the two marginal means,
-#' and the effect contrasts. Their estimating functions are, in the same order,
+#' weight parameters, the outcome-model coefficients, the marginal means, one per
+#' exposure level, and the effect contrasts. Their estimating functions are, in
+#' the same order,
 #' the weight-parameter estimating equations the fit carries, re-evaluated at
 #' new weight parameters through the hooks the fit's
 #' [balancing_estimating_equations] container supplies; the outcome-model score,
@@ -54,25 +64,33 @@
 #' understate.
 #'
 #' The method is available only for fits whose weights solve smooth estimating
-#' equations with a binary exposure: the estimating-equation family (entropy
+#' equations with a discrete exposure: the estimating-equation family (entropy
 #' balancing, inverse probability tilting, and the just-identified covariate
-#' balancing propensity score) with exact balance. Any other fit, including an
-#' entropy fit at a positive tolerance, an over-identified or quadratic-program
-#' fit, or a categorical or continuous exposure, raises
+#' balancing propensity score) with exact balance, at a binary or categorical
+#' exposure. Any other fit, including an entropy fit at a positive tolerance, an
+#' over-identified or quadratic-program fit, or a continuous exposure, raises
 #' `balancing_ipw_unsupported_error` and points to the bootstrap workflow
 #' described in the inference vignette.
+#'
+#' The outcome model must carry the same exposure levels the fit weighted.
+#' Fitting it on data that drop a level, or that carry one the fit never saw,
+#' raises `balancing_ipw_input_error`: the counterfactual predictions and the
+#' weights would then describe different exposures, and the resulting table would
+#' name a contrast it had not computed.
 #'
 #' The outcome model must carry the exposure among its predictors, and may
 #' adjust for covariates alongside it, including in interactions with the
 #' exposure: `y ~ exposure`, `y ~ exposure + x1 + x2`, and `y ~ exposure * x1`
-#' are all supported. A model without an exposure term raises
-#' `balancing_ipw_input_error`, since its two fixed-exposure predictions would
-#' be the same prediction and every contrast it reported would be zero.
+#' are all supported. A categorical exposure enters as a factor, so its
+#' fixed-exposure designs come from the model's own contrasts. A model without an
+#' exposure term raises `balancing_ipw_input_error`, since its fixed-exposure
+#' predictions would all be the same prediction and every contrast it reported
+#' would be zero.
 #'
 #' Which population the marginal means are averaged over is part of the
-#' estimand, and matters as soon as the outcome model adjusts for anything. The
-#' marginal model of a binary exposure is saturated, one free parameter per
-#' exposure level, so absent an offset it predicts a single value per level, its
+#' estimand, and matters as soon as the outcome model adjusts for anything. A
+#' marginal model is saturated in the exposure, one free parameter per exposure
+#' level, so absent an offset it predicts a single value per level, its
 #' marginal means are the weighted group means whatever link the family carries,
 #' and no choice of population can change them. An adjusted model predicts a
 #' value per unit, so the means are standardized over the estimand's target
@@ -133,8 +151,11 @@
 #'     parameter vector, and `vcov`, its sandwich covariance. Both are named by
 #'     stacked block: `theta_w1` onward for the weight parameters, `beta_`
 #'     followed by the design column name for the outcome-model coefficients,
-#'     then `mu0`, `mu1`, and one name per effect. The standard errors in
-#'     `estimates` are `sqrt(diag(fit$vcov))` read at the effect names.
+#'     then the marginal means and one name per contrast. A binary exposure names
+#'     its means `mu0` and `mu1` and its contrasts by measure alone; a
+#'     categorical exposure names each mean `mu_` followed by its level and each
+#'     contrast by measure and level, as `rd_b`. The standard errors in
+#'     `estimates` are `sqrt(diag(fit$vcov))` read at those contrast names.
 #'
 #' @examples
 #' n <- 200
@@ -159,6 +180,37 @@
 #' )
 #'
 #' ipw(fit, adjusted_mod)
+#'
+#' # A categorical exposure reports each level against the reference level, and
+#' # the estimates table names the comparison.
+#' odds_b <- exp(0.6 * x1)
+#' odds_c <- exp(-0.5 * x1)
+#' denominator <- 1 + odds_b + odds_c
+#' draw <- runif(n)
+#' df$arm <- factor(
+#'   ifelse(
+#'     draw < 1 / denominator,
+#'     "a",
+#'     ifelse(draw < (1 + odds_b) / denominator, "b", "c")
+#'   ),
+#'   levels = c("a", "b", "c")
+#' )
+#' df$relapse <- rbinom(
+#'   n,
+#'   1,
+#'   plogis(-0.4 + 0.5 * (df$arm == "b") + 0.9 * (df$arm == "c") + 0.3 * x1)
+#' )
+#'
+#' arm_fit <- balance(df, arm, x1, method = bw_ipt(), estimand = "ate")
+#' df$.arm_wts <- as.numeric(weights(arm_fit))
+#' arm_mod <- glm(
+#'   relapse ~ arm,
+#'   data = df,
+#'   family = binomial(),
+#'   weights = .arm_wts
+#' )
+#'
+#' ipw(arm_fit, arm_mod)
 #'
 #' @name ipw.balancing
 #' @importFrom causalgenerics ipw
@@ -188,7 +240,8 @@ method(causalgenerics_ipw, balancing) <- function(
   if (is.null(container)) {
     abort_ipw_unsupported(reason = "no_equations")
   }
-  if (!identical(ps_mod@exposure_type, "binary")) {
+  categorical <- identical(ps_mod@exposure_type, "categorical")
+  if (!categorical && !identical(ps_mod@exposure_type, "binary")) {
     abort_ipw_unsupported(
       reason = "exposure_type",
       exposure_type = ps_mod@exposure_type
@@ -223,16 +276,8 @@ method(causalgenerics_ipw, balancing) <- function(
       error_class = "balancing_ipw_input_error"
     )
   }
-  levels <- sort(unique(frame[[exposure_name]]))
-  if (length(levels) != 2L) {
-    abort(
-      c(
-        "{.fun ipw} supports binary exposures only.",
-        x = "The exposure {.val {exposure_name}} has {length(levels)} observed level{?s} in the data."
-      ),
-      error_class = "balancing_ipw_input_error"
-    )
-  }
+  levels <- fit_exposure_levels(ps_mod)
+  validate_ipw_exposure_levels(frame[[exposure_name]], levels, exposure_name)
 
   # The variance engine composes the sampling weights onto the weights the
   # container's own hook returns, so it takes the fit's sampling weights raw.
@@ -246,6 +291,8 @@ method(causalgenerics_ipw, balancing) <- function(
     outcome_mod = outcome_mod,
     frame = frame,
     exposure_name = exposure_name,
+    levels = levels,
+    categorical = categorical,
     sampling_weights = ps_mod@sampling_weights,
     focal_level = ps_mod@focal_level
   )
@@ -254,7 +301,8 @@ method(causalgenerics_ipw, balancing) <- function(
     theta = variance_system$theta,
     vcov = variance_system$vcov,
     conf_level = conf_level,
-    continuous = is_gaussian_outcome(outcome_mod)
+    continuous = is_gaussian_outcome(outcome_mod),
+    levels = if (categorical) levels else NULL
   )
 
   # The result carries the same fields propensity's own method returns. The
@@ -292,8 +340,8 @@ abort_ipw_unsupported <- function(
       i = "Estimating equations come from the estimating-equation family (entropy balancing, inverse probability tilting, just-identified covariate balancing propensity score) with exact balance."
     ),
     exposure_type = c(
-      x = "This fit has a {exposure_type} exposure, and only binary exposures are supported.",
-      i = "The stacked variance is derived for a binary exposure."
+      x = "This fit has a {exposure_type} exposure, and only binary and categorical exposures are supported.",
+      i = "The stacked variance is derived for a discrete exposure."
     ),
     no_hooks = c(
       x = "This fit's container does not carry re-evaluation hooks, which the stacked variance differentiates the weight path through.",
@@ -307,6 +355,62 @@ abort_ipw_unsupported <- function(
       i = "See the inference vignette for a bootstrap workflow."
     ),
     error_class = "balancing_ipw_unsupported_error",
+    call = call,
+    .envir = environment()
+  )
+}
+
+# The exposure levels the fit weighted, in the fit's own order, whose first
+# element is the reference level every contrast is measured against. `balance()`
+# groups the data by level and records those groups alongside the weights, so
+# the weights carry the ordering the solve used: a factor's declared level order
+# for a factor exposure, and the sorted values otherwise. Sorting the data's own
+# values again here would agree with that ordering by coincidence and disagree
+# silently whenever a factor declares its levels out of alphabetical order, which
+# would report every contrast against the wrong level.
+fit_exposure_levels <- function(fit) {
+  names(attr(fit@weights, "groups"))
+}
+
+# The outcome model describes the same exposure the fit weighted only when it
+# carries the same levels. A level the fit weighted but the data no longer
+# contain has no counterfactual design to predict, and a level the data carry but
+# the fit never saw was never balanced and has no weights behind it. Either way
+# the effect table would look ordinary while describing a different contrast
+# than the one it names, so the mismatch is refused with both sides named.
+validate_ipw_exposure_levels <- function(
+  exposure,
+  levels,
+  exposure_name,
+  call = rlang::caller_env()
+) {
+  observed <- unique(as.character(exposure[!is.na(exposure)]))
+  absent <- setdiff(levels, observed)
+  unexpected <- setdiff(observed, levels)
+  if (length(absent) == 0 && length(unexpected) == 0) {
+    return(invisible(NULL))
+  }
+
+  detail <- character(0)
+  if (length(absent) > 0) {
+    detail <- c(
+      detail,
+      x = "The fit weighted {.val {absent}}, which the data do not contain."
+    )
+  }
+  if (length(unexpected) > 0) {
+    detail <- c(
+      detail,
+      x = "The data contain {.val {unexpected}}, which the fit did not weight."
+    )
+  }
+  abort(
+    c(
+      "The exposure {.val {exposure_name}} must carry the same levels in the outcome model as in the fit.",
+      detail,
+      i = "Fit the outcome model on the data the weights were fitted from."
+    ),
+    error_class = "balancing_ipw_input_error",
     call = call,
     .envir = environment()
   )
@@ -582,15 +686,24 @@ fixed_exposure_pieces <- function(
 # standard error is the square root of the matching diagonal entry of the
 # covariance. Nothing is contrasted or differentiated here, which is what keeps
 # the contrast formulas stated once, in the stack itself.
-ipw_estimates <- function(theta, vcov, conf_level, continuous) {
-  effects <- ipw_contrast_names(continuous)
-  estimate <- unname(theta[effects])
-  std_err <- unname(sqrt(diag(vcov)[effects]))
+#
+# A categorical exposure reports one block of measures per non-reference level,
+# so the `effect` column alone no longer identifies a row: the same three
+# measures appear once per comparison. The table therefore gains a `comparison`
+# column naming the two levels, placed immediately after `effect`, which is where
+# propensity puts it and where its own print method looks for it. A binary
+# exposure has a single comparison and keeps the eight-column table, since a
+# column repeating one label on every row identifies nothing.
+ipw_estimates <- function(theta, vcov, conf_level, continuous, levels = NULL) {
+  keys <- ipw_contrast_names(continuous, levels)
+  measures <- ipw_contrast_names(continuous)
+  estimate <- unname(theta[keys])
+  std_err <- unname(sqrt(diag(vcov)[keys]))
   z <- estimate / std_err
   z_value <- stats::qnorm(1 - (1 - conf_level) / 2)
 
-  data.frame(
-    effect = effects,
+  estimates <- data.frame(
+    effect = rep(measures, times = length(keys) / length(measures)),
     estimate = estimate,
     std.err = std_err,
     z = z,
@@ -598,5 +711,18 @@ ipw_estimates <- function(theta, vcov, conf_level, continuous) {
     ci.upper = estimate + z_value * std_err,
     conf.level = conf_level,
     p.value = 2 * (1 - stats::pnorm(abs(z)))
+  )
+  if (is.null(levels)) {
+    return(estimates)
+  }
+
+  comparison <- rep(
+    paste(levels[-1], "vs", levels[[1]]),
+    each = length(measures)
+  )
+  cbind(
+    estimates["effect"],
+    comparison = comparison,
+    estimates[setdiff(names(estimates), "effect")]
   )
 }

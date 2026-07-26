@@ -7,14 +7,22 @@
 # already found, and the closure only re-evaluates the estimating functions
 # around that point.
 #
-# The stack is ordered [theta_w | beta | mu0 | mu1 | contrasts]. The weight
+# The stack is ordered [theta_w | beta | means | contrasts]. The weight
 # parameters come first because everything downstream depends on them and
 # nothing upstream does. The outcome-model coefficients follow, coupled to the
 # weight parameters through the weights the score carries. The marginal means
-# read off the outcome model with the exposure fixed to each level, and the
-# effect contrasts close the system. Making each contrast a parameter of the
-# stack is what removes the delta method from the caller: the contrast's
-# standard error is already on the diagonal of the returned covariance.
+# read off the outcome model with the exposure fixed to each level, one mean per
+# level, and the effect contrasts close the system. Making each contrast a
+# parameter of the stack is what removes the delta method from the caller: the
+# contrast's standard error is already on the diagonal of the returned
+# covariance.
+#
+# An exposure with K levels contributes K means and one block of contrasts per
+# non-reference level, each measured against the reference level, which is the
+# first of the fit's own levels. A binary exposure is that system at K equal to
+# two, and the only thing its two levels change is the naming: its means are
+# `mu0` and `mu1` and its contrasts are unsuffixed, since one comparison needs no
+# label to tell it from another.
 #
 # Two details of that system are there for the outcome models that adjust for
 # covariates, and both reduce to what a marginal model already did.
@@ -50,6 +58,11 @@
 #' @param outcome_mod The fitted weighted outcome model.
 #' @param frame The data frame holding the exposure.
 #' @param exposure_name The exposure column name.
+#' @param levels The exposure levels the fit weighted, as strings in the fit's
+#'   own order. The first is the reference level every contrast is measured
+#'   against.
+#' @param categorical Whether the fit's exposure is categorical, which decides
+#'   how the mean and contrast blocks are named.
 #' @param sampling_weights The fit's sampling weights, or `NULL`.
 #' @param focal_level The fit's focal exposure level, or `NULL` for a pooled
 #'   estimand. It names the target population the marginal means standardize
@@ -64,6 +77,8 @@ ipw_deli_sandwich <- function(
   outcome_mod,
   frame,
   exposure_name,
+  levels,
+  categorical = FALSE,
   sampling_weights = NULL,
   focal_level = NULL
 ) {
@@ -76,23 +91,20 @@ ipw_deli_sandwich <- function(
   offset <- outcome_mod$offset
 
   # The marginal-mean equations predict the outcome model with the exposure
-  # fixed to each level, so they build a design per level from the model's own
+  # fixed to each level, so they build one design per level from the model's own
   # terms. An offset is part of the linear predictor rather than of the design,
   # so it is carried alongside and added to eta.
-  levels <- sort(unique(frame[[exposure_name]]))
-  design0 <- fixed_exposure_pieces(
-    outcome_mod,
-    frame,
-    exposure_name,
-    levels[1],
-    offset = offset
-  )
-  design1 <- fixed_exposure_pieces(
-    outcome_mod,
-    frame,
-    exposure_name,
-    levels[2],
-    offset = offset
+  pieces <- lapply(
+    resolve_level_values(frame[[exposure_name]], levels),
+    function(value) {
+      fixed_exposure_pieces(
+        outcome_mod,
+        frame,
+        exposure_name,
+        value,
+        offset = offset
+      )
+    }
   )
 
   # The sampling weights compose multiplicatively onto the reported balancing
@@ -112,9 +124,14 @@ ipw_deli_sandwich <- function(
   #
   # The exposure groups and the totals the reported weights are carried to come
   # from the same two facts, so they are built once here for the weight map
-  # below.
+  # below. The groups are built in the fit's level order rather than by
+  # splitting, which would sort them, so that the per-group scale this applies
+  # is the one the fit itself reported at.
   key <- as.character(frame[[exposure_name]])
-  groups <- split(seq_len(n), key)
+  groups <- stats::setNames(
+    lapply(levels, function(level) which(key == level)),
+    levels
+  )
   targets <- group_target_sums(sampling, groups, focal_level)
   tilt <- if (is.null(focal_level)) {
     sampling
@@ -130,18 +147,23 @@ ipw_deli_sandwich <- function(
   p <- length(weight_parameters)
   coefficients <- stats::coef(outcome_mod)
   q <- length(coefficients)
-  mu0 <- sum(tilt * design0$mu) / sum(tilt)
-  mu1 <- sum(tilt * design1$mu) / sum(tilt)
-  contrasts <- ipw_contrast_values(mu0, mu1, continuous)
-  effects <- ipw_contrast_names(continuous)
+  means <- vapply(
+    pieces,
+    function(piece) {
+      sum(tilt * piece$mu) / sum(tilt)
+    },
+    numeric(1)
+  )
+  m <- length(means)
+  contrasts <- ipw_contrast_values(means, continuous)
+  effects <- ipw_contrast_names(continuous, if (categorical) levels else NULL)
   k <- length(effects)
 
-  theta <- c(weight_parameters, coefficients, mu0, mu1, contrasts)
+  theta <- c(weight_parameters, coefficients, means, contrasts)
   names(theta) <- c(
     paste0("theta_w", seq_len(p)),
     paste0("beta_", colnames(design)),
-    "mu0",
-    "mu1",
+    ipw_mean_names(levels, categorical),
     effects
   )
 
@@ -198,9 +220,8 @@ ipw_deli_sandwich <- function(
 
   stacked_equations <- function(theta) {
     beta <- theta[p + seq_len(q)]
-    mean0 <- theta[[p + q + 1L]]
-    mean1 <- theta[[p + q + 2L]]
-    contrast_theta <- theta[p + q + 2L + seq_len(k)]
+    mean_theta <- theta[p + q + seq_len(m)]
+    contrast_theta <- theta[p + q + m + seq_len(k)]
 
     hooks <- hooks_at(as.numeric(theta[seq_len(p)]))
     weights <- hooks$weights * sampling
@@ -214,35 +235,33 @@ ipw_deli_sandwich <- function(
       offset = offset
     )
 
-    eta0 <- as.numeric(design0$design %*% beta)
-    eta1 <- as.numeric(design1$design %*% beta)
-    if (!is.null(offset)) {
-      eta0 <- eta0 + offset
-      eta1 <- eta1 + offset
-    }
-
-    # The contrasts are deterministic functions of the two means, so their rows
-    # are the same value for every unit. They contribute nothing to the meat at
-    # the solution, where that value is zero, and everything to the bread, which
-    # is what carries their standard errors without a delta method.
-    contrast_rows <- matrix(
-      ipw_contrast_values(mean0, mean1, continuous) - contrast_theta,
-      nrow = k,
-      ncol = n
-    )
-
     # The mean rows are weighted by the standardization weight, so their root is
     # the mean of the fixed-exposure predictions over the target population
     # rather than over every unit. A marginal model predicts one value per
     # exposure level, which makes the weighted row a constant multiple of the
     # unweighted one and leaves the sandwich exactly where it was.
-    rbind(
-      hooks$psi,
-      score,
-      tilt * (family$linkinv(eta0) - mean0),
-      tilt * (family$linkinv(eta1) - mean1),
-      contrast_rows
+    mean_rows <- do.call(
+      rbind,
+      lapply(seq_len(m), function(j) {
+        eta <- as.numeric(pieces[[j]]$design %*% beta)
+        if (!is.null(offset)) {
+          eta <- eta + offset
+        }
+        tilt * (family$linkinv(eta) - mean_theta[[j]])
+      })
     )
+
+    # The contrasts are deterministic functions of the means, so their rows are
+    # the same value for every unit. They contribute nothing to the meat at the
+    # solution, where that value is zero, and everything to the bread, which is
+    # what carries their standard errors without a delta method.
+    contrast_rows <- matrix(
+      ipw_contrast_values(mean_theta, continuous) - contrast_theta,
+      nrow = k,
+      ncol = n
+    )
+
+    rbind(hooks$psi, score, mean_rows, contrast_rows)
   }
 
   # A central difference trades truncation error, of order the step squared,
@@ -277,23 +296,66 @@ ipw_deli_sandwich <- function(
   list(theta = theta, vcov = covariance)
 }
 
-# The effect contrasts of the two marginal means, and the labels the estimates
-# table reports them under. They are parameters of the stack rather than a
-# post-hoc transformation, so the values and the names are needed separately:
-# the values to seed the stack, the names to label its blocks.
-ipw_contrast_values <- function(mu0, mu1, continuous) {
-  if (continuous) {
-    return(mu1 - mu0)
+# The effect contrasts of the marginal means, and the labels the estimates table
+# reports them under. They are parameters of the stack rather than a post-hoc
+# transformation, so the values and the names are needed separately: the values
+# to seed the stack, the names to label its blocks.
+#
+# Every contrast is measured against the reference level, the first of the means,
+# and the blocks run level-major: each non-reference level contributes all of its
+# effect measures before the next level begins. A binary exposure has one such
+# block and no need to say which comparison it belongs to, so its labels are the
+# bare measure names; a categorical exposure suffixes each label with the level
+# it compares, which is what keeps the names unique across blocks.
+ipw_contrast_values <- function(means, continuous) {
+  reference <- means[[1]]
+  values <- lapply(means[-1], function(mu) {
+    if (continuous) {
+      return(mu - reference)
+    }
+    c(
+      mu - reference,
+      log(mu) - log(reference),
+      log(mu / (1 - mu)) - log(reference / (1 - reference))
+    )
+  })
+  unlist(values, use.names = FALSE)
+}
+
+ipw_contrast_names <- function(continuous, levels = NULL) {
+  measures <- if (continuous) "diff" else c("rd", "log(rr)", "log(or)")
+  if (is.null(levels)) {
+    return(measures)
   }
-  c(
-    mu1 - mu0,
-    log(mu1) - log(mu0),
-    log(mu1 / (1 - mu1)) - log(mu0 / (1 - mu0))
+  unlist(
+    lapply(levels[-1], function(level) paste0(measures, "_", level)),
+    use.names = FALSE
   )
 }
 
-ipw_contrast_names <- function(continuous) {
-  if (continuous) "diff" else c("rd", "log(rr)", "log(or)")
+# The names of the marginal-mean block. A categorical exposure names each mean
+# after its level, which is what the estimates table's comparison labels and the
+# contrast names are keyed on. A binary exposure keeps the positional `mu0` and
+# `mu1`, the names its results have always carried and the ones propensity uses
+# for the same block.
+ipw_mean_names <- function(levels, categorical) {
+  if (categorical) {
+    return(paste0("mu_", levels))
+  }
+  paste0("mu", seq_along(levels) - 1L)
+}
+
+# The exposure values that stand for the fit's levels, taken from the data
+# itself. The fit records its levels as strings, while the exposure column may be
+# a factor, a character vector, or numeric, and fixing the exposure to a level
+# has to leave that column the type the outcome model was fitted on: assigning
+# the string "1" into a numeric exposure would turn the design column into a
+# factor contrast the fitted coefficients do not describe. Taking the value from
+# the first observation at each level preserves the type exactly, factor levels
+# included.
+resolve_level_values <- function(exposure, levels) {
+  key <- as.character(exposure)
+  lapply(levels, function(level) exposure[[match(level, key)]])
 }
 
 # deli names distributions the way Python delicatessen does, which agrees with

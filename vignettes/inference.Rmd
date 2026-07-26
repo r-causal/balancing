@@ -86,7 +86,58 @@ data.frame(
 )
 ```
 
-`ipw()` computes this variance for a binary exposure and an estimating-equation fit at exact balance. The outcome model may be a `glm()` with a binomial, quasibinomial, or gaussian family, or a plain `lm()`. Any link those families carry is handled exactly, including a non-canonical one such as probit, because the sandwich differentiates the score it is given rather than assuming an information matrix. Model offsets are supported natively, written either as an `offset()` term in the formula or passed through the model's `offset` argument, and are carried through both the outcome-model score and the marginal means.
+`ipw()` computes this variance for a binary or categorical exposure and an estimating-equation fit at exact balance. The outcome model may be a `glm()` with a binomial, quasibinomial, or gaussian family, or a plain `lm()`. Any link those families carry is handled exactly, including a non-canonical one such as probit, because the sandwich differentiates the score it is given rather than assuming an information matrix. Model offsets are supported natively, written either as an `offset()` term in the formula or passed through the model's `offset` argument, and are carried through both the outcome-model score and the marginal means.
+
+### Categorical exposures
+
+A categorical exposure works the same way, with one marginal mean per level. The stacked system carries all of them, and the reported effects are the contrasts of each non-reference level against the reference level, which is the first of the exposure's own levels. The outcome model enters the exposure as a factor.
+
+```{r categorical}
+odds_medium <- exp(0.6 * age - 0.3 * score)
+odds_high <- exp(-0.4 * age + 0.7 * score)
+denominator <- 1 + odds_medium + odds_high
+draw <- runif(n)
+
+study$arm <- factor(
+  ifelse(
+    draw < 1 / denominator,
+    "low",
+    ifelse(draw < (1 + odds_medium) / denominator, "medium", "high")
+  ),
+  levels = c("low", "medium", "high")
+)
+study$relapse <- rbinom(
+  n,
+  1,
+  plogis(
+    -0.4 +
+      0.5 * (study$arm == "medium") +
+      0.9 * (study$arm == "high") +
+      0.4 * age -
+      0.3 * score
+  )
+)
+
+arm_fit <- balance(
+  study,
+  arm,
+  c(age, score),
+  method = bw_ipt(),
+  estimand = "ate"
+)
+study$arm_w <- as.numeric(weights(arm_fit))
+
+arm_mod <- glm(
+  relapse ~ arm,
+  data = study,
+  family = quasibinomial(),
+  weights = arm_w
+)
+
+ipw(arm_fit, arm_mod)
+```
+
+Each effect measure appears once per comparison, so the estimates table gains a `comparison` column naming the two levels each row contrasts. Everything else carries over unchanged: the outcome model may adjust for covariates, the marginal means standardize over the estimand's target population, and the standard errors account for having estimated the weights.
 
 ### Covariate-adjusted outcome models
 
@@ -103,7 +154,7 @@ adjusted_mod <- glm(
 ipw(fit, adjusted_mod)
 ```
 
-Adjustment changes what the marginal means average over. A marginal model of a binary exposure predicts one value per exposure level, so it makes no difference which units you average across; an adjusted model predicts a value per unit, and the population you average across becomes part of the estimand. `ipw()` standardizes over the estimand's target population: every unit for the ATE, and the focal group's units for the ATT or the ATC. Sampling weights, where the fit has them, weight that average as well. The standard error accounts for the adjustment the same way it accounts for everything else, by carrying the adjusted model's own score equations in the stack.
+Adjustment changes what the marginal means average over. A marginal model predicts one value per exposure level, so it makes no difference which units you average across; an adjusted model predicts a value per unit, and the population you average across becomes part of the estimand. `ipw()` standardizes over the estimand's target population: every unit for the ATE, and the focal group's units for the ATT or the ATC. Sampling weights, where the fit has them, weight that average as well. The standard error accounts for the adjustment the same way it accounts for everything else, by carrying the adjusted model's own score equations in the stack.
 
 A model that leaves the exposure out has nothing to contrast, so it is refused rather than reported as a null effect.
 
@@ -126,7 +177,7 @@ ipw(sbw_fit, outcome_mod)
 
 ## Bootstrapping the other fits
 
-Where a fit carries no estimating equations, inference uses resampling instead. The recipe is a standard nonparametric bootstrap: resample the rows with replacement, refit the weights and the outcome model on each resample, and take the spread of the effect estimates across resamples as the standard error. The important detail is that the reweighting is refit inside the loop, so every source of variation, including the estimation of the weights, is captured. The example below uses `bw_sbw()`, but the recipe is the same for any fit and it also covers the cases `ipw()` declines for reasons other than the weights, such as a categorical exposure.
+Where a fit carries no estimating equations, inference uses resampling instead. The recipe is a standard nonparametric bootstrap: resample the rows with replacement, refit the weights and the outcome model on each resample, and take the spread of the effect estimates across resamples as the standard error. The important detail is that the reweighting is refit inside the loop, so every source of variation, including the estimation of the weights, is captured. The example below uses `bw_sbw()`, but the recipe is the same for any fit and it also covers the cases `ipw()` declines for reasons other than the weights, such as a continuous exposure.
 
 We keep the example small so it runs quickly: a few hundred resamples on a modest sample.
 
@@ -180,4 +231,4 @@ A production analysis would use more resamples, typically at least one or two th
 
 ## Choosing an approach
 
-Use `ipw()` when the method carries estimating equations, which is the estimating-equation family with a binary exposure and exact balance. It is faster and needs no tuning. Use the bootstrap for the quadratic-program methods, for an entropy fit at a positive tolerance, for an over-identified `bw_cbps()` fit, and for exposure types beyond binary. Covariate-adjusted outcome models need neither route in particular: `ipw()` stacks them directly. The bootstrap is more general but more expensive, and its precision improves with the number of resamples.
+Use `ipw()` when the method carries estimating equations, which is the estimating-equation family with a binary or categorical exposure and exact balance. It is faster and needs no tuning. Use the bootstrap for the quadratic-program methods, for an entropy fit at a positive tolerance, for an over-identified `bw_cbps()` fit, and for a continuous exposure. Covariate-adjusted outcome models need neither route in particular: `ipw()` stacks them directly. The bootstrap is more general but more expensive, and its precision improves with the number of resamples.

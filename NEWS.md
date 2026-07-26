@@ -27,11 +27,13 @@
 
 * Added an `ipw()` method so a balancing fit drives the same effect-estimation
   workflow as a propensity score model. For the estimating-equation methods with
-  a binary exposure, standard errors come from a stacked M-estimator that
-  accounts for having estimated the weights, exposed through
+  a binary or categorical exposure, standard errors come from a stacked
+  M-estimator that accounts for having estimated the weights, exposed through
   `estimating_equations()`. The outcome model may adjust for covariates
   alongside the exposure, in which case the marginal means are standardized over
-  the estimand's target population.
+  the estimand's target population. A categorical exposure reports each
+  non-reference level against the reference level, and the estimates table names
+  each contrast in a `comparison` column.
 
 * Added the `bw` weight vector class, a sibling of `propensity::psw` under the
   shared `causal_wts` parent.

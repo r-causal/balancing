@@ -82,15 +82,15 @@
       x It has a factor response but was fitted with `y = FALSE`, which discards that response.
       i Refit it with `y = TRUE`, or on a numeric 0/1 response.
 
-# ipw() rejects a categorical-exposure fit that has a container
+# ipw() rejects a continuous-exposure fit that has a container
 
     Code
       stop(cnd)
     Condition <balancing_ipw_unsupported_error>
       Error in `ipw()`:
       ! `ipw()` cannot compute a stacked variance for this balancing fit.
-      x This fit has a categorical exposure, and only binary exposures are supported.
-      i The stacked variance is derived for a binary exposure.
+      x This fit has a continuous exposure, and only binary and categorical exposures are supported.
+      i The stacked variance is derived for a discrete exposure.
       i See the inference vignette for a bootstrap workflow.
 
 # ipw() rejects a fit whose container carries no re-evaluation hooks

@@ -135,6 +135,141 @@ coherent_rd_se <- function(fit, data, sampling = NULL) {
   sqrt(as.numeric(t(contrast) %*% cov %*% contrast))
 }
 
+# A three-level categorical fixture with a binary and a continuous outcome, both
+# depending on the exposure level and on x1, so every level's marginal mean is
+# distinct and an adjusted model has something to adjust for. The exposure comes
+# from the shared `sim_categorical()` data-generating process; the outcomes are
+# drawn here under their own seed so the fixture is fixed without changing the
+# shared helper.
+ipw_categorical_fixture <- function(n = 200) {
+  data <- sim_categorical(n)
+  withr::with_seed(303, {
+    is_b <- as.numeric(data$exposure == "b")
+    is_c <- as.numeric(data$exposure == "c")
+    linear_predictor <- -0.4 + 0.7 * is_b + 1.1 * is_c + 0.5 * data$x1
+    data$y <- stats::rbinom(n, 1L, stats::plogis(linear_predictor))
+    data$y_cont <- 0.5 +
+      0.8 * is_b -
+      0.4 * is_c +
+      0.6 * data$x1 -
+      0.3 * data$x2 +
+      stats::rnorm(n)
+  })
+  data
+}
+
+# The K marginal means ipw() reports for a categorical exposure: predict the
+# outcome model with the exposure fixed to each level in turn and average over
+# the target population. `tilt` is that population's weight, one per unit, which
+# is uniform for a pooled estimand and the focal group's indicator for a focal
+# one. The result is named by level, in the exposure's own level order, so the
+# reference level is its first element.
+categorical_marginal_means <- function(
+  outcome_mod,
+  data,
+  tilt = NULL,
+  exposure_name = "exposure"
+) {
+  levels <- levels(data[[exposure_name]])
+  weight <- tilt %||% rep(1, nrow(data))
+  vapply(
+    levels,
+    function(level) {
+      counterfactual <- data
+      counterfactual[[exposure_name]] <- factor(level, levels = levels)
+      stats::weighted.mean(
+        stats::predict(
+          outcome_mod,
+          newdata = counterfactual,
+          type = "response"
+        ),
+        weight
+      )
+    },
+    numeric(1)
+  )
+}
+
+# The categorical counterpart of `coherent_rd_se()`, and coherent in the same
+# sense: it builds the whole stacked M-estimator at the scale the container
+# stores natively, with an analytic bread, so it shares none of the
+# implementation's rescaling algebra. The stack carries one marginal-mean row per
+# exposure level, and the risk difference of `level` against the reference level
+# is read off the joint covariance through the contrast vector rather than by a
+# delta method. It covers the marginal binomial model at a pooled estimand, where
+# the model is saturated in the exposure and a per-group rescale of the weights
+# therefore leaves the coefficients alone, which is what makes the two scales
+# agree exactly.
+coherent_categorical_rd_se <- function(fit, data, level, sampling = NULL) {
+  ee <- estimating_equations(fit)
+  n <- nrow(data)
+  s <- sampling %||% rep(1, n)
+  composed <- s * ee@weights_raw
+  data[[".coherent_w"]] <- composed
+  outcome_mod <- suppressWarnings(stats::glm(
+    y ~ exposure,
+    data = data,
+    family = stats::binomial(),
+    weights = .coherent_w
+  ))
+
+  family <- outcome_mod$family
+  design <- stats::model.matrix(outcome_mod)
+  q <- ncol(design)
+  coefficients <- stats::coef(outcome_mod)
+  eta <- as.numeric(design %*% coefficients)
+  mu <- family$linkinv(eta)
+  mu_eta <- family$mu.eta(eta)
+  variance <- family$variance(mu)
+  residual <- (data$y - mu) * mu_eta / variance
+  working_weight <- composed * mu_eta^2 / variance
+  score <- (composed * residual) * design
+
+  levels <- levels(data$exposure)
+  k <- length(levels)
+  terms <- stats::delete.response(stats::terms(outcome_mod))
+  designs <- lapply(levels, function(l) {
+    counterfactual <- data
+    counterfactual$exposure <- factor(l, levels = levels)
+    stats::model.matrix(terms, stats::model.frame(terms, counterfactual))
+  })
+  predictions <- lapply(designs, function(x) {
+    family$linkinv(as.numeric(x %*% coefficients))
+  })
+  means <- vapply(predictions, mean, numeric(1))
+
+  psi <- ee@psi
+  p <- ncol(psi)
+  mean_residuals <- do.call(
+    cbind,
+    lapply(seq_len(k), function(j) predictions[[j]] - means[[j]])
+  )
+  stacked <- cbind(psi, score, mean_residuals)
+  meat <- crossprod(stacked) / n
+
+  size <- p + q + k
+  theta <- seq_len(p)
+  beta <- p + seq_len(q)
+  mu_index <- p + q + seq_len(k)
+  bread <- matrix(0, size, size)
+  bread[theta, theta] <- ee@jacobian / n
+  bread[beta, theta] <- crossprod(design * residual, s * ee@weight_jacobian) / n
+  bread[beta, beta] <- -crossprod(design * working_weight, design) / n
+  for (j in seq_len(k)) {
+    eta_j <- as.numeric(designs[[j]] %*% coefficients)
+    bread[mu_index[[j]], beta] <- colSums(family$mu.eta(eta_j) * designs[[j]]) /
+      n
+    bread[mu_index[[j]], mu_index[[j]]] <- -1
+  }
+
+  bread_inv <- solve(bread)
+  cov <- bread_inv %*% meat %*% t(bread_inv) / n
+  contrast <- numeric(size)
+  contrast[mu_index[[match(level, levels)]]] <- 1
+  contrast[mu_index[[1]]] <- -1
+  sqrt(as.numeric(t(contrast) %*% cov %*% contrast))
+}
+
 # ---- Estimating-equations container contract ------------------------------
 
 # These pin the container ipw() consumes. The dimension and column-sum
@@ -176,6 +311,17 @@ test_that("an bw_ipt binary ate fit exposes a consistent container", {
   expect_identical(dim(ee@jacobian), c(p, p))
   expect_identical(dim(ee@weight_jacobian), dim(ee@psi))
   expect_lt(max(abs(colSums(ee@psi))), 1e-6)
+})
+
+test_that("categorical fits expose a container carrying both hooks", {
+  data <- sim_categorical(200)
+  for (method in list(bw_ipt(), bw_cbps(), bw_entropy())) {
+    fit <- balance(data, exposure, c(x1, x2), method = method, estimand = "ate")
+    ee <- fit@estimating_equations
+    expect_false(is.null(ee))
+    expect_false(is.null(ee@psi_fn))
+    expect_false(is.null(ee@weights_fn))
+  }
 })
 
 test_that("a just-identified bw_cbps binary ate fit exposes a consistent container", {
@@ -1551,6 +1697,702 @@ test_that("ipw() supports an interaction between the exposure and a covariate", 
   }
 })
 
+# ---- Categorical exposures -------------------------------------------------
+
+# A categorical exposure with K observed levels reports K marginal means and one
+# block of contrasts per non-reference level, each measured against the reference
+# level, which is the first level in the fit's own ordering. That is propensity's
+# categorical contract, and balancing follows it so that the two packages report
+# a categorical effect the same way: the stacked parameter vector names the means
+# `mu_<level>` and each contrast `<effect>_<level>`, and the estimates table
+# gains a `comparison` column, placed after `effect`, naming the contrast as
+# `"<level> vs <reference>"`. The table therefore has one row per effect measure
+# per non-reference level: (K - 1) * 3 rows for a binomial outcome and K - 1 for
+# a gaussian one.
+#
+# The outcome model carries the exposure as a factor predictor. Nothing else
+# about it changes: it may adjust for covariates, and the marginal means are
+# standardized over the estimand's target population exactly as they are for a
+# binary exposure, over every unit for a pooled estimand and over the focal
+# group for a focal one.
+
+test_that("ipw() computes effects for a categorical bw_ipt ate fit", {
+  data <- ipw_categorical_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  result <- ipw(fit, outcome_mod)
+  estimates <- as.data.frame(result)
+
+  expect_s3_class(result, "ipw")
+  expect_identical(result$se_method, "mestimation")
+  expect_identical(
+    estimates$effect,
+    rep(c("rd", "log(rr)", "log(or)"), times = 2)
+  )
+  expect_identical(
+    estimates$comparison,
+    rep(c("b vs a", "c vs a"), each = 3)
+  )
+})
+
+test_that("the categorical estimates table keeps the shared column contract", {
+  data <- ipw_categorical_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  result <- ipw(fit, outcome_mod)
+  estimates <- as.data.frame(result)
+
+  # The comparison column sits between `effect` and `estimate`, and every other
+  # column of the binary contract is present and populated as it is there.
+  expect_named(
+    estimates,
+    c(
+      "effect",
+      "comparison",
+      "estimate",
+      "std.err",
+      "z",
+      "ci.lower",
+      "ci.upper",
+      "conf.level",
+      "p.value"
+    )
+  )
+  expect_identical(nrow(estimates), 6L)
+  expect_true(all(is.finite(estimates$estimate)))
+  expect_true(all(is.finite(estimates$std.err)))
+  expect_true(all(estimates$ci.lower < estimates$estimate))
+  expect_true(all(estimates$ci.upper > estimates$estimate))
+  expect_true(all(estimates$conf.level == 0.95))
+  expect_true(all(estimates$p.value >= 0 & estimates$p.value <= 1))
+  expect_equal(
+    estimates$z,
+    estimates$estimate / estimates$std.err,
+    tolerance = 1e-12
+  )
+})
+
+test_that("the categorical variance system names K means and K - 1 contrasts", {
+  data <- ipw_categorical_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  result <- ipw(fit, outcome_mod)
+
+  p <- length(estimating_equations(fit)@parameters)
+  expected_names <- c(
+    paste0("theta_w", seq_len(p)),
+    paste0("beta_", colnames(stats::model.matrix(outcome_mod))),
+    "mu_a",
+    "mu_b",
+    "mu_c",
+    "rd_b",
+    "log(rr)_b",
+    "log(or)_b",
+    "rd_c",
+    "log(rr)_c",
+    "log(or)_c"
+  )
+  expect_named(result$fit$theta, expected_names)
+  expect_identical(
+    dimnames(result$fit$vcov),
+    list(expected_names, expected_names)
+  )
+
+  # Each reported row is read off the stack at the contrast's own name, so the
+  # estimates table and the variance system cannot drift apart.
+  estimates <- as.data.frame(result)
+  compared_level <- sub(" vs .*$", "", estimates$comparison)
+  keys <- paste0(estimates$effect, "_", compared_level)
+  expect_equal(
+    estimates$estimate,
+    unname(result$fit$theta[keys]),
+    tolerance = 1e-12
+  )
+  expect_equal(
+    estimates$std.err,
+    unname(sqrt(diag(result$fit$vcov))[keys]),
+    tolerance = 1e-12
+  )
+})
+
+test_that("a categorical continuous outcome reports one difference per level", {
+  data <- ipw_categorical_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y_cont ~ exposure, data, w, stats::gaussian())
+
+  result <- ipw(fit, outcome_mod)
+  estimates <- as.data.frame(result)
+
+  expect_identical(estimates$effect, c("diff", "diff"))
+  expect_identical(estimates$comparison, c("b vs a", "c vs a"))
+  expect_identical(
+    utils::tail(names(result$fit$theta), 5L),
+    c("mu_a", "mu_b", "mu_c", "diff_b", "diff_c")
+  )
+})
+
+test_that("a categorical ipw() result prints its comparisons", {
+  data <- ipw_categorical_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  result <- ipw(fit, outcome_mod)
+  output <- utils::capture.output(print(result))
+
+  expect_true(any(grepl("b vs a", output, fixed = TRUE)))
+  expect_true(any(grepl("c vs a", output, fixed = TRUE)))
+})
+
+# The point estimates are the weighted g-computation means, one per level, and
+# the contrasts are those means combined by the same three formulas a binary
+# exposure uses. For a marginal model the means reduce further, to the weighted
+# group means, so both readings are pinned.
+
+test_that("categorical marginal means are the weighted g-computation means", {
+  data <- ipw_categorical_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+  means <- categorical_marginal_means(outcome_mod, data)
+
+  result <- ipw(fit, outcome_mod)
+
+  expect_equal(
+    unname(result$fit$theta[c("mu_a", "mu_b", "mu_c")]),
+    unname(means),
+    tolerance = 1e-8
+  )
+
+  # A model whose only predictor is the exposure is saturated, so each marginal
+  # mean is that level's weighted outcome mean.
+  group_means <- vapply(
+    levels(data$exposure),
+    function(level) {
+      idx <- data$exposure == level
+      stats::weighted.mean(data$y[idx], w[idx])
+    },
+    numeric(1)
+  )
+  expect_equal(unname(means), unname(group_means), tolerance = 1e-8)
+})
+
+test_that("categorical contrasts follow the formulas against the reference", {
+  data <- ipw_categorical_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+  means <- categorical_marginal_means(outcome_mod, data)
+
+  result <- ipw(fit, outcome_mod)
+  estimates <- as.data.frame(result)
+  estimate_of <- function(effect, comparison) {
+    estimates$estimate[
+      estimates$effect == effect & estimates$comparison == comparison
+    ]
+  }
+
+  for (level in c("b", "c")) {
+    comparison <- paste0(level, " vs a")
+    expect_equal(
+      estimate_of("rd", comparison),
+      means[[level]] - means[["a"]],
+      tolerance = 1e-8
+    )
+    expect_equal(
+      estimate_of("log(rr)", comparison),
+      log(means[[level]]) - log(means[["a"]]),
+      tolerance = 1e-8
+    )
+    expect_equal(
+      estimate_of("log(or)", comparison),
+      stats::qlogis(means[[level]]) - stats::qlogis(means[["a"]]),
+      tolerance = 1e-8
+    )
+  }
+})
+
+test_that("the categorical reference level follows the fit's level ordering", {
+  data <- ipw_categorical_fixture()
+  # The exposure's own level order, not the alphabetical one, decides which
+  # level the contrasts are measured against, since that is the order
+  # `balance()` groups the data in and the order the fit's weights are reported
+  # per group. Declaring the levels in reverse makes the two orders disagree, so
+  # an implementation that sorted the levels itself would report the contrasts
+  # against the wrong level while every other assertion still held.
+  data$exposure <- factor(data$exposure, levels = c("c", "b", "a"))
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+  means <- categorical_marginal_means(outcome_mod, data)
+
+  result <- ipw(fit, outcome_mod)
+  estimates <- as.data.frame(result)
+
+  expect_identical(
+    estimates$comparison,
+    rep(c("b vs c", "a vs c"), each = 3)
+  )
+  expect_identical(
+    utils::tail(names(result$fit$theta), 9L),
+    c(
+      "mu_c",
+      "mu_b",
+      "mu_a",
+      "rd_b",
+      "log(rr)_b",
+      "log(or)_b",
+      "rd_a",
+      "log(rr)_a",
+      "log(or)_a"
+    )
+  )
+  expect_equal(
+    estimates$estimate[estimates$effect == "rd"],
+    c(means[["b"]] - means[["c"]], means[["a"]] - means[["c"]]),
+    tolerance = 1e-8
+  )
+})
+
+test_that("a categorical adjusted model standardizes over everyone for ate", {
+  data <- ipw_categorical_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure + x1, data, w, stats::binomial())
+  means <- categorical_marginal_means(outcome_mod, data)
+
+  result <- ipw(fit, outcome_mod)
+
+  expect_equal(
+    unname(result$fit$theta[c("mu_a", "mu_b", "mu_c")]),
+    unname(means),
+    tolerance = 1e-8
+  )
+})
+
+test_that("a categorical att standardizes an adjusted model over the focal group", {
+  data <- ipw_categorical_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "att",
+    focal_level = "b"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure + x1, data, w, stats::binomial())
+  focal <- categorical_marginal_means(
+    outcome_mod,
+    data,
+    tilt = as.numeric(data$exposure == "b")
+  )
+  pooled <- categorical_marginal_means(outcome_mod, data)
+
+  result <- ipw(fit, outcome_mod)
+  estimates <- as.data.frame(result)
+
+  expect_equal(
+    unname(result$fit$theta[c("mu_a", "mu_b", "mu_c")]),
+    unname(focal),
+    tolerance = 1e-8
+  )
+
+  # The focal group is not the whole sample, so standardizing over it has to
+  # move the means. Without that the test would pass on an implementation that
+  # ignored the estimand entirely.
+  expect_false(isTRUE(all.equal(unname(focal), unname(pooled))))
+  expect_true(all(is.finite(estimates$std.err)))
+  expect_true(all(estimates$std.err > 0))
+})
+
+# The standard errors are checked three ways: they are finite and positive
+# throughout, they match an independent analytic oracle exactly, and they track a
+# nonparametric bootstrap. The analytic oracle is the categorical extension of
+# `coherent_rd_se()`, which generalizes to K levels without new algebra: the
+# stack gains one marginal-mean row per level and the contrast is read off the
+# joint covariance at the two levels it compares.
+
+test_that("categorical standard errors are finite and positive", {
+  data <- ipw_categorical_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+
+  for (formula in list(y ~ exposure, y ~ exposure + x1, y ~ exposure * x1)) {
+    outcome_mod <- fit_outcome(formula, data, w, stats::binomial())
+    estimates <- as.data.frame(ipw(fit, outcome_mod))
+    expect_true(all(is.finite(estimates$std.err)))
+    expect_true(all(estimates$std.err > 0))
+  }
+})
+
+for (spec in list(
+  list(label = "a categorical bw_ipt ate fit", method = quote(bw_ipt())),
+  list(
+    label = "a categorical just-identified bw_cbps fit",
+    method = quote(bw_cbps())
+  ),
+  list(
+    label = "a categorical bw_entropy ate fit",
+    method = quote(bw_entropy())
+  )
+)) {
+  local({
+    spec <- spec
+    test_that(
+      paste0(
+        "categorical risk-difference standard errors match the coherent oracle for ",
+        spec$label
+      ),
+      {
+        data <- ipw_categorical_fixture()
+        fit <- balance(
+          data,
+          exposure,
+          c(x1, x2),
+          method = eval(spec$method),
+          estimand = "ate"
+        )
+        w <- as.numeric(stats::weights(fit))
+        outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+        result <- ipw(fit, outcome_mod)
+        estimates <- as.data.frame(result)
+
+        for (level in c("b", "c")) {
+          reported <- estimates$std.err[
+            estimates$effect == "rd" &
+              estimates$comparison == paste0(level, " vs a")
+          ]
+          expect_equal(
+            reported,
+            coherent_categorical_rd_se(fit, data, level),
+            tolerance = 1e-8
+          )
+        }
+      }
+    )
+  })
+}
+
+test_that("the categorical standard error is coherent with sampling weights", {
+  data <- ipw_categorical_fixture()
+  data$sw <- withr::with_seed(7, stats::runif(nrow(data), 0.5, 2))
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate",
+    sampling_weights = sw
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  result <- ipw(fit, outcome_mod)
+  estimates <- as.data.frame(result)
+  rd_se <- estimates$std.err[
+    estimates$effect == "rd" & estimates$comparison == "b vs a"
+  ]
+
+  expect_equal(
+    rd_se,
+    coherent_categorical_rd_se(fit, data, "b", sampling = data$sw),
+    tolerance = 1e-8
+  )
+})
+
+test_that("categorical standard errors track a nonparametric bootstrap", {
+  skip_on_cran()
+  data <- ipw_categorical_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  result <- ipw(fit, outcome_mod)
+  estimates <- as.data.frame(result)
+  rd_se <- estimates$std.err[
+    estimates$effect == "rd" & estimates$comparison == "b vs a"
+  ]
+
+  n <- nrow(data)
+  boot_rd <- withr::with_seed(2024, {
+    vapply(
+      seq_len(200),
+      function(b) {
+        idx <- sample.int(n, n, replace = TRUE)
+        resampled <- data[idx, , drop = FALSE]
+        # A resampled data set can legitimately fail to converge; that replicate
+        # drops out through the error handler, and its convergence warning is
+        # suppressed so it does not leak into the suite output.
+        out <- tryCatch(
+          suppressWarnings({
+            boot_fit <- balance(
+              resampled,
+              exposure,
+              c(x1, x2),
+              method = bw_ipt(),
+              estimand = "ate"
+            )
+            boot_w <- as.numeric(stats::weights(boot_fit))
+            boot_mod <- fit_outcome(
+              y ~ exposure,
+              resampled,
+              boot_w,
+              stats::binomial()
+            )
+            means <- categorical_marginal_means(boot_mod, resampled)
+            means[["b"]] - means[["a"]]
+          }),
+          error = function(e) NA_real_
+        )
+        out
+      },
+      numeric(1)
+    )
+  })
+  boot_se <- stats::sd(boot_rd, na.rm = TRUE)
+
+  # The bootstrap is noisy at this replicate count, so the agreement is loose.
+  expect_equal(rd_se, boot_se, tolerance = 0.15)
+})
+
+# The lift serves every method whose categorical fit carries a container with
+# both re-evaluation hooks, which is the whole estimating-equation family:
+# inverse probability tilting, the just-identified covariate balancing propensity
+# score, which reuses the tilt's entrypoints for a categorical exposure, and
+# entropy balancing at exact balance. Each is pinned on the same shape and point
+# estimates so that none of them can drift out of the supported set unnoticed.
+
+for (spec in list(
+  list(
+    label = "a just-identified bw_cbps categorical ate fit",
+    method = quote(bw_cbps()),
+    estimand = "ate",
+    focal = NULL
+  ),
+  list(
+    label = "a just-identified bw_cbps categorical att fit",
+    method = quote(bw_cbps()),
+    estimand = "att",
+    focal = "b"
+  ),
+  list(
+    label = "a bw_entropy categorical ate fit",
+    method = quote(bw_entropy()),
+    estimand = "ate",
+    focal = NULL
+  ),
+  list(
+    label = "a bw_entropy categorical att fit",
+    method = quote(bw_entropy()),
+    estimand = "att",
+    focal = "b"
+  )
+)) {
+  local({
+    spec <- spec
+    test_that(paste0("ipw() computes effects for ", spec$label), {
+      data <- ipw_categorical_fixture()
+      fit <- balance(
+        data,
+        exposure,
+        c(x1, x2),
+        method = eval(spec$method),
+        estimand = spec$estimand,
+        focal_level = spec$focal
+      )
+      w <- as.numeric(stats::weights(fit))
+      outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+      tilt <- if (is.null(spec$focal)) {
+        NULL
+      } else {
+        as.numeric(data$exposure == spec$focal)
+      }
+      means <- categorical_marginal_means(outcome_mod, data, tilt = tilt)
+
+      result <- ipw(fit, outcome_mod)
+      estimates <- as.data.frame(result)
+
+      expect_identical(
+        estimates$effect,
+        rep(c("rd", "log(rr)", "log(or)"), times = 2)
+      )
+      expect_identical(
+        estimates$comparison,
+        rep(c("b vs a", "c vs a"), each = 3)
+      )
+      expect_equal(
+        unname(result$fit$theta[c("mu_a", "mu_b", "mu_c")]),
+        unname(means),
+        tolerance = 1e-8
+      )
+      expect_true(all(is.finite(estimates$std.err)))
+      expect_true(all(estimates$std.err > 0))
+    })
+  })
+}
+
+# Two guards on the level set itself. The contrasts are labeled by the fit's
+# levels and the weights were solved per group, so an outcome model fitted on
+# data that no longer carries every level describes a different exposure than the
+# one the fit weighted: its counterfactual designs would be built from a level
+# set the weights never saw, and the result would be an ordinary-looking effect
+# table for the wrong contrast. The estimand check is the one a binary fit
+# already makes, pinned here because the categorical path reaches it too.
+
+test_that("ipw() rejects an outcome model whose data drop an exposure level", {
+  data <- ipw_categorical_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  collapsed <- data
+  collapsed$exposure <- factor(
+    ifelse(
+      as.character(data$exposure) == "c",
+      "b",
+      as.character(data$exposure)
+    ),
+    levels = c("a", "b")
+  )
+  outcome_mod <- fit_outcome(y ~ exposure, collapsed, w, stats::binomial())
+
+  expect_error(
+    ipw(fit, outcome_mod),
+    class = "balancing_ipw_input_error"
+  )
+})
+
+test_that("ipw() rejects an estimand that contradicts a categorical fit", {
+  data <- ipw_categorical_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  expect_error(
+    ipw(fit, outcome_mod, estimand = "att"),
+    class = "balancing_estimand_error"
+  )
+})
+
+test_that("a binary fit's estimates table carries no comparison column", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  estimates <- as.data.frame(ipw(fit, outcome_mod))
+
+  # A binary exposure has one comparison, so naming it would add a column that
+  # says the same thing on every row. The eight-column contract is what
+  # propensity reports there, and lifting the categorical case must not disturb
+  # it.
+  expect_named(
+    estimates,
+    c(
+      "effect",
+      "estimate",
+      "std.err",
+      "z",
+      "ci.lower",
+      "ci.upper",
+      "conf.level",
+      "p.value"
+    )
+  )
+  expect_identical(estimates$effect, c("rd", "log(rr)", "log(or)"))
+})
+
 # ---- Arguments: conf_level and estimand -----------------------------------
 
 test_that("ipw() respects conf_level", {
@@ -1859,6 +2701,7 @@ test_that("ipw() standard errors with an offset come from the variance engine", 
     outcome_mod = outcome_mod,
     frame = data,
     exposure_name = fit@exposure,
+    levels = fit_exposure_levels(fit),
     sampling_weights = fit@sampling_weights
   )
 
@@ -2279,55 +3122,10 @@ test_that("ipw() rejects a continuous-exposure bw_cbps fit", {
   )
 })
 
-# A container alone is not sufficient: v1 supports binary exposures only. A
-# categorical or continuous fit carries estimating equations yet still raises
-# the unsupported condition with the bootstrap pointer.
-
-test_that("ipw() rejects a categorical-exposure fit that has a container", {
-  data <- sim_categorical(200)
-  data$y <- stats::rbinom(nrow(data), 1L, 0.5)
-  fit <- balance(
-    data,
-    exposure,
-    c(x1, x2),
-    method = bw_entropy(),
-    estimand = "ate"
-  )
-  expect_false(is.null(fit@estimating_equations))
-  w <- as.numeric(stats::weights(fit))
-  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
-
-  expect_error(
-    ipw(fit, outcome_mod),
-    class = "balancing_ipw_unsupported_error"
-  )
-
-  cnd <- rlang::catch_cnd(
-    ipw(fit, outcome_mod),
-    classes = "balancing_ipw_unsupported_error"
-  )
-  expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
-})
-
-test_that("ipw() rejects a categorical-exposure bw_ipt fit", {
-  data <- sim_categorical(200)
-  data$y <- stats::rbinom(nrow(data), 1L, 0.5)
-  fit <- balance(
-    data,
-    exposure,
-    c(x1, x2),
-    method = bw_ipt(),
-    estimand = "ate"
-  )
-  expect_false(is.null(fit@estimating_equations))
-  w <- as.numeric(stats::weights(fit))
-  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
-
-  expect_error(
-    ipw(fit, outcome_mod),
-    class = "balancing_ipw_unsupported_error"
-  )
-})
+# A container alone is not sufficient: the stacked variance is derived for a
+# discrete exposure. A continuous fit carries estimating equations yet still
+# raises the unsupported condition with the bootstrap pointer, and its message
+# names the exposure type that was refused.
 
 test_that("ipw() rejects a continuous-exposure fit that has a container", {
   data <- sim_continuous(200)
@@ -2347,6 +3145,12 @@ test_that("ipw() rejects a continuous-exposure fit that has a container", {
     ipw(fit, outcome_mod),
     class = "balancing_ipw_unsupported_error"
   )
+
+  cnd <- rlang::catch_cnd(
+    ipw(fit, outcome_mod),
+    classes = "balancing_ipw_unsupported_error"
+  )
+  expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
 })
 
 # The variance engine reaches the weight path only through the container's two
@@ -2441,12 +3245,16 @@ test_that("the unsupported-weights ipw error carries the bootstrap pointer", {
 #     outcome_mod,
 #     frame,
 #     exposure_name,
+#     levels,
+#     categorical = FALSE,
 #     sampling_weights = NULL
 #   )
 #
 # where `container` is the fit's `balancing_estimating_equations`, `frame` is
-# the data frame holding the exposure, and `sampling_weights` is the fit's
-# sampling weight vector or `NULL`. The weight parameter count comes from
+# the data frame holding the exposure, `levels` are the exposure levels the fit
+# weighted in the fit's own order, `categorical` decides how the mean and
+# contrast blocks are named, and `sampling_weights` is the fit's sampling weight
+# vector or `NULL`. The weight parameter count comes from
 # `length(container@parameters)`, and the closure reaches the weight path only
 # through `container@psi_fn()` and `container@weights_fn()`, so no method math
 # is restated here.
@@ -2458,22 +3266,26 @@ test_that("the unsupported-weights ipw error carries the bootstrap pointer", {
 #
 #   theta_w1 ... theta_wp   the weight parameters
 #   beta_<column>           one per outcome-model design column
-#   mu0, mu1                the marginal means
+#   mu0, mu1                the marginal means of a binary exposure
+#   mu_<level>              the marginal means of a categorical exposure
 #   rd, log(rr), log(or)    the contrasts for a non-gaussian outcome model
 #   diff                    the single contrast for a gaussian outcome model
 #
-# The contrast names match the `effect` column `ipw()` reports, so an estimates
-# table reads its estimate and standard error straight off `theta` and the
-# diagonal of `vcov`.
+# A categorical exposure suffixes each contrast name with the level it compares
+# against the reference level, as `rd_b`. The contrast names key the estimates
+# table `ipw()` reports, so it reads each estimate and standard error straight
+# off `theta` and the diagonal of `vcov`.
 
 # Call the engine with the pieces read off a fit, the way the `ipw()` method
-# does.
+# does, including the level ordering the fit recorded.
 call_deli_sandwich <- function(fit, outcome_mod, data) {
   ipw_deli_sandwich(
     container = estimating_equations(fit),
     outcome_mod = outcome_mod,
     frame = data,
     exposure_name = fit@exposure,
+    levels = fit_exposure_levels(fit),
+    categorical = identical(fit@exposure_type, "categorical"),
     sampling_weights = fit@sampling_weights
   )
 }
@@ -2777,6 +3589,7 @@ test_that("ipw_deli_sandwich() refuses a rank-deficient stack", {
       outcome_mod = outcome_mod,
       frame = data,
       exposure_name = fit@exposure,
+      levels = fit_exposure_levels(fit),
       sampling_weights = fit@sampling_weights
     ),
     regexp = "singular"
@@ -2826,6 +3639,7 @@ test_that("ipw_deli_sandwich() refuses a stack whose bread is not finite", {
       outcome_mod = outcome_mod,
       frame = data,
       exposure_name = fit@exposure,
+      levels = fit_exposure_levels(fit),
       sampling_weights = fit@sampling_weights
     )),
     class = "balancing_ipw_unsupported_error"
@@ -2896,6 +3710,7 @@ test_that("the deli sandwich evaluates each hook once per distinct weight vector
     outcome_mod = outcome_mod,
     frame = data,
     exposure_name = fit@exposure,
+    levels = fit_exposure_levels(fit),
     sampling_weights = fit@sampling_weights
   )
 

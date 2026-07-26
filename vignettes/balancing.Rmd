@@ -104,7 +104,7 @@ The estimate recovers the simulated effect of 0.8, which the unweighted comparis
 
 ## Standard errors with `ipw()`
 
-A weighted outcome model's usual standard errors treat the weights as fixed, but the weights were themselves estimated. For the estimating-equation methods (entropy balancing, inverse probability tilting, and the just-identified covariate balancing propensity score) with a binary exposure, `ipw()` returns effect estimates with standard errors that account for the estimation of the weights.
+A weighted outcome model's usual standard errors treat the weights as fixed, but the weights were themselves estimated. For the estimating-equation methods (entropy balancing, inverse probability tilting, and the just-identified covariate balancing propensity score) with a binary or categorical exposure, `ipw()` returns effect estimates with standard errors that account for the estimation of the weights.
 
 ```{r ipw}
 binary_outcome <- rbinom(n, 1, plogis(-0.3 + 0.6 * exposure + 0.4 * age))

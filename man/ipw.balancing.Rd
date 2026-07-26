@@ -32,8 +32,11 @@ were computed.
 parameter vector, and \code{vcov}, its sandwich covariance. Both are named by
 stacked block: \code{theta_w1} onward for the weight parameters, \code{beta_}
 followed by the design column name for the outcome-model coefficients,
-then \code{mu0}, \code{mu1}, and one name per effect. The standard errors in
-\code{estimates} are \code{sqrt(diag(fit$vcov))} read at the effect names.
+then the marginal means and one name per contrast. A binary exposure names
+its means \code{mu0} and \code{mu1} and its contrasts by measure alone; a
+categorical exposure names each mean \code{mu_} followed by its level and each
+contrast by measure and level, as \code{rd_b}. The standard errors in
+\code{estimates} are \code{sqrt(diag(fit$vcov))} read at those contrast names.
 }
 }
 \description{
@@ -51,11 +54,21 @@ outcome the method returns the risk difference (\code{rd}), the log risk ratio
 (\code{log(rr)}), and the log odds ratio (\code{log(or)}); for a continuous outcome it
 returns the difference in means (\code{diff}).
 
+A categorical exposure reports those same measures for each non-reference
+level against the reference level, which is the first of the fit's own levels:
+a factor's declared level order for a factor exposure, and the sorted values
+otherwise. A K-level exposure therefore contributes K marginal means and one
+block of measures per non-reference level, and the estimates table gains a
+\code{comparison} column, placed after \code{effect}, naming each contrast as
+\code{"<level> vs <reference>"}. A binary exposure keeps the table it has always
+returned, with no \code{comparison} column.
+
 The standard errors come from a stacked M-estimator that the deli package
 differentiates and sandwiches. The stacked parameter vector holds four
 blocks: the
-weight parameters, the outcome-model coefficients, the two marginal means,
-and the effect contrasts. Their estimating functions are, in the same order,
+weight parameters, the outcome-model coefficients, the marginal means, one per
+exposure level, and the effect contrasts. Their estimating functions are, in
+the same order,
 the weight-parameter estimating equations the fit carries, re-evaluated at
 new weight parameters through the hooks the fit's
 \link{balancing_estimating_equations} container supplies; the outcome-model score,
@@ -79,25 +92,33 @@ standard errors, which a variance that treats the weights as fixed would
 understate.
 
 The method is available only for fits whose weights solve smooth estimating
-equations with a binary exposure: the estimating-equation family (entropy
+equations with a discrete exposure: the estimating-equation family (entropy
 balancing, inverse probability tilting, and the just-identified covariate
-balancing propensity score) with exact balance. Any other fit, including an
-entropy fit at a positive tolerance, an over-identified or quadratic-program
-fit, or a categorical or continuous exposure, raises
+balancing propensity score) with exact balance, at a binary or categorical
+exposure. Any other fit, including an entropy fit at a positive tolerance, an
+over-identified or quadratic-program fit, or a continuous exposure, raises
 \code{balancing_ipw_unsupported_error} and points to the bootstrap workflow
 described in the inference vignette.
+
+The outcome model must carry the same exposure levels the fit weighted.
+Fitting it on data that drop a level, or that carry one the fit never saw,
+raises \code{balancing_ipw_input_error}: the counterfactual predictions and the
+weights would then describe different exposures, and the resulting table would
+name a contrast it had not computed.
 
 The outcome model must carry the exposure among its predictors, and may
 adjust for covariates alongside it, including in interactions with the
 exposure: \code{y ~ exposure}, \code{y ~ exposure + x1 + x2}, and \code{y ~ exposure * x1}
-are all supported. A model without an exposure term raises
-\code{balancing_ipw_input_error}, since its two fixed-exposure predictions would
-be the same prediction and every contrast it reported would be zero.
+are all supported. A categorical exposure enters as a factor, so its
+fixed-exposure designs come from the model's own contrasts. A model without an
+exposure term raises \code{balancing_ipw_input_error}, since its fixed-exposure
+predictions would all be the same prediction and every contrast it reported
+would be zero.
 
 Which population the marginal means are averaged over is part of the
-estimand, and matters as soon as the outcome model adjusts for anything. The
-marginal model of a binary exposure is saturated, one free parameter per
-exposure level, so absent an offset it predicts a single value per level, its
+estimand, and matters as soon as the outcome model adjusts for anything. A
+marginal model is saturated in the exposure, one free parameter per exposure
+level, so absent an offset it predicts a single value per level, its
 marginal means are the weighted group means whatever link the family carries,
 and no choice of population can change them. An adjusted model predicts a
 value per unit, so the means are standardized over the estimand's target
@@ -153,6 +174,37 @@ adjusted_mod <- glm(
 )
 
 ipw(fit, adjusted_mod)
+
+# A categorical exposure reports each level against the reference level, and
+# the estimates table names the comparison.
+odds_b <- exp(0.6 * x1)
+odds_c <- exp(-0.5 * x1)
+denominator <- 1 + odds_b + odds_c
+draw <- runif(n)
+df$arm <- factor(
+  ifelse(
+    draw < 1 / denominator,
+    "a",
+    ifelse(draw < (1 + odds_b) / denominator, "b", "c")
+  ),
+  levels = c("a", "b", "c")
+)
+df$relapse <- rbinom(
+  n,
+  1,
+  plogis(-0.4 + 0.5 * (df$arm == "b") + 0.9 * (df$arm == "c") + 0.3 * x1)
+)
+
+arm_fit <- balance(df, arm, x1, method = bw_ipt(), estimand = "ate")
+df$.arm_wts <- as.numeric(weights(arm_fit))
+arm_mod <- glm(
+  relapse ~ arm,
+  data = df,
+  family = binomial(),
+  weights = .arm_wts
+)
+
+ipw(arm_fit, arm_mod)
 
 }
 \references{
