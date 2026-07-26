@@ -2441,6 +2441,34 @@ test_that("ipw() rejects an estimand that contradicts the fit", {
   expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
 })
 
+# The fit stores the untreated target as "atu" however it was spelled, so a
+# request spelled "atc" names the same estimand the fit already targets and is
+# not a contradiction. The three spellings of that one request, the synonym, the
+# canonical name, and letting the fit supply it, therefore have to return the
+# same result down to the estimand the result reports.
+
+test_that("ipw() accepts the atc synonym for the estimand the fit stores", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "atc"
+  )
+  expect_identical(fit@estimand, "atu")
+
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  synonym <- expect_no_error(ipw(fit, outcome_mod, estimand = "atc"))
+  canonical <- ipw(fit, outcome_mod, estimand = "atu")
+  inherited <- ipw(fit, outcome_mod)
+
+  expect_identical(synonym, canonical)
+  expect_identical(synonym, inherited)
+})
+
 # ---- Input validation -----------------------------------------------------
 
 test_that("ipw() rejects an outcome model that is not a glm or lm", {

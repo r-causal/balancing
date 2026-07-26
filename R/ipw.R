@@ -136,8 +136,8 @@
 #' @param .data The data frame holding the exposure and outcome. If `NULL`, the
 #'   values are taken from the outcome model frame.
 #' @param estimand The causal estimand. If `NULL`, the fit's estimand is used.
-#'   Supplying an estimand that disagrees with the fit raises
-#'   `balancing_estimand_error`.
+#'   As in [balance()], `"atc"` is accepted as a synonym for `"atu"`. Supplying
+#'   an estimand that disagrees with the fit raises `balancing_estimand_error`.
 #' @param conf_level The confidence level for the intervals. Default `0.95`.
 #' @param ... Ignored, for compatibility with the generic.
 #'
@@ -418,6 +418,9 @@ validate_ipw_exposure_levels <- function(
 
 # The estimand either comes from the fit or must agree with it. A supplied
 # estimand that contradicts the fit is a specification error naming the knob.
+# Agreement is judged on the canonical spelling, since the fit stores one name
+# for the untreated target and accepts two, and the request is echoed back as the
+# caller spelled it.
 resolve_ipw_estimand <- function(
   estimand,
   fit_estimand,
@@ -426,7 +429,8 @@ resolve_ipw_estimand <- function(
   if (is.null(estimand)) {
     return(fit_estimand)
   }
-  if (!identical(estimand, fit_estimand)) {
+  requested <- canonical_estimand(estimand)
+  if (!identical(requested, fit_estimand)) {
     abort(
       c(
         "The requested {.arg estimand} does not match the fit.",
@@ -437,7 +441,7 @@ resolve_ipw_estimand <- function(
       call = call
     )
   }
-  estimand
+  requested
 }
 
 is_gaussian_outcome <- function(outcome_mod) {

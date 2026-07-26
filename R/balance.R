@@ -117,9 +117,7 @@ balance <- function(
     c("ate", "att", "atc", "atu", "ato"),
     arg_nm = "estimand"
   )
-  if (identical(estimand, "atc")) {
-    estimand <- "atu"
-  }
+  estimand <- canonical_estimand(estimand)
   supported <- supported_estimands(method, exposure_type)
   if (!estimand %in% supported) {
     abort(
@@ -363,6 +361,14 @@ exposure_levels <- function(exposure_vec, exposure_type) {
   } else {
     sort(present)
   }
+}
+
+# The estimand vocabulary accepts "atc" for the untreated target, matching
+# propensity, and a fit stores the single canonical spelling "atu". Anything that
+# compares a caller's estimand against a stored one canonicalizes first, so the
+# spelling that created a fit is also a spelling that names it afterwards.
+canonical_estimand <- function(estimand) {
+  if (identical(estimand, "atc")) "atu" else estimand
 }
 
 # Resolve the focal exposure level for att and atc. A binary exposure infers the

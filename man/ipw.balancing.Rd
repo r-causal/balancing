@@ -14,8 +14,8 @@ among its predictors. It may adjust for covariates alongside the exposure.}
 values are taken from the outcome model frame.}
 
 \item{estimand}{The causal estimand. If \code{NULL}, the fit's estimand is used.
-Supplying an estimand that disagrees with the fit raises
-\code{balancing_estimand_error}.}
+As in \code{\link[=balance]{balance()}}, \code{"atc"} is accepted as a synonym for \code{"atu"}. Supplying
+an estimand that disagrees with the fit raises \code{balancing_estimand_error}.}
 
 \item{conf_level}{The confidence level for the intervals. Default \code{0.95}.}
 
