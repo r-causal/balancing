@@ -120,12 +120,24 @@ vec_ptype_full.bw <- function(x, ...) {
   }
 }
 
+# `groups` records which rows of the fit belong to each exposure level, so it
+# describes the vector it was built for and nothing else. A restoration that
+# rebuilds the whole vector, which is what arithmetic and cumulative math do,
+# keeps it; a slice arrives shorter than the object it restores from, and
+# re-attaching row positions that no longer exist would leave the result naming
+# rows it does not have. Length is what tells the two apart, because
+# `vec_restore()` receives the original full-length vector as `to` either way.
 #' @export
 vec_restore.bw <- function(x, to, ...) {
   if (inherits(x, "bw")) {
     x <- vctrs::vec_data(x)
   }
-  new_bw(x, estimand = propensity::estimand(to))
+  groups <- if (vctrs::vec_size(x) == vctrs::vec_size(to)) {
+    attr(to, "groups")
+  } else {
+    NULL
+  }
+  new_bw(x, estimand = propensity::estimand(to), groups = groups)
 }
 
 #' @export
