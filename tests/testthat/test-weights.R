@@ -291,13 +291,14 @@ test_that("matrix subsetting drops to the underlying data", {
 # ---- Restoration and the groups attribute ---------------------------------
 
 # `balance()` records which rows belong to each exposure level on the weight
-# vector as a `groups` attribute, and `ipw()` reads the level order back off it
-# to name the reference level every contrast is measured against. A restoration
-# that rebuilds from the estimand alone loses that ordering, so any operation
-# routed through `vec_restore()` would silently return weights that no longer
-# say which level is which.
+# vector it builds, as a `groups` attribute, and `ipw()` reads the level order
+# back off `fit@weights` to name the reference level every contrast is measured
+# against. Those entries are row positions into that one vector, so they belong
+# to the fit's own weights and to nothing derived from them. Restoration drops
+# them in every case, and the tests below pin the rule at each operation that
+# routes through `vec_restore()`, so a regression names the route it came in on.
 
-test_that("vec_restore keeps the groups attribute", {
+test_that("vec_restore drops the groups attribute", {
   w <- new_bw(
     c(1, 2, 3, 4),
     estimand = "ate",
@@ -306,23 +307,48 @@ test_that("vec_restore keeps the groups attribute", {
   restored <- vctrs::vec_restore(c(2, 4, 6, 8), w)
   expect_true(is_bw(restored))
   expect_identical(estimand(restored), "ate")
-  expect_identical(attr(restored, "groups"), list(`0` = 1:2, `1` = 3:4))
+  expect_null(attr(restored, "groups"))
 })
 
-test_that("arithmetic and cumulative math keep the groups attribute", {
+test_that("arithmetic and cumulative math drop the groups attribute", {
   w <- new_bw(
     c(1, 2, 3, 4),
     estimand = "ate",
     groups = list(`0` = 1:2, `1` = 3:4)
   )
-  expect_identical(attr(w * 2, "groups"), list(`0` = 1:2, `1` = 3:4))
-  expect_identical(attr(-w, "groups"), list(`0` = 1:2, `1` = 3:4))
-  expect_identical(attr(cumsum(w), "groups"), list(`0` = 1:2, `1` = 3:4))
+  expect_identical(estimand(w * 2), "ate")
+  expect_null(attr(w * 2, "groups"))
+  expect_null(attr(-w, "groups"))
+  expect_null(attr(cumsum(w), "groups"))
 })
 
-# The entries of `groups` are row positions into the vector they were built for,
-# so re-attaching them to a shorter vector would describe rows that are no
-# longer there. Restoration at a different length drops them instead.
+# Reordering is the case the rule is unconditional for. These come back at the
+# size they started at, so a restoration that kept the attribute whenever the
+# size held would re-attach positions the rows no longer match: `rev(w)` would
+# claim level `0` owns what are now the last two weights. `vec_restore()` is
+# handed the restored data and the object it came from, never the index that
+# reordered them, so it cannot recognize this and rescale the positions.
+test_that("reordering drops the groups attribute at the original size", {
+  w <- new_bw(
+    c(4, 3, 2, 1),
+    estimand = "ate",
+    groups = list(`0` = 1:2, `1` = 3:4)
+  )
+
+  reversed <- rev(w)
+  expect_true(is_bw(reversed))
+  expect_identical(vctrs::vec_size(reversed), 4L)
+  expect_null(attr(reversed, "groups"))
+
+  expect_null(attr(sort(w), "groups"))
+
+  # Repeating positions holds the size while duplicating rows.
+  expect_null(attr(w[c(1, 1, 2, 2)], "groups"))
+})
+
+# Re-attaching row positions to a shorter vector would describe rows that are no
+# longer there, which is the same defect the reordering case has, arrived at
+# from the other direction.
 test_that("slicing drops the groups attribute rather than keeping stale rows", {
   w <- new_bw(
     c(1, 2, 3, 4),
@@ -337,10 +363,9 @@ test_that("slicing drops the groups attribute rather than keeping stale rows", {
 
 # Combining restores onto the common prototype rather than onto either input,
 # and `vec_ptype2.bw.bw()` builds that prototype from the estimand alone, so the
-# `to` a combination restores through carries no `groups` to begin with. That is
-# a dependency between two functions: combining a single vector comes back at
-# the original size, where the length test in `vec_restore()` would preserve the
-# attribute, and the groups-free prototype is the only reason it does not.
+# `to` a combination restores through carries no `groups` to begin with. Under a
+# uniform drop the two agree, and the test holds the agreement in place: a
+# prototype that started carrying `groups` would be caught here.
 test_that("combining or repeating a bw drops the groups attribute", {
   w <- new_bw(
     c(1, 2, 3, 4),
@@ -353,7 +378,6 @@ test_that("combining or repeating a bw drops the groups attribute", {
   expect_identical(estimand(combined), "ate")
   expect_null(attr(combined, "groups"))
 
-  # The single-input case, which the length test alone would let through.
   single <- vctrs::vec_c(w)
   expect_identical(vctrs::vec_size(single), 4L)
   expect_null(attr(single, "groups"))
@@ -361,7 +385,7 @@ test_that("combining or repeating a bw drops the groups attribute", {
   expect_null(attr(rep(w, 2), "groups"))
 })
 
-test_that("composing sampling weights keeps the exposure level order", {
+test_that("the fit keeps the exposure level order that composing drops", {
   data <- sim_binary(200)
   data$sampling <- rep(c(0.8, 1.2), length.out = nrow(data))
   fit <- balance(
@@ -372,6 +396,13 @@ test_that("composing sampling weights keeps the exposure level order", {
     estimand = "ate",
     sampling_weights = sampling
   )
+  # The fit's own weight vector is where `groups` lives and the only place it is
+  # guaranteed to be, since `new_bw()` builds it there and no restoration
+  # touches it. `fit_exposure_levels()` reads the level order off exactly this.
   expect_identical(names(attr(fit@weights, "groups")), c("0", "1"))
-  expect_identical(names(attr(stats::weights(fit), "groups")), c("0", "1"))
+
+  # Composing the sampling weights runs through `vec_arith.bw.numeric()` to
+  # `vec_restore.bw()`, which returns a different vector than the one the fit
+  # holds, so it carries no positions.
+  expect_null(attr(stats::weights(fit), "groups"))
 })

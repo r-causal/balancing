@@ -121,32 +121,30 @@ vec_ptype_full.bw <- function(x, ...) {
   }
 }
 
-# `groups` records which rows of the fit belong to each exposure level, so it
-# describes one particular vector at one particular length. What the restoration
-# keys on is that length: a result that comes back at the size of the object it
-# restores from keeps the attribute, and anything else drops it. Arithmetic,
-# unary negation, and cumulative math are the operations that hold the size,
-# and they rewrite each element where it stands, so the recorded positions still
-# describe the rows they name.
+# Restoration keeps the estimand and drops `groups`. The estimand describes what
+# the weights target, which every vector derived from them still targets;
+# `groups` records which rows of the fit belong to each exposure level, a set of
+# row positions into one particular weight vector. A restored vector is a
+# different vector, so the positions no longer describe it and the fit's own
+# `@weights` remains the only place they hold. That property is what
+# `fit_exposure_levels()` reads, and it is built by `new_bw()` rather than
+# arrived at through here.
 #
-# Equal size is the available condition rather than the exact one. A reordering
-# or a repeat can also arrive at the original size, and those keep positions the
-# data no longer matches. Nothing here can tell them apart: `vec_restore()`
+# Dropping in every case is the only rule that is correct in every case. Keeping
+# the attribute whenever the restored size matched would cover `w * 2` and
+# `cumsum(w)`, which rewrite each element where it stands, but it would also
+# cover `rev(w)`, `sort(w)`, and `w[c(1, 1, 2, 2)]`, which come back at the same
+# size holding different rows. Nothing here can separate them: `vec_restore()`
 # receives the restored data and the object it came from, never the index that
-# produced it, so the operation that reordered the rows is not among its
-# arguments. Subsetting `groups` alongside the data would take a hook that is
+# produced them, so the operation that moved the rows is not among its
+# arguments. Carrying `groups` through a reordering would take a hook that is
 # handed that index.
 #' @export
 vec_restore.bw <- function(x, to, ...) {
   if (inherits(x, "bw")) {
     x <- vctrs::vec_data(x)
   }
-  groups <- if (vctrs::vec_size(x) == vctrs::vec_size(to)) {
-    attr(to, "groups")
-  } else {
-    NULL
-  }
-  new_bw(x, estimand = estimand(to), groups = groups)
+  new_bw(x, estimand = estimand(to))
 }
 
 #' @export
