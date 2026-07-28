@@ -335,6 +335,32 @@ test_that("slicing drops the groups attribute rather than keeping stale rows", {
   expect_null(attr(sliced, "groups"))
 })
 
+# Combining restores onto the common prototype rather than onto either input,
+# and `vec_ptype2.bw.bw()` builds that prototype from the estimand alone, so the
+# `to` a combination restores through carries no `groups` to begin with. That is
+# a dependency between two functions: combining a single vector comes back at
+# the original size, where the length test in `vec_restore()` would preserve the
+# attribute, and the groups-free prototype is the only reason it does not.
+test_that("combining or repeating a bw drops the groups attribute", {
+  w <- new_bw(
+    c(1, 2, 3, 4),
+    estimand = "ate",
+    groups = list(`0` = 1:2, `1` = 3:4)
+  )
+
+  combined <- vctrs::vec_c(w, w)
+  expect_true(is_bw(combined))
+  expect_identical(estimand(combined), "ate")
+  expect_null(attr(combined, "groups"))
+
+  # The single-input case, which the length test alone would let through.
+  single <- vctrs::vec_c(w)
+  expect_identical(vctrs::vec_size(single), 4L)
+  expect_null(attr(single, "groups"))
+
+  expect_null(attr(rep(w, 2), "groups"))
+})
+
 test_that("composing sampling weights keeps the exposure level order", {
   data <- sim_binary(200)
   data$sampling <- rep(c(0.8, 1.2), length.out = nrow(data))

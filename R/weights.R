@@ -122,12 +122,20 @@ vec_ptype_full.bw <- function(x, ...) {
 }
 
 # `groups` records which rows of the fit belong to each exposure level, so it
-# describes the vector it was built for and nothing else. A restoration that
-# rebuilds the whole vector, which is what arithmetic and cumulative math do,
-# keeps it; a slice arrives shorter than the object it restores from, and
-# re-attaching row positions that no longer exist would leave the result naming
-# rows it does not have. Length is what tells the two apart, because
-# `vec_restore()` receives the original full-length vector as `to` either way.
+# describes one particular vector at one particular length. What the restoration
+# keys on is that length: a result that comes back at the size of the object it
+# restores from keeps the attribute, and anything else drops it. Arithmetic,
+# unary negation, and cumulative math are the operations that hold the size,
+# and they rewrite each element where it stands, so the recorded positions still
+# describe the rows they name.
+#
+# Equal size is the available condition rather than the exact one. A reordering
+# or a repeat can also arrive at the original size, and those keep positions the
+# data no longer matches. Nothing here can tell them apart: `vec_restore()`
+# receives the restored data and the object it came from, never the index that
+# produced it, so the operation that reordered the rows is not among its
+# arguments. Subsetting `groups` alongside the data would take a hook that is
+# handed that index.
 #' @export
 vec_restore.bw <- function(x, to, ...) {
   if (inherits(x, "bw")) {
