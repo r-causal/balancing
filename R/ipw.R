@@ -1,4 +1,4 @@
-# balancing registers a method on propensity's ipw() generic so that a fitted
+# balancing registers a method on the shared ipw() generic so that a fitted
 # balancing object can drive the same bring-your-own-model workflow as a
 # propensity score fit. The variance is a stacked M-estimator: the weight
 # parameters solve the estimating equations the fit carries, the outcome model
@@ -12,7 +12,7 @@
 #' Inverse probability weighting for a balancing fit
 #'
 #' @description
-#' A [balancing] fit registers a method on [propensity::ipw()], so a set of
+#' A [balancing] fit registers a method on [causalgenerics::ipw()], so a set of
 #' balancing weights drives the same bring-your-own-model workflow as a
 #' propensity score fit. You supply the fit and a weighted outcome model, and
 #' `ipw()` returns causal effect estimates with standard errors that account for
@@ -142,8 +142,9 @@
 #' @param ... Ignored, for compatibility with the generic.
 #'
 #' @return An object of class `ipw`, the shared return contract of
-#'   [propensity::ipw()]. Alongside `estimand`, `ps_mod`, `outcome_mod`, and the
-#'   `estimates` table, the result carries two fields describing the variance:
+#'   [causalgenerics::ipw()]. Alongside `estimand`, `ps_mod`, `outcome_mod`, and
+#'   the `estimates` table, the result carries two fields describing the
+#'   variance:
 #'
 #'   * `se_method`, the string `"mestimation"`, naming how the standard errors
 #'     were computed.
@@ -305,21 +306,19 @@ method(causalgenerics_ipw, balancing) <- function(
     levels = if (categorical) levels else NULL
   )
 
-  # The result carries the same fields propensity's own method returns. The
-  # stacked parameter vector and its covariance are the whole of the fitted
-  # variance system here, so they stand in for the solver object propensity
-  # reports: nothing was solved, since every parameter entered at the value its
-  # own fit had already found.
-  structure(
-    list(
-      estimand = estimand,
-      ps_mod = ps_mod,
-      outcome_mod = outcome_mod,
-      estimates = estimates,
-      se_method = "mestimation",
-      fit = variance_system
-    ),
-    class = "ipw"
+  # The result is built by the shared constructor, so it carries the fields the
+  # common print and as.data.frame methods read. The stacked parameter vector
+  # and its covariance are the whole of the fitted variance system here, so they
+  # stand in for the solver object a propensity score fit reports: nothing was
+  # solved, since every parameter entered at the value its own fit had already
+  # found.
+  causalgenerics::new_ipw(
+    estimand = estimand,
+    ps_mod = ps_mod,
+    outcome_mod = outcome_mod,
+    estimates = estimates,
+    se_method = "mestimation",
+    fit = variance_system
   )
 }
 

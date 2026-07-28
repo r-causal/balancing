@@ -13,8 +13,6 @@ These objects are imported from other packages. Follow the links
 below to see their documentation.
 
 \describe{
-  \item{causalgenerics}{\code{\link[causalgenerics:ipw]{ipw()}}}
-
-  \item{propensity}{\code{\link[propensity:estimand]{estimand}}, \code{\link[propensity:is_causal_wt]{is_causal_wt}}}
+  \item{causalgenerics}{\code{\link[causalgenerics:estimand]{estimand()}}, \code{\link[causalgenerics:ipw]{ipw()}}, \code{\link[causalgenerics:is_causal_wt]{is_causal_wt()}}}
 }}
 

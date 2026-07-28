@@ -35,7 +35,8 @@ weights targets. They are the weight vector stored on a \link{balancing} result
 and returned by its \code{\link[=weights]{weights()}} method.
 
 \code{bw} is a sibling of \link[propensity:psw]{propensity::psw}: both inherit the \code{causal_wts} class,
-so \code{\link[propensity:is_causal_wt]{propensity::is_causal_wt()}} and \code{\link[propensity:estimand]{propensity::estimand()}} work on either.
+so \code{\link[causalgenerics:is_causal_wt]{causalgenerics::is_causal_wt()}} and \code{\link[causalgenerics:estimand]{causalgenerics::estimand()}} work on
+either.
 }
 \details{
 \subsection{Constructors}{
@@ -51,7 +52,7 @@ already a double vector.
 \subsection{Queries}{
 \itemize{
 \item \code{is_bw()} tests whether an object is a \code{bw} vector.
-\item \code{\link[propensity:estimand]{propensity::estimand()}} reads the target estimand.
+\item \code{\link[causalgenerics:estimand]{causalgenerics::estimand()}} reads the target estimand.
 }
 }
 
@@ -67,7 +68,7 @@ combining vectors with different estimands, or a \code{bw} with a
 w <- bw(c(0.5, 1, 1.5), estimand = "ate")
 w
 is_bw(w)
-propensity::estimand(w)
+estimand(w)
 
 # Arithmetic preserves the class.
 w / sum(w)

@@ -22,10 +22,9 @@ BugReports: https://github.com/r-causal/balancing/issues
 Depends:
     R (>= 4.3)
 Imports:
-    causalgenerics,
+    causalgenerics (>= 0.0.0.9001),
     cli,
     deli,
-    propensity,
     rlang,
     S7,
     stats,
@@ -38,6 +37,7 @@ Suggests:
     optweight,
     osqp,
     pkgload,
+    propensity,
     quadprog,
     rmarkdown,
     testthat (>= 3.0.0),
@@ -46,6 +46,7 @@ Suggests:
 VignetteBuilder:
     knitr
 Remotes:
+    r-causal/causalgenerics,
     r-causal/deli
 Config/roxygen2/version: 8.0.0
 Config/testthat/edition: 3

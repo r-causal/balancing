@@ -23,8 +23,9 @@ an estimand that disagrees with the fit raises \code{balancing_estimand_error}.}
 }
 \value{
 An object of class \code{ipw}, the shared return contract of
-\code{\link[propensity:ipw]{propensity::ipw()}}. Alongside \code{estimand}, \code{ps_mod}, \code{outcome_mod}, and the
-\code{estimates} table, the result carries two fields describing the variance:
+\code{\link[causalgenerics:ipw]{causalgenerics::ipw()}}. Alongside \code{estimand}, \code{ps_mod}, \code{outcome_mod}, and
+the \code{estimates} table, the result carries two fields describing the
+variance:
 \itemize{
 \item \code{se_method}, the string \code{"mestimation"}, naming how the standard errors
 were computed.
@@ -40,7 +41,7 @@ contrast by measure and level, as \code{rd_b}. The standard errors in
 }
 }
 \description{
-A \link{balancing} fit registers a method on \code{\link[propensity:ipw]{propensity::ipw()}}, so a set of
+A \link{balancing} fit registers a method on \code{\link[causalgenerics:ipw]{causalgenerics::ipw()}}, so a set of
 balancing weights drives the same bring-your-own-model workflow as a
 propensity score fit. You supply the fit and a weighted outcome model, and
 \code{ipw()} returns causal effect estimates with standard errors that account for

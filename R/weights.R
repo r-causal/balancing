@@ -12,7 +12,8 @@
 #' and returned by its [weights()] method.
 #'
 #' `bw` is a sibling of [propensity::psw]: both inherit the `causal_wts` class,
-#' so [propensity::is_causal_wt()] and [propensity::estimand()] work on either.
+#' so [causalgenerics::is_causal_wt()] and [causalgenerics::estimand()] work on
+#' either.
 #'
 #' @details
 #' ## Constructors
@@ -26,7 +27,7 @@
 #' ## Queries
 #'
 #' - `is_bw()` tests whether an object is a `bw` vector.
-#' - [propensity::estimand()] reads the target estimand.
+#' - [causalgenerics::estimand()] reads the target estimand.
 #'
 #' ## Combining
 #'
@@ -48,7 +49,7 @@
 #' w <- bw(c(0.5, 1, 1.5), estimand = "ate")
 #' w
 #' is_bw(w)
-#' propensity::estimand(w)
+#' estimand(w)
 #'
 #' # Arithmetic preserves the class.
 #' w / sum(w)
@@ -102,7 +103,7 @@ warn_bw_downgrade <- function(other) {
 
 #' @export
 vec_ptype_abbr.bw <- function(x, ...) {
-  estimand <- propensity::estimand(x)
+  estimand <- estimand(x)
   if (is.null(estimand)) {
     "bw"
   } else {
@@ -112,7 +113,7 @@ vec_ptype_abbr.bw <- function(x, ...) {
 
 #' @export
 vec_ptype_full.bw <- function(x, ...) {
-  estimand <- propensity::estimand(x)
+  estimand <- estimand(x)
   if (is.null(estimand)) {
     "bw{estimand = unknown}"
   } else {
@@ -137,16 +138,16 @@ vec_restore.bw <- function(x, to, ...) {
   } else {
     NULL
   }
-  new_bw(x, estimand = propensity::estimand(to), groups = groups)
+  new_bw(x, estimand = estimand(to), groups = groups)
 }
 
 #' @export
 vec_ptype2.bw.bw <- function(x, y, ...) {
-  if (!identical(propensity::estimand(x), propensity::estimand(y))) {
+  if (!identical(estimand(x), estimand(y))) {
     warn_bw_downgrade("bw")
     return(double())
   }
-  new_bw(estimand = propensity::estimand(x))
+  new_bw(estimand = estimand(x))
 }
 
 #' @export
@@ -176,7 +177,7 @@ vec_cast.bw.bw <- function(x, to, ...) {
 
 #' @export
 vec_cast.bw.double <- function(x, to, ...) {
-  bw(x, estimand = propensity::estimand(to))
+  bw(x, estimand = estimand(to))
 }
 
 #' @export
@@ -186,7 +187,7 @@ vec_cast.double.bw <- function(x, to, ...) {
 
 #' @export
 vec_cast.bw.integer <- function(x, to, ...) {
-  bw(x, estimand = propensity::estimand(to))
+  bw(x, estimand = estimand(to))
 }
 
 #' @export
@@ -242,8 +243,8 @@ vec_arith.bw.default <- function(op, x, y, ...) {
 #' @export
 #' @method vec_arith.bw bw
 vec_arith.bw.bw <- function(op, x, y, ...) {
-  estimand_x <- propensity::estimand(x)
-  estimand_y <- propensity::estimand(y)
+  estimand_x <- estimand(x)
+  estimand_y <- estimand(y)
   estimand <- if (identical(estimand_x, estimand_y)) {
     estimand_x
   } else {
@@ -281,60 +282,11 @@ vec_arith.bw.MISSING <- function(op, x, y, ...) {
   )
 }
 
-#' @export
-vec_math.bw <- function(.fn, .x, ...) {
-  if (.fn %in% c("cumsum", "cumprod", "cummin", "cummax")) {
-    return(vctrs::vec_restore(
-      vctrs::vec_math_base(.fn, vctrs::vec_data(.x), ...),
-      .x
-    ))
-  }
-  vctrs::vec_math_base(.fn, vctrs::vec_data(.x), ...)
-}
-
-#' @export
-Summary.bw <- function(..., na.rm = FALSE) {
-  args <- lapply(list(...), vctrs::vec_data)
-  do.call(.Generic, c(args, list(na.rm = na.rm)))
-}
-
-#' @export
-min.bw <- function(..., na.rm = FALSE) {
-  args <- lapply(list(...), vctrs::vec_data)
-  do.call("min", c(args, list(na.rm = na.rm)))
-}
-
-#' @export
-max.bw <- function(..., na.rm = FALSE) {
-  args <- lapply(list(...), vctrs::vec_data)
-  do.call("max", c(args, list(na.rm = na.rm)))
-}
-
-# median() and quantile() are not part of the Summary group generic, so a bw
-# vector needs its own methods to reach them, mirroring propensity's psw. Both
-# operate on the underlying double and return a plain numeric summary.
-#' @importFrom stats median
-#' @export
-median.bw <- function(x, na.rm = FALSE, ...) {
-  stats::median(vctrs::vec_data(x), na.rm = na.rm, ...)
-}
-
-#' @importFrom stats quantile
-#' @export
-quantile.bw <- function(x, probs = seq(0, 1, 0.25), na.rm = FALSE, ...) {
-  stats::quantile(vctrs::vec_data(x), probs = probs, na.rm = na.rm, ...)
-}
-
-#' @export
-`[.bw` <- function(x, i, ...) {
-  if (missing(i)) {
-    return(NextMethod())
-  }
-  if (is.matrix(i) || is.array(i)) {
-    return(vctrs::vec_data(x)[i, ...])
-  }
-  NextMethod()
-}
+# Elementwise and cumulative math, the Summary group generic, min(), max(),
+# median(), quantile(), and subsetting all read the underlying double and need
+# nothing a bw knows that a causal_wts does not, so causalgenerics supplies them
+# on the shared parent. A method registered on bw would shadow the inherited one
+# outright, since UseMethod() takes the first match down the class vector.
 
 # ---- weights() -------------------------------------------------------------
 

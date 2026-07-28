@@ -13,20 +13,20 @@ test_that("new_bw() builds a bw vector with the expected class stack", {
     exact = TRUE
   )
   expect_equal(vctrs::vec_data(w), c(0.5, 1, 1.5))
-  expect_identical(propensity::estimand(w), "ate")
+  expect_identical(estimand(w), "ate")
 })
 
 test_that("bw() coerces and validates the input", {
   w <- bw(c(1L, 2L, 3L), estimand = "att")
   expect_s3_class(w, "bw")
   expect_type(vctrs::vec_data(w), "double")
-  expect_identical(propensity::estimand(w), "att")
+  expect_identical(estimand(w), "att")
 })
 
 test_that("as_bw() coerces a plain numeric vector", {
   w <- as_bw(c(1, 2), estimand = "atu")
   expect_true(is_bw(w))
-  expect_identical(propensity::estimand(w), "atu")
+  expect_identical(estimand(w), "atu")
 })
 
 test_that("is_bw() identifies bw vectors only", {
@@ -34,8 +34,8 @@ test_that("is_bw() identifies bw vectors only", {
   expect_false(is_bw(c(1, 2)))
 })
 
-test_that("propensity::is_causal_wt() recognizes bw vectors", {
-  expect_true(propensity::is_causal_wt(bw(c(1, 2), estimand = "ate")))
+test_that("is_causal_wt() recognizes bw vectors", {
+  expect_true(is_causal_wt(bw(c(1, 2), estimand = "ate")))
 })
 
 # ---- Prototype labels -----------------------------------------------------
@@ -57,7 +57,7 @@ test_that("combining bw vectors with matching estimands preserves the class", {
   y <- bw(c(3, 4), estimand = "ate")
   combined <- vctrs::vec_c(x, y)
   expect_true(is_bw(combined))
-  expect_identical(propensity::estimand(combined), "ate")
+  expect_identical(estimand(combined), "ate")
 })
 
 test_that("combining bw vectors with mismatched estimands warns and downgrades", {
@@ -72,6 +72,7 @@ test_that("combining bw vectors with mismatched estimands warns and downgrades",
 })
 
 test_that("combining a bw with a psw warns and downgrades", {
+  skip_if_not_installed("propensity")
   x <- bw(c(1, 2), estimand = "ate")
   y <- propensity::psw(c(3, 4), estimand = "ate")
   expect_warning(
@@ -114,7 +115,7 @@ test_that("bw casts to and from double", {
 
   back <- vctrs::vec_cast(c(1, 2, 3), x)
   expect_true(is_bw(back))
-  expect_identical(propensity::estimand(back), "ate")
+  expect_identical(estimand(back), "ate")
 })
 
 # ---- Arithmetic -----------------------------------------------------------
@@ -123,7 +124,7 @@ test_that("arithmetic with a scalar preserves the bw class and estimand", {
   w <- bw(c(1, 2, 3), estimand = "att")
   scaled <- w * 2
   expect_true(is_bw(scaled))
-  expect_identical(propensity::estimand(scaled), "att")
+  expect_identical(estimand(scaled), "att")
   expect_equal(vctrs::vec_data(scaled), c(2, 4, 6))
 })
 
@@ -158,7 +159,7 @@ test_that("bw casts to and from integer", {
 
   from_integer <- vctrs::vec_cast(c(1L, 2L, 3L), w)
   expect_true(is_bw(from_integer))
-  expect_identical(propensity::estimand(from_integer), "ate")
+  expect_identical(estimand(from_integer), "ate")
 })
 
 test_that("combining an integer with a bw yields a plain double", {
@@ -170,6 +171,7 @@ test_that("combining an integer with a bw yields a plain double", {
 })
 
 test_that("combining a psw before a bw warns and downgrades", {
+  skip_if_not_installed("propensity")
   x <- propensity::psw(c(1, 2), estimand = "ate")
   y <- bw(c(3, 4), estimand = "ate")
   expect_warning(
@@ -187,7 +189,7 @@ test_that("adding two bw vectors with a matching estimand keeps the estimand", {
   y <- bw(c(0.5, 1, 1.5), estimand = "ate")
   sum <- x + y
   expect_true(is_bw(sum))
-  expect_identical(propensity::estimand(sum), "ate")
+  expect_identical(estimand(sum), "ate")
   expect_equal(vctrs::vec_data(sum), c(1.5, 3, 4.5))
 })
 
@@ -196,7 +198,7 @@ test_that("adding two bw vectors with different estimands records both", {
   y <- bw(c(3, 4), estimand = "att")
   combined <- x + y
   expect_true(is_bw(combined))
-  expect_identical(propensity::estimand(combined), "ate, att")
+  expect_identical(estimand(combined), "ate, att")
   expect_equal(vctrs::vec_data(combined), c(4, 6))
 })
 
@@ -268,7 +270,7 @@ test_that("subsetting a bw preserves the class and metadata", {
   w <- bw(c(1, 2, 3, 4), estimand = "ate")
   first_two <- w[1:2]
   expect_true(is_bw(first_two))
-  expect_identical(propensity::estimand(first_two), "ate")
+  expect_identical(estimand(first_two), "ate")
   expect_equal(vctrs::vec_data(first_two), c(1, 2))
 })
 
