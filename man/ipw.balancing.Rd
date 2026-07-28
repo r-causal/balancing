@@ -4,7 +4,7 @@
 \alias{ipw.balancing}
 \title{Inverse probability weighting for a balancing fit}
 \arguments{
-\item{ps_mod}{A \link{balancing} fit that produced the weights.}
+\item{wt_mod}{A \link{balancing} fit that produced the weights.}
 
 \item{outcome_mod}{A weighted outcome model of class \code{\link[stats:glm]{stats::glm()}} or
 \code{\link[stats:lm]{stats::lm()}}, fitted with the balancing weights and carrying the exposure
@@ -23,7 +23,7 @@ an estimand that disagrees with the fit raises \code{balancing_estimand_error}.}
 }
 \value{
 An object of class \code{ipw}, the shared return contract of
-\code{\link[causalgenerics:ipw]{causalgenerics::ipw()}}. Alongside \code{estimand}, \code{ps_mod}, \code{outcome_mod}, and
+\code{\link[causalgenerics:ipw]{causalgenerics::ipw()}}. Alongside \code{estimand}, \code{wt_mod}, \code{outcome_mod}, and
 the \code{estimates} table, the result carries two fields describing the
 variance:
 \itemize{

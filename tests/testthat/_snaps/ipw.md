@@ -6,7 +6,7 @@
       Inverse Probability Weight Estimator
       Estimand: ATE 
       
-      Propensity Score Model:
+      Weight Estimator:
         Call: balance(.data = data, .exposure = exposure, .covariates = c(x1, 
           x2), method = bw_entropy(), estimand = "ate") 
       
@@ -57,7 +57,7 @@
       stop(cnd)
     Condition <balancing_ipw_input_error>
       Error in `ipw()`:
-      ! `outcome_mod` must be fitted with the weights from `ps_mod`.
+      ! `outcome_mod` must be fitted with the weights from `wt_mod`.
       x Its weights differ from the fit's, compared per unit at relative tolerance 1e-6.
       i Refit it with `weights = weights(fit)`, where `fit` is the balancing fit.
 

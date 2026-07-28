@@ -129,7 +129,7 @@
 #' different types of propensity score weights. *Statistics in Medicine*.
 #' 2024;43(13):2672-2694. \doi{10.1002/sim.10078}
 #'
-#' @param ps_mod A [balancing] fit that produced the weights.
+#' @param wt_mod A [balancing] fit that produced the weights.
 #' @param outcome_mod A weighted outcome model of class [stats::glm()] or
 #'   [stats::lm()], fitted with the balancing weights and carrying the exposure
 #'   among its predictors. It may adjust for covariates alongside the exposure.
@@ -142,7 +142,7 @@
 #' @param ... Ignored, for compatibility with the generic.
 #'
 #' @return An object of class `ipw`, the shared return contract of
-#'   [causalgenerics::ipw()]. Alongside `estimand`, `ps_mod`, `outcome_mod`, and
+#'   [causalgenerics::ipw()]. Alongside `estimand`, `wt_mod`, `outcome_mod`, and
 #'   the `estimates` table, the result carries two fields describing the
 #'   variance:
 #'
@@ -227,43 +227,43 @@ method(getCall_generic, balancing) <- function(x, ...) {
   x@call
 }
 
-causalgenerics_ipw <- new_external_generic("causalgenerics", "ipw", "ps_mod")
+causalgenerics_ipw <- new_external_generic("causalgenerics", "ipw", "wt_mod")
 
 method(causalgenerics_ipw, balancing) <- function(
-  ps_mod,
+  wt_mod,
   outcome_mod,
   .data = NULL,
   estimand = NULL,
   conf_level = 0.95,
   ...
 ) {
-  container <- ps_mod@estimating_equations
+  container <- wt_mod@estimating_equations
   if (is.null(container)) {
     abort_ipw_unsupported(reason = "no_equations")
   }
-  categorical <- identical(ps_mod@exposure_type, "categorical")
-  if (!categorical && !identical(ps_mod@exposure_type, "binary")) {
+  categorical <- identical(wt_mod@exposure_type, "categorical")
+  if (!categorical && !identical(wt_mod@exposure_type, "binary")) {
     abort_ipw_unsupported(
       reason = "exposure_type",
-      exposure_type = ps_mod@exposure_type
+      exposure_type = wt_mod@exposure_type
     )
   }
   if (is.null(container@psi_fn) || is.null(container@weights_fn)) {
     abort_ipw_unsupported(reason = "no_hooks")
   }
 
-  estimand <- resolve_ipw_estimand(estimand, ps_mod@estimand)
+  estimand <- resolve_ipw_estimand(estimand, wt_mod@estimand)
 
-  exposure_name <- ps_mod@exposure
-  weights <- as.numeric(weights(ps_mod))
+  exposure_name <- wt_mod@exposure
+  weights <- as.numeric(weights(wt_mod))
   validate_ipw_outcome_model(outcome_mod, exposure_name, weights)
 
   frame <- if (is.null(.data)) stats::model.frame(outcome_mod) else .data
-  if (!is.null(.data) && nrow(frame) != ps_mod@n) {
+  if (!is.null(.data) && nrow(frame) != wt_mod@n) {
     abort(
       c(
         "{.arg .data} must have one row per observation in the fit.",
-        x = "It has {nrow(frame)} row{?s}, but the fit used {ps_mod@n}."
+        x = "It has {nrow(frame)} row{?s}, but the fit used {wt_mod@n}."
       ),
       error_class = "balancing_ipw_input_error"
     )
@@ -277,7 +277,7 @@ method(causalgenerics_ipw, balancing) <- function(
       error_class = "balancing_ipw_input_error"
     )
   }
-  levels <- fit_exposure_levels(ps_mod)
+  levels <- fit_exposure_levels(wt_mod)
   validate_ipw_exposure_levels(frame[[exposure_name]], levels, exposure_name)
 
   # The variance engine composes the sampling weights onto the weights the
@@ -294,8 +294,8 @@ method(causalgenerics_ipw, balancing) <- function(
     exposure_name = exposure_name,
     levels = levels,
     categorical = categorical,
-    sampling_weights = ps_mod@sampling_weights,
-    focal_level = ps_mod@focal_level
+    sampling_weights = wt_mod@sampling_weights,
+    focal_level = wt_mod@focal_level
   )
 
   estimates <- ipw_estimates(
@@ -314,7 +314,7 @@ method(causalgenerics_ipw, balancing) <- function(
   # found.
   causalgenerics::new_ipw(
     estimand = estimand,
-    ps_mod = ps_mod,
+    wt_mod = wt_mod,
     outcome_mod = outcome_mod,
     estimates = estimates,
     se_method = "mestimation",
@@ -584,7 +584,7 @@ validate_ipw_weight_consistency <- function(
   }
   abort(
     c(
-      "{.arg outcome_mod} must be fitted with the weights from {.arg ps_mod}.",
+      "{.arg outcome_mod} must be fitted with the weights from {.arg wt_mod}.",
       x = "Its weights differ from the fit's, compared per unit at relative tolerance 1e-6.",
       i = "Refit it with {.code weights = weights(fit)}, where {.arg fit} is the balancing fit."
     ),
