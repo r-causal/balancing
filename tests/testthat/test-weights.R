@@ -285,3 +285,67 @@ test_that("matrix subsetting drops to the underlying data", {
   expect_false(is_bw(picked))
   expect_equal(picked, c(10, 30))
 })
+
+# ---- Restoration and the groups attribute ---------------------------------
+
+# `balance()` records which rows belong to each exposure level on the weight
+# vector as a `groups` attribute, and `ipw()` reads the level order back off it
+# to name the reference level every contrast is measured against. A restoration
+# that rebuilds from the estimand alone loses that ordering, so any operation
+# routed through `vec_restore()` would silently return weights that no longer
+# say which level is which.
+
+test_that("vec_restore keeps the groups attribute", {
+  w <- new_bw(
+    c(1, 2, 3, 4),
+    estimand = "ate",
+    groups = list(`0` = 1:2, `1` = 3:4)
+  )
+  restored <- vctrs::vec_restore(c(2, 4, 6, 8), w)
+  expect_true(is_bw(restored))
+  expect_identical(estimand(restored), "ate")
+  expect_identical(attr(restored, "groups"), list(`0` = 1:2, `1` = 3:4))
+})
+
+test_that("arithmetic and cumulative math keep the groups attribute", {
+  w <- new_bw(
+    c(1, 2, 3, 4),
+    estimand = "ate",
+    groups = list(`0` = 1:2, `1` = 3:4)
+  )
+  expect_identical(attr(w * 2, "groups"), list(`0` = 1:2, `1` = 3:4))
+  expect_identical(attr(-w, "groups"), list(`0` = 1:2, `1` = 3:4))
+  expect_identical(attr(cumsum(w), "groups"), list(`0` = 1:2, `1` = 3:4))
+})
+
+# The entries of `groups` are row positions into the vector they were built for,
+# so re-attaching them to a shorter vector would describe rows that are no
+# longer there. Restoration at a different length drops them instead.
+test_that("slicing drops the groups attribute rather than keeping stale rows", {
+  w <- new_bw(
+    c(1, 2, 3, 4),
+    estimand = "ate",
+    groups = list(`0` = 1:2, `1` = 3:4)
+  )
+  sliced <- w[1:2]
+  expect_true(is_bw(sliced))
+  expect_identical(estimand(sliced), "ate")
+  expect_null(attr(sliced, "groups"))
+})
+
+test_that("composing sampling weights keeps the exposure level order", {
+  data <- sim_binary(200)
+  data$sampling <- rep(c(0.8, 1.2), length.out = nrow(data))
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate",
+    sampling_weights = sampling
+  )
+  expect_identical(
+    names(attr(stats::weights(fit), "groups")),
+    names(attr(fit@weights, "groups"))
+  )
+})

@@ -37,6 +37,7 @@ Suggests:
     MASS,
     optweight,
     osqp,
+    pkgload,
     quadprog,
     rmarkdown,
     testthat (>= 3.0.0),
