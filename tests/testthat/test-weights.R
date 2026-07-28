@@ -344,8 +344,6 @@ test_that("composing sampling weights keeps the exposure level order", {
     estimand = "ate",
     sampling_weights = sampling
   )
-  expect_identical(
-    names(attr(stats::weights(fit), "groups")),
-    names(attr(fit@weights, "groups"))
-  )
+  expect_identical(names(attr(fit@weights, "groups")), c("0", "1"))
+  expect_identical(names(attr(stats::weights(fit), "groups")), c("0", "1"))
 })

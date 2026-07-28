@@ -108,10 +108,21 @@ run_fresh_r <- function(code) {
 
 # The subprocess reports each fact as a `name: value` line so an assertion can
 # name the one thing it reads instead of matching against a whole transcript.
+# A field the subprocess never reported says nothing on its own, and comparing
+# the absence against the expected value would report only that one side was
+# missing, so the transcript is what gets shown instead.
 subprocess_field <- function(run, name) {
   pattern <- paste0("^", name, ": ")
   line <- grep(pattern, run$output, value = TRUE)
   if (length(line) != 1L) {
+    fail(paste0(
+      "The subprocess reported ",
+      length(line),
+      " lines for the field \"",
+      name,
+      "\", expected one:\n",
+      paste(run$output, collapse = "\n")
+    ))
     return(NA_character_)
   }
   sub(pattern, "", line)
@@ -142,12 +153,33 @@ test_that("the ipw() workflow runs with propensity absent from the namespaces", 
     'result <- ipw(fit, model)',
     'printed <- capture.output(print(result))',
     'estimates <- as.data.frame(result)',
+    # Fitting, weighting, and estimating never coerce, combine, or take the
+    # prototype of a `bw` vector, so the workflow above reaches none of the
+    # vctrs methods the class registers. Those methods are where a weight
+    # vector's estimand is read, and that read is the last place balancing can
+    # reach back into propensity, so a namespace assertion that never ran them
+    # would report a clean namespace with the dependency still in place. The
+    # path is a mainstream one rather than a corner of the class: composing
+    # sampling weights onto fitted weights restores through it, and so does
+    # every arithmetic operation on the result.
+    'w <- weights(fit)',
+    'invisible(w * 2)',
+    'invisible(w + w)',
+    'invisible(cumsum(w))',
+    'invisible(vctrs::vec_ptype_abbr(w))',
+    'invisible(vctrs::vec_ptype_full(w))',
+    'invisible(vctrs::vec_ptype2(w, w))',
+    'invisible(vctrs::vec_cast(1, w))',
+    'invisible(vctrs::vec_cast(1L, w))',
     'cat(sprintf("print_header: %s\\n", printed[[1]]))',
     'cat(sprintf("effects: %s\\n", paste(estimates$effect, collapse = ",")))',
     'cat(sprintf("propensity: %s\\n", "propensity" %in% loadedNamespaces()))',
     'cat(sprintf("causalgenerics: %s\\n", "causalgenerics" %in% loadedNamespaces()))'
   ))
 
+  # A failing expectation does not end the block, so reading the fields after a
+  # subprocess that never got far enough to report them would repeat the same
+  # transcript once per field on top of the status failure.
   if (!identical(run$status, 0L)) {
     fail(paste0(
       "The subprocess exited with status ",
@@ -155,15 +187,15 @@ test_that("the ipw() workflow runs with propensity absent from the namespaces", 
       ":\n",
       paste(run$output, collapse = "\n")
     ))
+  } else {
+    expect_identical(subprocess_field(run, "propensity"), "FALSE")
+    expect_identical(subprocess_field(run, "causalgenerics"), "TRUE")
+    expect_identical(
+      subprocess_field(run, "print_header"),
+      "Inverse Probability Weight Estimator"
+    )
+    expect_identical(subprocess_field(run, "effects"), "rd,log(rr),log(or)")
   }
-
-  expect_identical(subprocess_field(run, "propensity"), "FALSE")
-  expect_identical(subprocess_field(run, "causalgenerics"), "TRUE")
-  expect_identical(
-    subprocess_field(run, "print_header"),
-    "Inverse Probability Weight Estimator"
-  )
-  expect_identical(subprocess_field(run, "effects"), "rd,log(rr),log(or)")
 })
 
 # ---- The declared dependency surface --------------------------------------
