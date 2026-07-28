@@ -298,8 +298,9 @@ vec_arith.bw.MISSING <- function(op, x, y, ...) {
 
 #' Extract balancing weights
 #'
-#' Returns the [bw] weight vector stored on a [balancing] result. When sampling
-#' weights are present they are composed onto the balancing weights by default.
+#' Returns the weights a [balancing] result fitted, as a [bw] vector carrying
+#' the estimand they target. When sampling weights are present they are composed
+#' onto the balancing weights by default.
 #'
 #' @usage NULL
 #' @param object A [balancing] result.
@@ -307,7 +308,9 @@ vec_arith.bw.MISSING <- function(op, x, y, ...) {
 #'   the sampling weights. Defaults to `TRUE`.
 #' @param ... Ignored.
 #'
-#' @return A [bw] vector.
+#' @return A [bw] vector of the same length as the data the fit was built from,
+#'   in the same row order. It carries the estimand and no other metadata about
+#'   the fit.
 #' @export
 method(weights, balancing) <- function(
   object,
@@ -315,7 +318,17 @@ method(weights, balancing) <- function(
   include_sampling_weights = TRUE
 ) {
   rlang::check_dots_empty()
+
+  # The `groups` attribute is a set of row positions into the fit's own weight
+  # vector, so it stays on the `@weights` property, where `fit_exposure_levels()`
+  # reads it, and does not travel out through a public accessor. Stripping it as
+  # the vector leaves the fit is what gives this accessor one return shape:
+  # composing sampling weights would drop it downstream in `vec_restore.bw()`
+  # anyway, and a caller asking for the balancing weights alone would otherwise
+  # be handed positions that only the fit can interpret.
   w <- object@weights
+  attr(w, "groups") <- NULL
+
   if (include_sampling_weights && !is.null(object@sampling_weights)) {
     w <- w * object@sampling_weights
   }

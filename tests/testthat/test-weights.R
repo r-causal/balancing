@@ -385,10 +385,18 @@ test_that("combining or repeating a bw drops the groups attribute", {
   expect_null(attr(rep(w, 2), "groups"))
 })
 
-test_that("the fit keeps the exposure level order that composing drops", {
+# `weights()` is on the other side of the same line. It is a public accessor
+# returning a derived value, so it hands back the numbers and the estimand and
+# leaves the positions on the fit. Both of its branches are pinned here because
+# the asymmetry between them is what the strip removes: the composing branch
+# would drop `groups` on its own by way of `vec_restore.bw()`, and the branch
+# that returns the balancing weights alone would otherwise pass the property
+# straight through, so the same accessor would have two return shapes depending
+# on whether the fit was given sampling weights.
+test_that("weights() drops the groups attribute the fit keeps", {
   data <- sim_binary(200)
   data$sampling <- rep(c(0.8, 1.2), length.out = nrow(data))
-  fit <- balance(
+  sampled <- balance(
     data,
     exposure,
     c(x1, x2),
@@ -396,13 +404,28 @@ test_that("the fit keeps the exposure level order that composing drops", {
     estimand = "ate",
     sampling_weights = sampling
   )
-  # The fit's own weight vector is where `groups` lives and the only place it is
-  # guaranteed to be, since `new_bw()` builds it there and no restoration
-  # touches it. `fit_exposure_levels()` reads the level order off exactly this.
-  expect_identical(names(attr(fit@weights, "groups")), c("0", "1"))
+  plain <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
 
-  # Composing the sampling weights runs through `vec_arith.bw.numeric()` to
-  # `vec_restore.bw()`, which returns a different vector than the one the fit
-  # holds, so it carries no positions.
-  expect_null(attr(stats::weights(fit), "groups"))
+  # The fit's own weight vector is where `groups` lives and the only place it is
+  # guaranteed to be, since `new_bw()` builds it there and nothing else writes
+  # it. `fit_exposure_levels()` reads the level order off exactly this.
+  expect_identical(names(attr(sampled@weights, "groups")), c("0", "1"))
+  expect_identical(names(attr(plain@weights, "groups")), c("0", "1"))
+
+  expect_null(attr(stats::weights(sampled), "groups"))
+  expect_null(
+    attr(stats::weights(sampled, include_sampling_weights = FALSE), "groups")
+  )
+  expect_null(attr(stats::weights(plain), "groups"))
+
+  # What the accessor does keep.
+  expect_true(is_bw(stats::weights(sampled)))
+  expect_identical(estimand(stats::weights(sampled)), "ate")
+  expect_identical(vctrs::vec_size(stats::weights(plain)), nrow(data))
 })

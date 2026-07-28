@@ -12,9 +12,12 @@
 the sampling weights. Defaults to \code{TRUE}.}
 }
 \value{
-A \link{bw} vector.
+A \link{bw} vector of the same length as the data the fit was built from,
+in the same row order. It carries the estimand and no other metadata about
+the fit.
 }
 \description{
-Returns the \link{bw} weight vector stored on a \link{balancing} result. When sampling
-weights are present they are composed onto the balancing weights by default.
+Returns the weights a \link{balancing} result fitted, as a \link{bw} vector carrying
+the estimand they target. When sampling weights are present they are composed
+onto the balancing weights by default.
 }
