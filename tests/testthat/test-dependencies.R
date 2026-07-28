@@ -133,6 +133,10 @@ subprocess_field <- function(run, name) {
 test_that("the ipw() workflow runs with propensity absent from the namespaces", {
   run <- run_fresh_r(c(
     balancing_loader(),
+    # Two readings of the same fact bracket the workflow. This one is taken
+    # before any balancing code runs, so it reports only what loading the
+    # namespace pulled in on its own.
+    'cat(sprintf("propensity_at_load: %s\\n", "propensity" %in% loadedNamespaces()))',
     'options(balancing.quiet = TRUE)',
     'set.seed(101)',
     'n <- 200',
@@ -162,6 +166,13 @@ test_that("the ipw() workflow runs with propensity absent from the namespaces", 
     # path is a mainstream one rather than a corner of the class: composing
     # sampling weights onto fitted weights restores through it, and so does
     # every arithmetic operation on the result.
+    #
+    # The second reading of `loadedNamespaces()` comes after this block, and
+    # the pair is what tells the two surviving forms of the dependency apart.
+    # Both readings true means the namespace still declares propensity and
+    # loading balancing pulls it in. A false followed by a true means the
+    # declaration is gone but the estimand reads below still resolve into it,
+    # which is the form that leaves every other assertion here satisfied.
     'w <- weights(fit)',
     'invisible(w * 2)',
     'invisible(w + w)',
@@ -173,7 +184,7 @@ test_that("the ipw() workflow runs with propensity absent from the namespaces", 
     'invisible(vctrs::vec_cast(1L, w))',
     'cat(sprintf("print_header: %s\\n", printed[[1]]))',
     'cat(sprintf("effects: %s\\n", paste(estimates$effect, collapse = ",")))',
-    'cat(sprintf("propensity: %s\\n", "propensity" %in% loadedNamespaces()))',
+    'cat(sprintf("propensity_after_use: %s\\n", "propensity" %in% loadedNamespaces()))',
     'cat(sprintf("causalgenerics: %s\\n", "causalgenerics" %in% loadedNamespaces()))'
   ))
 
@@ -188,7 +199,8 @@ test_that("the ipw() workflow runs with propensity absent from the namespaces", 
       paste(run$output, collapse = "\n")
     ))
   } else {
-    expect_identical(subprocess_field(run, "propensity"), "FALSE")
+    expect_identical(subprocess_field(run, "propensity_at_load"), "FALSE")
+    expect_identical(subprocess_field(run, "propensity_after_use"), "FALSE")
     expect_identical(subprocess_field(run, "causalgenerics"), "TRUE")
     expect_identical(
       subprocess_field(run, "print_header"),
