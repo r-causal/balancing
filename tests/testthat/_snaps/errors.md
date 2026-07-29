@@ -87,9 +87,9 @@
       balance(data, exposure, c(x1, x2), method = bw_entropy(), exposure_type = "binary")
     Condition <balancing_exposure_type_error>
       Error in `balance()`:
-      ! `exposure_type` was set to "binary", but the data do not support it.
-      x The exposure is detected as "continuous".
-      i Drop `exposure_type` to detect it automatically, or supply an exposure of the forced type.
+      ! `exposure_type` was set to "binary", but the exposure cannot be treated that way.
+      x A "binary" exposure takes exactly two distinct values, and this one takes 150.
+      i Drop `exposure_type` to detect the type from the data, which reads it as "continuous".
 
 # balancing_constraints_error: quantiles with a continuous exposure
 

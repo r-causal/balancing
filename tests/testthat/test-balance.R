@@ -106,6 +106,32 @@ test_that("a forced exposure type that contradicts the data errors", {
   )
 })
 
+test_that("an explicit continuous type fits a low-cardinality dose", {
+  # Ten distinct doses in 200 observations sit under the categorical heuristic's
+  # unique-share threshold, so only the explicit declaration carries the fit to
+  # the continuous path, where balance is a weighted correlation.
+  data <- withr::with_seed(9, {
+    n <- 200
+    data.frame(
+      dose = sample(seq(10, 100, by = 10), n, replace = TRUE),
+      x1 = stats::rnorm(n),
+      x2 = stats::rnorm(n)
+    )
+  })
+  fit <- balance(
+    data,
+    dose,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate",
+    exposure_type = "continuous"
+  )
+
+  expect_identical(fit@exposure_type, "continuous")
+  expect_identical(fit@balance_table$statistic, c("correlation", "correlation"))
+  expect_balanced(fit, data)
+})
+
 # ---- Unused exposure levels -----------------------------------------------
 
 test_that("a binary factor with an unused level fits an estimating-equation method", {

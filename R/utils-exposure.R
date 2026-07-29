@@ -38,19 +38,42 @@ detect_exposure_type <- function(.exposure) {
   }
 }
 
-# Is a forced exposure type consistent with the data? A forced type that the data
-# cannot support (for example "binary" on a many-valued continuous exposure) is a
-# contradiction the caller must resolve.
-forced_type_matches <- function(forced, .exposure) {
-  switch(
+# Refuse an explicit exposure type the data cannot represent at all. An explicit
+# type is the caller's declaration of how the exposure is modeled and wins over
+# the detection heuristics, matching propensity's match_exposure_type: a
+# ten-level numeric dose declared continuous is fit as a dose, and a numeric
+# exposure taking two values declared continuous is the caller's decision. Only a
+# declaration the data cannot carry is a contradiction: a binary exposure needs
+# exactly two distinct values, and a continuous one needs a numeric vector. Every
+# vector can be read as a set of levels, so a categorical declaration is always
+# possible.
+check_forced_type <- function(
+  forced,
+  exposure_vec,
+  detected,
+  call = rlang::caller_env()
+) {
+  problem <- switch(
     forced,
-    binary = has_two_levels(.exposure),
-    categorical = is.factor(.exposure) ||
-      is.character(.exposure) ||
-      is_categorical(.exposure),
-    continuous = is.numeric(.exposure) &&
-      !has_two_levels(.exposure) &&
-      !is_categorical(.exposure)
+    binary = if (!has_two_levels(exposure_vec)) {
+      "A {.val binary} exposure takes exactly two distinct values, and this one takes {length(unique(exposure_vec))}."
+    },
+    continuous = if (!is.numeric(exposure_vec)) {
+      "A {.val continuous} exposure is numeric, and this one is {.obj_type_friendly {exposure_vec}}."
+    },
+    categorical = NULL
+  )
+  if (is.null(problem)) {
+    return(invisible(NULL))
+  }
+  abort(
+    c(
+      "{.arg exposure_type} was set to {.val {forced}}, but the exposure cannot be treated that way.",
+      x = problem,
+      i = "Drop {.arg exposure_type} to detect the type from the data, which reads it as {.val {detected}}."
+    ),
+    error_class = "balancing_exposure_type_error",
+    call = call
   )
 }
 
@@ -58,8 +81,9 @@ forced_type_matches <- function(forced, .exposure) {
 #'
 #' Matches `exposure_type` against the permitted values. When it is `"auto"`, the
 #' type is inferred from the data and announced through `alert_info()`. An
-#' explicit type is honored, but a type the data contradict raises
-#' `balancing_exposure_type_error`, as does a type the method does not support.
+#' explicit type wins over the detection heuristics; only a type the data cannot
+#' represent raises `balancing_exposure_type_error`, as does a type the method
+#' does not support.
 #'
 #' @param exposure_type The `exposure_type` argument.
 #' @param exposure_vec The exposure vector.
@@ -86,17 +110,7 @@ resolve_exposure_type <- function(
     alert_info("Treating {.arg .exposure} as {detected}.")
     resolved <- detected
   } else {
-    if (!forced_type_matches(explicit, exposure_vec)) {
-      abort(
-        c(
-          "{.arg exposure_type} was set to {.val {explicit}}, but the data do not support it.",
-          x = "The exposure is detected as {.val {detected}}.",
-          i = "Drop {.arg exposure_type} to detect it automatically, or supply an exposure of the forced type."
-        ),
-        error_class = "balancing_exposure_type_error",
-        call = call
-      )
-    }
+    check_forced_type(explicit, exposure_vec, detected, call = call)
     resolved <- explicit
   }
 
