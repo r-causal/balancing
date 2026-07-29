@@ -245,10 +245,19 @@ method(fit_method, bw_cbps) <- function(method, prepared) {
   )
 }
 
-# The estimand string the core expects. The orchestrator stores the untreated
-# target as "atu"; the core names it "atc".
-cbps_core_estimand <- function(estimand) {
-  switch(estimand, ate = "ate", att = "att", atu = "atc", ato = "ato")
+# The estimand string the binary core expects. The core names a focal target by
+# the exposure level it holds at base weight rather than by the estimand: "att"
+# holds the second level and "atc" the first. The level to hold is the resolved
+# focal level, which a caller may name explicitly and which the estimand's
+# default reading only infers, so a treated estimand with the first level as its
+# focal targets that level and solves the same problem the untreated estimand
+# infers. The average treatment effect and the overlap estimand hold no group at
+# base weight and carry no focal level.
+cbps_core_estimand <- function(estimand, focal, levels) {
+  if (estimand %in% c("ate", "ato")) {
+    return(estimand)
+  }
+  if (identical(focal, levels[[2]])) "att" else "atc"
 }
 
 fit_cbps_binary <- function(method, prepared) {
@@ -260,10 +269,16 @@ fit_cbps_binary <- function(method, prepared) {
   levels <- prepared$exposure_levels
   key <- prepared$exposure_key
 
-  # The second level is the treated level; the estimand determines which group
-  # keeps its base weights and which is reweighted toward it.
+  # The second level is the treated level, whose propensity the model estimates,
+  # so the indicator fixes the orientation of the stored coefficients for every
+  # estimand. Which group keeps its base weights and which is reweighted toward
+  # it is carried by the core estimand instead, read off the focal level.
   treat <- as.integer(key == levels[[2]])
-  core_estimand <- cbps_core_estimand(prepared$estimand)
+  core_estimand <- cbps_core_estimand(
+    prepared$estimand,
+    prepared$focal_level,
+    levels
+  )
 
   result <- solve_cbps(
     covs,

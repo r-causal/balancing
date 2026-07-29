@@ -278,6 +278,176 @@ test_that("bw_cbps balances a binary atc", {
   expect_true(all(stats::weights(fit) >= 0))
 })
 
+# ---- Explicit focal level on a binary exposure ----------------------------
+
+# A binary focal estimand infers its target from the estimand alone only when the
+# caller leaves focal_level unset. An explicit focal_level names the target
+# population directly, so "att" with the first level as the focal targets that
+# level rather than the treated one, and "atu" with the second level targets the
+# treated one. The focal group then keeps its base weight and the other group is
+# tilted onto the focal covariate profile. Inverse probability tilting solves the
+# same treated-target moment conditions under the logit link, so its weights are
+# the cross-method reference for both directions.
+
+# The weighted covariate mean in the non-focal group against the focal group's
+# unweighted mean. The balancing conditions carry an intercept, so they equate
+# these two means exactly on every constraint column.
+expect_tilted_to_focal <- function(fit, .data, focal_level) {
+  w <- as.numeric(stats::weights(fit))
+  focal <- as.character(.data[[fit@exposure]]) == focal_level
+  for (column in c("x1", "x2")) {
+    testthat::expect_equal(
+      stats::weighted.mean(.data[[column]][!focal], w[!focal]),
+      mean(.data[[column]][focal]),
+      tolerance = 1e-6
+    )
+  }
+}
+
+test_that("a binary att honors an explicit focal_level", {
+  data <- sim_binary()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_cbps(),
+    estimand = "att",
+    focal_level = "0"
+  )
+  expect_identical(fit@estimand, "att")
+  expect_identical(fit@focal_level, "0")
+  expect_balanced(fit, data)
+
+  w <- as.numeric(stats::weights(fit))
+  focal <- data$exposure == 0
+  expect_equal(w[focal], rep(1, sum(focal)), tolerance = 1e-6)
+  expect_tilted_to_focal(fit, data, "0")
+
+  fit_ipt <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "att",
+    focal_level = "0"
+  )
+  expect_equal(
+    normalize_by_group(w, data$exposure),
+    normalize_by_group(as.numeric(stats::weights(fit_ipt)), data$exposure),
+    tolerance = 1e-6
+  )
+})
+
+test_that("a binary atu honors an explicit focal_level", {
+  data <- sim_binary()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_cbps(),
+    estimand = "atu",
+    focal_level = "1"
+  )
+  expect_identical(fit@estimand, "atu")
+  expect_identical(fit@focal_level, "1")
+  expect_balanced(fit, data)
+
+  w <- as.numeric(stats::weights(fit))
+  focal <- data$exposure == 1
+  expect_equal(w[focal], rep(1, sum(focal)), tolerance = 1e-6)
+  expect_tilted_to_focal(fit, data, "1")
+
+  fit_ipt <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "atu",
+    focal_level = "1"
+  )
+  expect_equal(
+    normalize_by_group(w, data$exposure),
+    normalize_by_group(as.numeric(stats::weights(fit_ipt)), data$exposure),
+    tolerance = 1e-6
+  )
+})
+
+test_that("an explicit focal_level agrees with the estimand that infers it", {
+  # Naming the first level as the focal for "att" targets the same population the
+  # untreated estimand infers, so the two fits solve the same problem and their
+  # weights agree; the same holds for "atu" against the treated target.
+  data <- sim_binary()
+  att_focal_control <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_cbps(),
+    estimand = "att",
+    focal_level = "0"
+  )
+  atu_inferred <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_cbps(),
+    estimand = "atu"
+  )
+  expect_equal(
+    as.numeric(stats::weights(att_focal_control)),
+    as.numeric(stats::weights(atu_inferred)),
+    tolerance = 1e-8
+  )
+
+  atu_focal_treated <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_cbps(),
+    estimand = "atu",
+    focal_level = "1"
+  )
+  att_inferred <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_cbps(),
+    estimand = "att"
+  )
+  expect_equal(
+    as.numeric(stats::weights(atu_focal_treated)),
+    as.numeric(stats::weights(att_inferred)),
+    tolerance = 1e-8
+  )
+})
+
+test_that("an over-identified binary fit honors an explicit focal_level", {
+  # The over-identified criterion stacks the model score equations onto the same
+  # balancing conditions, so it reads the focal level through the same estimand
+  # the just-identified form does. Naming the first level as the focal for "att"
+  # therefore reproduces the criterion the untreated estimand minimizes.
+  data <- sim_binary()
+  focal_control <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_cbps(over_identified = TRUE),
+    estimand = "att",
+    focal_level = "0"
+  )
+  inferred <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_cbps(over_identified = TRUE),
+    estimand = "atu"
+  )
+  expect_equal(
+    as.numeric(stats::weights(focal_control)),
+    as.numeric(stats::weights(inferred)),
+    tolerance = 1e-8
+  )
+})
+
 # ---- Statistical promises: categorical ------------------------------------
 
 test_that("bw_cbps balances a categorical ate", {
@@ -903,6 +1073,36 @@ test_that("just-identified bw_cbps weights match WeightIt for a binary att", {
     method = "cbps",
     estimand = "ATT",
     focal = "1",
+    over = FALSE
+  )
+
+  ours <- normalize_by_group(
+    as.numeric(stats::weights(fit)),
+    data$exposure
+  )
+  theirs <- normalize_by_group(reference$weights, data$exposure)
+  expect_equal(ours, theirs, tolerance = 1e-6)
+})
+
+test_that("just-identified bw_cbps weights match WeightIt for a binary att with a control focal", {
+  skip_on_cran()
+  skip_if_not_installed("WeightIt")
+
+  data <- sim_binary()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_cbps(),
+    estimand = "att",
+    focal_level = "0"
+  )
+  reference <- WeightIt::weightit(
+    exposure ~ x1 + x2,
+    data = data,
+    method = "cbps",
+    estimand = "ATT",
+    focal = "0",
     over = FALSE
   )
 
