@@ -40,6 +40,18 @@ sim_categorical <- function(n = 500, seed = 2024) {
   data.frame(exposure = exposure, x1 = x1, x2 = x2)
 }
 
+# Continuous exposure driven by one continuous covariate and one binary
+# indicator. The indicator crosses the boundary as a raw zero/one column, so a
+# fit over both covariates has to hold the indicator's marginal proportion as
+# well as decorrelate it from the exposure.
+sim_continuous_indicator <- function(n = 400, seed = 101) {
+  withr::local_seed(seed)
+  x1 <- stats::rnorm(n)
+  g <- stats::rbinom(n, 1L, 0.4)
+  exposure <- 0.5 * x1 + 0.3 * g + stats::rnorm(n)
+  data.frame(exposure = exposure, x1 = x1, g = g)
+}
+
 # Continuous exposure correlated with two continuous covariates, so the
 # unweighted exposure-covariate correlations are materially nonzero.
 sim_continuous <- function(n = 500, seed = 2024) {

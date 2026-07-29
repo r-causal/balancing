@@ -120,6 +120,68 @@ test_that("entropy balancing balances a binary atc", {
   expect_true(all(stats::weights(fit) >= 0))
 })
 
+test_that("entropy balancing balances a factor covariate for a binary ate", {
+  # A factor covariate crosses the boundary as one raw indicator column per
+  # level, whose balance target is the pooled level proportion rather than the
+  # zero a standardized numeric column carries. Every exposure group's weighted
+  # level proportions must therefore land on the pooled proportions.
+  #
+  # The level indicators of a factor sum to a constant column, so the entropy
+  # dual is exactly flat along that direction and its Hessian is singular. The
+  # damped Newton solve reaches the dual's numerical optimum without reaching a
+  # 1e-10 gradient, so the gradient tolerance is set to the scale this constraint
+  # set can reach; the achieved balance below is exact well inside the assertion.
+  data <- sim_binary()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, x3),
+    method = bw_entropy(convergence_tolerance = 1e-8),
+    estimand = "ate"
+  )
+  expect_balanced(fit, data)
+  expect_true(all(stats::weights(fit) >= 0))
+
+  w <- as.numeric(stats::weights(fit))
+  for (level in levels(data$x3)) {
+    indicator <- as.numeric(data$x3 == level)
+    for (group in unique(data$exposure)) {
+      idx <- data$exposure == group
+      expect_equal(
+        stats::weighted.mean(indicator[idx], w[idx]),
+        mean(indicator),
+        tolerance = 1e-6
+      )
+    }
+  }
+})
+
+test_that("entropy balancing balances a factor covariate for a binary att", {
+  # For the treated target the control group's weighted level proportions match
+  # the treated group's own proportions.
+  data <- sim_binary()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, x3),
+    method = bw_entropy(),
+    estimand = "att"
+  )
+  expect_balanced(fit, data)
+  expect_true(all(stats::weights(fit) >= 0))
+
+  w <- as.numeric(stats::weights(fit))
+  treated <- data$exposure == 1
+  for (level in levels(data$x3)) {
+    indicator <- as.numeric(data$x3 == level)
+    expect_equal(
+      stats::weighted.mean(indicator[!treated], w[!treated]),
+      mean(indicator[treated]),
+      tolerance = 1e-6
+    )
+  }
+})
+
 test_that("a binary ate normalizes each group to its size", {
   data <- sim_binary()
   fit <- balance(
@@ -193,6 +255,84 @@ test_that("entropy balancing balances a continuous ate", {
   )
   expect_balanced(fit, data)
   expect_true(all(stats::weights(fit) >= 0))
+})
+
+test_that("a continuous fit preserves an indicator covariate's marginal", {
+  # An indicator covariate crosses the boundary as a raw zero/one column, so the
+  # marginal it is held to is the sample proportion. A marginal target of zero
+  # would instead drive every unit in the indicated stratum to no weight at all,
+  # which balances nothing and empties the stratum.
+  data <- sim_continuous_indicator()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, g),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  expect_equal(
+    stats::weighted.mean(data$g, w),
+    mean(data$g),
+    tolerance = 1e-6
+  )
+  # The stratum keeps its share of the total weight rather than being annihilated.
+  expect_equal(sum(w[data$g == 1]), sum(data$g == 1), tolerance = 1e-4)
+  expect_balanced(fit, data)
+  expect_true(all(w >= 0))
+})
+
+test_that("a continuous fit holds the base-measure marginals under sampling weights", {
+  # Under informative sampling the reference is the sampling-weighted sample, so
+  # the marginals the fit preserves are the sampling-weighted ones: the
+  # indicator's proportion and the exposure mean alike.
+  data <- sim_continuous_indicator()
+  withr::local_seed(31)
+  data$sw <- stats::runif(nrow(data), 0.3, 3)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, g),
+    method = bw_entropy(),
+    estimand = "ate",
+    sampling_weights = sw
+  )
+  w <- as.numeric(stats::weights(fit))
+  expect_equal(
+    stats::weighted.mean(data$g, w),
+    stats::weighted.mean(data$g, data$sw),
+    tolerance = 1e-6
+  )
+  expect_equal(
+    stats::weighted.mean(data$exposure, w),
+    stats::weighted.mean(data$exposure, data$sw),
+    tolerance = 1e-6
+  )
+  expect_balanced(fit, data)
+})
+
+test_that("a continuous fit returns the base weights when balance already holds", {
+  # The exposure distribution is identical in the two covariate strata and the
+  # base weights depend on the stratum alone, so the base measure already
+  # decorrelates the exposure from the covariate. The marginal targets are taken
+  # under that same base measure, which leaves the base weights themselves as
+  # the solution. Targets read off the sample instead would pull the marginals
+  # away from the base measure and tilt a solution that needs no tilt.
+  grid <- seq(-2, 2, length.out = 50)
+  data <- data.frame(
+    exposure = rep(grid, 2),
+    x1 = rep(c(-1, 1), each = length(grid))
+  )
+  base <- rep(c(1, 3), each = length(grid))
+  fit <- balance(
+    data,
+    exposure,
+    x1,
+    method = bw_entropy(base_weights = base),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  expect_equal(w, base * nrow(data) / sum(base), tolerance = 1e-6)
 })
 
 # ---- ESS ------------------------------------------------------------------

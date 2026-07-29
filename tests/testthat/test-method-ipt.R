@@ -146,6 +146,62 @@ test_that("bw_ipt balances a binary atc", {
   expect_true(all(stats::weights(fit) >= 0))
 })
 
+test_that("bw_ipt balances a factor covariate for a binary ate", {
+  # A factor covariate crosses the boundary as one raw indicator column per
+  # level, whose balance target is the pooled level proportion rather than the
+  # zero a standardized numeric column carries. Every exposure group's weighted
+  # level proportions must therefore land on the pooled proportions.
+  data <- sim_binary()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, x3),
+    method = bw_ipt(),
+    estimand = "ate"
+  )
+  expect_balanced(fit, data)
+  expect_true(all(stats::weights(fit) >= 0))
+
+  w <- as.numeric(stats::weights(fit))
+  for (level in levels(data$x3)) {
+    indicator <- as.numeric(data$x3 == level)
+    for (group in unique(data$exposure)) {
+      idx <- data$exposure == group
+      expect_equal(
+        stats::weighted.mean(indicator[idx], w[idx]),
+        mean(indicator),
+        tolerance = 1e-6
+      )
+    }
+  }
+})
+
+test_that("bw_ipt balances a factor covariate for a binary att", {
+  # For the treated target the control group's weighted level proportions match
+  # the treated group's own proportions.
+  data <- sim_binary()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, x3),
+    method = bw_ipt(),
+    estimand = "att"
+  )
+  expect_balanced(fit, data)
+  expect_true(all(stats::weights(fit) >= 0))
+
+  w <- as.numeric(stats::weights(fit))
+  treated <- data$exposure == 1
+  for (level in levels(data$x3)) {
+    indicator <- as.numeric(data$x3 == level)
+    expect_equal(
+      stats::weighted.mean(indicator[!treated], w[!treated]),
+      mean(indicator[treated]),
+      tolerance = 1e-6
+    )
+  }
+})
+
 # ---- Statistical promises: categorical ------------------------------------
 
 test_that("bw_ipt balances a categorical ate", {

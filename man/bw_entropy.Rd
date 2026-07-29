@@ -21,9 +21,11 @@ must be passed by name.}
 \code{sum(w * log(w / base_weights))}.}
 
 \item{distribution_moments}{For continuous exposures, the number of exposure
-and covariate marginal moments held equal to the unweighted sample, or
-\code{NULL} for the constraint moments. Raised automatically when smaller than
-the constraint moments.}
+and covariate marginal moments held equal to the sample under the base
+measure, or \code{NULL} for the constraint moments. Raised automatically when
+smaller than the constraint moments. The base measure is the product of the
+sampling weights and \code{base_weights}, so without either the marginals are
+held equal to the unweighted sample.}
 
 \item{convergence_tolerance}{The solver convergence tolerance on the gradient.}
 

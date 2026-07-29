@@ -28,9 +28,11 @@
 #'   `NULL` for uniform base weights. The estimated weights minimize
 #'   `sum(w * log(w / base_weights))`.
 #' @param distribution_moments For continuous exposures, the number of exposure
-#'   and covariate marginal moments held equal to the unweighted sample, or
-#'   `NULL` for the constraint moments. Raised automatically when smaller than
-#'   the constraint moments.
+#'   and covariate marginal moments held equal to the sample under the base
+#'   measure, or `NULL` for the constraint moments. Raised automatically when
+#'   smaller than the constraint moments. The base measure is the product of the
+#'   sampling weights and `base_weights`, so without either the marginals are
+#'   held equal to the unweighted sample.
 #' @param convergence_tolerance The solver convergence tolerance on the gradient.
 #' @param max_iterations The maximum solver iterations, or `NULL` for the core
 #'   default.
@@ -195,10 +197,12 @@ method(fit_method, bw_entropy) <- function(method, prepared) {
   }
 }
 
-fit_entropy_discrete <- function(method, prepared) {
-  z <- prepared$matrix
-  n <- prepared$n
-  s <- prepared$sampling_weights
+# The method's base weights, defaulting to a uniform measure, checked against
+# the sample size the fit sees. Both exposure paths read them through here so a
+# mismatched vector is a classed error rather than a silent recycle. The error
+# is raised against the calling fit function, which is the frame the message
+# describes.
+entropy_base_weights <- function(method, n, call = rlang::caller_env()) {
   base <- method@base_weights %||% rep(1, n)
   if (length(base) != n) {
     abort(
@@ -206,9 +210,18 @@ fit_entropy_discrete <- function(method, prepared) {
         "{.arg base_weights} must have one value per observation.",
         x = "It has length {length(base)}, but the data have {n} row{?s}."
       ),
-      error_class = "balancing_range_error"
+      error_class = "balancing_range_error",
+      call = call
     )
   }
+  base
+}
+
+fit_entropy_discrete <- function(method, prepared) {
+  z <- prepared$matrix
+  n <- prepared$n
+  s <- prepared$sampling_weights
+  base <- entropy_base_weights(method, n)
   tolerances <- prepared$tolerances
   inexact <- any(tolerances > 0)
   tols <- solver_box(z, tolerances, s)
@@ -425,21 +438,33 @@ fit_entropy_continuous <- function(method, prepared) {
   z <- prepared$matrix
   n <- prepared$n
   s <- prepared$sampling_weights
-  base <- method@base_weights %||% rep(1, n)
+  base <- entropy_base_weights(method, n)
   tolerances <- prepared$tolerances
 
+  # The reference distribution the tilt anchors to is the base measure, the
+  # product of the sampling and base weights, as it is for a discrete exposure.
+  measure <- s * base
+
+  # The exposure crosses the product columns centered and scaled on the base
+  # measure. The marginal constraint below holds the weighted exposure mean at
+  # its base-measure value, so a product column centered there has weighted mean
+  # zero exactly when the weighted exposure-covariate covariance is zero, which
+  # is the association the correlation constraint removes. Centering on the
+  # unweighted sample instead would leave the two apart by the gap between the
+  # sample and base-measure exposure means, and the achieved correlation would
+  # miss zero by that gap times the covariate's weighted mean.
   exposure <- as.numeric(prepared$exposure_vec)
-  exposure_scale <- stats::sd(exposure)
+  exposure_scale <- weighted_scale(exposure, measure)
   if (exposure_scale == 0) {
     exposure_scale <- 1
   }
-  e <- (exposure - mean(exposure)) / exposure_scale
+  e <- (exposure - weighted_center(exposure, measure)) / exposure_scale
 
   # The marginal distribution constraints hold the exposure and covariate
-  # marginals equal to the unweighted sample. The correlation constraints drive
-  # each weighted exposure-covariate product to zero. The distribution moments
-  # extend the marginals: they are raised to at least the constraint moments,
-  # with an alert when the requested value is smaller.
+  # marginals equal to the sample under the base measure. The correlation
+  # constraints drive each weighted exposure-covariate product to zero. The
+  # distribution moments extend the marginals: they are raised to at least the
+  # constraint moments, with an alert when the requested value is smaller.
   covariate_moments <- covariate_constraint_moments(
     prepared$recipe,
     prepared$covariates
@@ -463,7 +488,20 @@ fit_entropy_continuous <- function(method, prepared) {
   n_marginal <- ncol(marginals)
   n_product <- ncol(products)
   dist_ind <- c(rep(1L, n_marginal), rep(0L, n_product))
-  targets <- rep(0, ncol(covs))
+
+  # Each marginal column is held at its mean under the base measure, which is
+  # the reference the discrete path targets as well and which leaves a sample
+  # already balanced under its base weights at those weights. A numeric column
+  # crosses the boundary centered, so its target is zero up to the gap between
+  # its center and the base measure; an indicator column crosses raw, so its
+  # target is the stratum's proportion, which a target of zero would drive to no
+  # weight at all rather than to balance. The product columns are the
+  # exposure-covariate associations the method removes, so their target is zero
+  # outright.
+  targets <- c(
+    as.numeric(crossprod(marginals, measure / sum(measure))),
+    rep(0, n_product)
+  )
 
   # The exposure and each covariate column cross standardized and their
   # marginals are held to unit variance, so the weighted mean of their product
@@ -579,7 +617,11 @@ resolve_distribution_moments <- function(requested, constraint_moments) {
 
 # Standardized centered powers 1..moments of a numeric vector, the marginal
 # moment columns for a distribution constraint. Each column is centered to mean
-# zero and scaled to unit standard deviation, so the target is the unweighted
+# zero and scaled to unit standard deviation on the unweighted sample, and the
+# caller sets the value it holds the column at: entropy balancing holds each
+# marginal at its mean under the base measure, which is the sample value of zero
+# when that measure is uniform and moves off zero once sampling or base weights
+# tilt it, while the energy quadratic program holds them at the unweighted
 # sample value of zero.
 moment_columns <- function(x, moments) {
   centered <- x - mean(x)
