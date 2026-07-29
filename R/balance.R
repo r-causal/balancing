@@ -111,6 +111,12 @@ balance <- function(
   )
   if (!is.null(sampling_weights_value)) {
     validate_sampling_weights(sampling_weights_value, n)
+    # Sampling weights arrive as counts often enough that an integer column is a
+    # natural way to supply them, and both the solver boundary and this fit's
+    # `sampling_weights` property take a double. The validated vector is coerced
+    # once here rather than at each solver call, which also drops any names the
+    # source column carried.
+    sampling_weights_value <- as.numeric(sampling_weights_value)
   }
 
   validate_finite_data(exposure_vec, .data, covariate_names)

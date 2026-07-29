@@ -522,6 +522,33 @@ test_that("all-zero sampling weights error", {
   )
 })
 
+# Sampling weights are naturally supplied as integer counts, and both the solver
+# boundary and the fitted object's property take a double, so an integer vector
+# fits and is stored coerced.
+test_that("integer sampling weights fit and are stored as doubles", {
+  data <- sim_binary(n = 200)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    sampling_weights = rep(2L, nrow(data))
+  )
+  expect_type(fit@sampling_weights, "double")
+  expect_equal(fit@sampling_weights, rep(2, nrow(data)))
+  doubled <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    sampling_weights = rep(2, nrow(data))
+  )
+  expect_equal(
+    as.numeric(stats::weights(fit)),
+    as.numeric(stats::weights(doubled))
+  )
+})
+
 # ---- Dots and missing values ----------------------------------------------
 
 test_that("balance() rejects unnamed arguments through check_dots_empty()", {
