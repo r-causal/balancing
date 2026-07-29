@@ -208,6 +208,21 @@ test_that("balancing_range_error: base weights of the wrong length", {
   )
 })
 
+# Both exposure paths read the base weights through the same helper, so the
+# continuous fit reports the length mismatch with the same class and message the
+# discrete fit does rather than the solver boundary's own complaint.
+test_that("balancing_range_error: base weights of the wrong length, continuous", {
+  data <- sim_continuous(n = 100)
+  expect_balancing_error(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(base_weights = rep(1, 3))
+    )
+  )
+})
+
 test_that("balancing_range_error: infinite covariate values", {
   data <- sim_binary(n = 100)
   data$x1[1] <- Inf

@@ -177,6 +177,15 @@
       ! `base_weights` must have one value per observation.
       x It has length 3, but the data have 100 rows.
 
+# balancing_range_error: base weights of the wrong length, continuous
+
+    Code
+      balance(data, exposure, c(x1, x2), method = bw_entropy(base_weights = rep(1, 3)))
+    Condition <balancing_range_error>
+      Error in `fit_entropy_continuous()`:
+      ! `base_weights` must have one value per observation.
+      x It has length 3, but the data have 100 rows.
+
 # balancing_range_error: infinite covariate values
 
     Code
