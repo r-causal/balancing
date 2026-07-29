@@ -146,6 +146,28 @@
       x Not a covariate: "nonesuch".
       i Name each element with one of "x1" and "x2".
 
+# balancing_constraints_error: an empty constraint set
+
+    Code
+      balance(data, exposure, c(x1, x2), method = bw_entropy(), constraints = balance_terms(
+        moments = 0L))
+    Condition <balancing_constraints_error>
+      Error in `balance()`:
+      ! Entropy balancing must have at least one balance constraint.
+      x The covariates "x1" and "x2" contributed no constraint columns.
+      i Raise `moments` in `balance_terms()`, or balance `quantiles` or `interactions` instead.
+
+# balancing_estimand_error: a focal estimand with one exposure level
+
+    Code
+      balance(data, exposure, c(x1, x2), method = bw_entropy(), estimand = "att",
+      focal_level = 1)
+    Condition <balancing_estimand_error>
+      Error in `balance()`:
+      ! The "att" estimand needs an exposure level outside the focal group.
+      x The exposure takes the single level "1".
+      i Supply an exposure with at least two levels, or use the "ate" estimand.
+
 # balancing_range_error: base weights of the wrong length
 
     Code

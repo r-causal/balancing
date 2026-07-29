@@ -372,6 +372,30 @@ test_that("a binary att targets the numerically larger exposure level", {
   expect_identical(atc@focal_level, "9")
 })
 
+test_that("a focal estimand needs a level outside the focal group", {
+  # A single-level exposure leaves a focal estimand with no group to reweight, so
+  # the solve would carry no parameters at all.
+  data <- withr::with_seed(5, {
+    n <- 60
+    data.frame(
+      exposure = rep(1L, n),
+      x1 = stats::rnorm(n),
+      x2 = stats::rnorm(n)
+    )
+  })
+  expect_error(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(),
+      estimand = "att",
+      focal_level = 1
+    ),
+    class = "balancing_estimand_error"
+  )
+})
+
 test_that("a binary att infers the treated level without focal_level", {
   data <- sim_binary(n = 200)
   fit <- balance(

@@ -196,6 +196,15 @@ method(default_constraints, bw_sbw) <- function(method) {
   balance_terms(moments = 1L)
 }
 
+# The minimum-dispersion objective is minimized by the uniform weighting on its
+# own, so the balance constraints are what makes the problem a balancing problem.
+# Stable balancing weights therefore refuse an empty constraint set rather than
+# returning uniform weights, unlike the other quadratic-program methods whose
+# objective measures balance itself.
+method(requires_constraints, bw_sbw) <- function(method) {
+  TRUE
+}
+
 # Assemble the Rust option list, dropping the tuning parameters left at the core
 # default so the quadratic-program solver applies its own. The worker-thread
 # count is resolved on the R side and passed down on every call.

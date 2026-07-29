@@ -359,22 +359,30 @@ method(print, balancing) <- function(x, ...) {
       "Solver: {status} in {x@iterations} iteration{?s}"
     )
 
+    # An objective-driven method may carry no constraint terms at all, and an
+    # empty balance table has neither a tolerance nor a largest imbalance to
+    # report. Naming the empty set says so, where a maximum over no terms would
+    # print negative infinity behind a warning.
     n_constraints <- nrow(x@balance_table)
-    tol <- max(x@balance_table$tolerance)
-    cli::cli_text(
-      "Constraints: {n_constraints} term{?s} (tolerance {tol})"
-    )
-
-    statistic <- x@balance_table$statistic[1]
-    largest <- max(abs(x@balance_table$weighted))
-    label <- if (identical(statistic, "correlation")) {
-      "correlation"
+    if (n_constraints == 0L) {
+      cli::cli_text("Constraints: none")
     } else {
-      "standardized mean difference"
+      tol <- max(x@balance_table$tolerance)
+      cli::cli_text(
+        "Constraints: {n_constraints} term{?s} (tolerance {tol})"
+      )
+
+      statistic <- x@balance_table$statistic[1]
+      largest <- max(abs(x@balance_table$weighted))
+      label <- if (identical(statistic, "correlation")) {
+        "correlation"
+      } else {
+        "standardized mean difference"
+      }
+      cli::cli_text(
+        "Largest imbalance: {formatC(largest, format = 'f', digits = 4)} ({label})"
+      )
     }
-    cli::cli_text(
-      "Largest imbalance: {formatC(largest, format = 'f', digits = 4)} ({label})"
-    )
   })
   invisible(x)
 }

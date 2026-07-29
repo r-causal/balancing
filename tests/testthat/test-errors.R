@@ -162,6 +162,40 @@ test_that("balancing_constraints_error: moments named for a non-covariate", {
   )
 })
 
+test_that("balancing_constraints_error: an empty constraint set", {
+  data <- sim_binary(n = 100)
+  expect_balancing_error(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(),
+      constraints = balance_terms(moments = 0L)
+    )
+  )
+})
+
+test_that("balancing_estimand_error: a focal estimand with one exposure level", {
+  data <- withr::with_seed(5, {
+    n <- 60
+    data.frame(
+      exposure = rep(1L, n),
+      x1 = stats::rnorm(n),
+      x2 = stats::rnorm(n)
+    )
+  })
+  expect_balancing_error(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(),
+      estimand = "att",
+      focal_level = 1
+    )
+  )
+})
+
 test_that("balancing_range_error: base weights of the wrong length", {
   data <- sim_binary(n = 100)
   expect_balancing_error(

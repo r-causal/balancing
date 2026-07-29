@@ -578,7 +578,10 @@ fn fill_estimating_output(
 /// The inexact problem carries no estimating equations, so the call is a no-op.
 /// Otherwise the length of `scales` must match the number of parameter blocks,
 /// `duals.len() / p`; a mismatch would silently mis-scale the output and is
-/// returned as an error for the boundary layer to surface.
+/// returned as an error for the boundary layer to surface. A solve with no
+/// parameters at all, from an empty covariate matrix or from a design whose every
+/// unit sits outside the solved groups, is rejected on the same path: the total
+/// parameter count is also the divisor the row count is recovered from below.
 pub fn scale_estimating_output(
     result: &mut EntropyResult,
     p: usize,
@@ -588,7 +591,7 @@ pub fn scale_estimating_output(
         return Ok(());
     }
     let total_params = result.duals.len();
-    if p == 0 || scales.len() * p != total_params {
+    if p == 0 || total_params == 0 || scales.len() * p != total_params {
         return Err(format!(
             "estimating-equation scale has length {} but the solve has {} parameter block(s) of size {p}",
             scales.len(),
@@ -891,6 +894,16 @@ mod tests {
         // The output is left untouched when the scale is rejected.
         let base = sample_result(4, 2, 2);
         assert_eq!(result.psi.unwrap(), base.psi.unwrap());
+    }
+
+    #[test]
+    fn scale_estimating_output_errors_on_an_empty_parameter_set() {
+        // A solve that produced no parameter blocks has no scale to apply. The
+        // total parameter count is also the divisor the row count is recovered
+        // from, so an empty set is rejected rather than divided by.
+        let mut result = sample_result(4, 2, 0);
+        let err = scale_estimating_output(&mut result, 2, &[]).unwrap_err();
+        assert!(err.contains("length 0"), "unexpected message: {err}");
     }
 
     #[test]

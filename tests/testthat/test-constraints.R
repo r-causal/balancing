@@ -596,3 +596,124 @@ test_that("a covariate absent from the quantile list contributes no columns", {
   expect_true("x1_q0.5" %in% terms)
   expect_false(any(grepl("x2_q", terms)))
 })
+
+# ---- An empty constraint set across the method families -------------------
+
+# `moments = 0` asks for no moment columns, so a selection of continuous numeric
+# covariates expands to a constraint matrix with no columns at all. The two
+# families answer that differently by design. The estimating-equation family and
+# stable balancing weights are defined by their constraints and have nothing left
+# to solve, so they refuse the fit on the R side before the solver is called.
+# Energy and characteristic function distance balancing are driven by their
+# objective, which defines the solution on its own, so they fit as usual.
+no_moment_constraints <- function() {
+  balance_terms(moments = 0L)
+}
+
+test_that("no moments over continuous covariates leaves no constraint columns", {
+  data <- sim_binary(n = 100)
+  built <- build_constraint_matrix(
+    data,
+    c("x1", "x2"),
+    no_moment_constraints(),
+    exposure_type = "binary"
+  )
+  expect_identical(ncol(built$matrix), 0L)
+  expect_length(built$recipe, 0L)
+})
+
+test_that("constraint-defined methods refuse an empty constraint set", {
+  binary <- sim_binary(n = 150)
+  categorical <- sim_categorical(n = 150)
+
+  for (method in list(bw_entropy(), bw_ipt(), bw_cbps(), bw_sbw())) {
+    expect_error(
+      balance(
+        binary,
+        exposure,
+        c(x1, x2),
+        method = method,
+        constraints = no_moment_constraints()
+      ),
+      class = "balancing_constraints_error"
+    )
+    expect_error(
+      balance(
+        categorical,
+        exposure,
+        c(x1, x2),
+        method = method,
+        constraints = no_moment_constraints()
+      ),
+      class = "balancing_constraints_error"
+    )
+  }
+})
+
+test_that("constraint-defined methods refuse an empty continuous constraint set", {
+  continuous <- sim_continuous(n = 150)
+
+  for (method in list(bw_entropy(), bw_cbps(), bw_sbw())) {
+    expect_error(
+      balance(
+        continuous,
+        exposure,
+        c(x1, x2),
+        method = method,
+        constraints = no_moment_constraints()
+      ),
+      class = "balancing_constraints_error"
+    )
+  }
+})
+
+test_that("objective-driven methods fit with an empty constraint set", {
+  binary <- sim_binary(n = 150)
+  categorical <- sim_categorical(n = 150)
+
+  for (method in list(bw_energy(), bw_cfd())) {
+    fit <- balance(
+      binary,
+      exposure,
+      c(x1, x2),
+      method = method,
+      constraints = no_moment_constraints()
+    )
+    expect_identical(nrow(fit@balance_table), 0L)
+    expect_true(all(is.finite(as.numeric(stats::weights(fit)))))
+
+    fit_categorical <- balance(
+      categorical,
+      exposure,
+      c(x1, x2),
+      method = method,
+      constraints = no_moment_constraints()
+    )
+    expect_true(all(is.finite(as.numeric(stats::weights(fit_categorical)))))
+  }
+
+  fit_continuous <- balance(
+    sim_continuous(n = 150),
+    exposure,
+    c(x1, x2),
+    method = bw_energy(),
+    constraints = no_moment_constraints()
+  )
+  expect_true(all(is.finite(as.numeric(stats::weights(fit_continuous)))))
+})
+
+test_that("a fit with no constraint terms prints and summarizes cleanly", {
+  # An empty balance table has no largest imbalance and no tolerance to report,
+  # which the maximum over an empty vector would render as -Inf behind a warning.
+  data <- sim_binary(n = 150)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(),
+    constraints = no_moment_constraints()
+  )
+  printed <- utils::capture.output(expect_no_warning(print(fit)))
+  expect_false(any(grepl("Inf", printed, fixed = TRUE)))
+  expect_no_warning(utils::capture.output(summary(fit)))
+})

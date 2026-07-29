@@ -169,6 +169,8 @@ balance <- function(
     sampling_weights = constraint_sampling_weights
   )
 
+  check_constraint_columns(method, built$matrix, covariate_names)
+
   groups <- if (identical(exposure_type, "continuous")) {
     NULL
   } else {
@@ -347,6 +349,49 @@ drop_exposure_covariate <- function(selection, exposure_pos, exposure_name) {
   selection[keep]
 }
 
+# Refuse a fit whose constraint set is empty for a method the constraints define.
+# Entropy balancing, inverse probability tilting, the covariate balancing
+# propensity score, and stable balancing weights derive their weights from the
+# constraints, so with no constraint columns there is no problem to solve and the
+# solver would be handed a design with no parameters. The objective-driven
+# quadratic programs, energy and characteristic function distance balancing, have
+# an objective that defines the solution on its own and fit as usual, so they
+# answer `requires_constraints()` with FALSE.
+check_constraint_columns <- function(
+  method,
+  matrix,
+  covariates,
+  call = rlang::caller_env()
+) {
+  if (ncol(matrix) > 0 || !requires_constraints(method)) {
+    return(invisible(NULL))
+  }
+  abort(
+    c(
+      "{method_label(method)} must have at least one balance constraint.",
+      x = "The covariate{?s} {.val {covariates}} contributed no constraint columns.",
+      i = "Raise {.arg moments} in {.fn balance_terms}, or balance {.arg quantiles} or {.arg interactions} instead."
+    ),
+    error_class = "balancing_constraints_error",
+    call = call
+  )
+}
+
+# Whether a method's weights are defined by its balance constraints, so an empty
+# constraint set leaves it nothing to solve. The estimating-equation family reads
+# its identifying conditions off the constraints; the quadratic-program family is
+# driven by its objective, with stable balancing weights the exception that needs
+# explicit constraints, mirroring how `default_constraints()` splits the families.
+requires_constraints <- new_generic("requires_constraints", "method")
+
+method(requires_constraints, balance_method) <- function(method) {
+  TRUE
+}
+
+method(requires_constraints, quadratic_program_method) <- function(method) {
+  FALSE
+}
+
 # The default constraint set for a method with no explicit constraints, dispatched
 # on the method so each family states its own default. The estimating-equation
 # family balances first moments, its identifying conditions; the objective-driven
@@ -449,6 +494,22 @@ resolve_focal_level <- function(
       c(
         "{.arg focal_level} must be an exposure level.",
         x = "{.val {resolved}} is not one of {.val {levels}}."
+      ),
+      error_class = "balancing_estimand_error",
+      call = call
+    )
+  }
+
+  # A focal estimand holds the focal group fixed and reweights the others, so an
+  # exposure whose only level is the focal one leaves nothing to reweight. The
+  # solve would then carry no parameter blocks at all, which the core has no
+  # design to describe.
+  if (length(levels) < 2) {
+    abort(
+      c(
+        "The {.val {estimand}} estimand needs an exposure level outside the focal group.",
+        x = "The exposure takes the single level {.val {levels}}.",
+        i = "Supply an exposure with at least two levels, or use the {.val ate} estimand."
       ),
       error_class = "balancing_estimand_error",
       call = call
