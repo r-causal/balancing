@@ -25,6 +25,7 @@ Imports:
     causalgenerics (>= 0.0.0.9000),
     cli,
     deli,
+    parallel,
     rlang,
     S7,
     stats,
