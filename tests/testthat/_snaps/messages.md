@@ -135,6 +135,15 @@
     Message
       i Treating `.exposure` as binary.
 
+# alert: the exposure is excluded from a covariate selection
+
+    Code
+      invisible(balance(data, exposure, everything(), method = bw_entropy(),
+      estimand = "ate"))
+    Message
+      i Dropping the exposure "exposure" from `.covariates`.
+      i Treating `.exposure` as binary.
+
 # alert: aliased constraint columns are dropped
 
     Code

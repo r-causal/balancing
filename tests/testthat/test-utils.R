@@ -72,6 +72,33 @@ test_that("alert_info() stays silent when balancing.quiet is TRUE", {
   expect_silent(alert_info("A helpful note."))
 })
 
+# ---- Group renormalization ------------------------------------------------
+
+test_that("renormalize_group_weights() moves each group onto its target total", {
+  w <- renormalize_group_weights(
+    c(1, 3, 2, 2),
+    rep(1, 4),
+    list(a = 1:2, b = 3:4),
+    c(a = 2, b = 8)
+  )
+  expect_equal(w, c(0.5, 1.5, 4, 4))
+})
+
+test_that("a non-finite solved weight total is a classed error", {
+  # A diverged solve returns weights that are not finite, which leaves the total
+  # renormalization divides by as a missing value. That must raise a classed
+  # error rather than steer a branch with a missing value.
+  expect_error(
+    renormalize_group_weights(
+      c(1, NaN, 1, 1),
+      rep(1, 4),
+      list(a = 1:2, b = 3:4),
+      c(a = 2, b = 2)
+    ),
+    class = "balancing_convergence_error"
+  )
+})
+
 # ---- Thread resolution ----------------------------------------------------
 
 test_that("resolve_threads() honors an explicit thread count", {

@@ -49,6 +49,26 @@ test_that("balance() errors when the covariate selection is empty", {
   )
 })
 
+test_that("everything() excludes the exposure from its own covariates", {
+  # A selection that resolves against the whole data frame reaches the exposure
+  # too. Balancing the exposure against itself is infeasible by construction, so
+  # the exposure column leaves the covariate selection.
+  data <- sim_binary(n = 200)
+  fit <- balance(data, exposure, everything(), method = bw_entropy())
+
+  expect_identical(fit@covariates, c("x1", "x2", "x3"))
+  expect_false("exposure" %in% fit@balance_table$term)
+  expect_true(all(is.finite(as.numeric(stats::weights(fit)))))
+})
+
+test_that("a covariate selection naming only the exposure is a classed error", {
+  data <- sim_binary(n = 200)
+  expect_error(
+    balance(data, exposure, exposure, method = bw_entropy()),
+    class = "balancing_selection_error"
+  )
+})
+
 # ---- Exposure-type detection ----------------------------------------------
 
 test_that("balance() auto-detects the exposure type and stores it", {

@@ -123,6 +123,20 @@ test_that("alert: the detected exposure type is announced", {
   )
 })
 
+test_that("alert: the exposure is excluded from a covariate selection", {
+  withr::local_options(balancing.quiet = FALSE)
+  data <- sim_binary(n = 200)
+  expect_snapshot(
+    invisible(balance(
+      data,
+      exposure,
+      everything(),
+      method = bw_entropy(),
+      estimand = "ate"
+    ))
+  )
+})
+
 test_that("alert: aliased constraint columns are dropped", {
   withr::local_options(balancing.quiet = FALSE)
   data <- sim_binary()

@@ -95,6 +95,11 @@ balance <- function(
   exposure_vec <- .data[[exposure_pos]]
 
   covariate_pos <- tidyselect::eval_select(rlang::enquo(.covariates), .data)
+  covariate_pos <- drop_exposure_covariate(
+    covariate_pos,
+    exposure_pos,
+    exposure_name
+  )
   validate_selection(covariate_pos, ".covariates", expected = "some")
   covariate_names <- names(covariate_pos)
 
@@ -321,6 +326,25 @@ check_solver_status <- function(fit, method, call = rlang::caller_env()) {
     )
   }
   invisible()
+}
+
+# Drop the exposure column from a resolved covariate selection. A tidyselect
+# expression resolves against the whole data frame, so a selection such as
+# `everything()` reaches the exposure as well, and balancing the exposure against
+# itself is infeasible by construction: no reweighting of a group makes its own
+# exposure indicator match the pooled mean. Excluding the response from
+# predictors chosen by selection is the established modeling idiom, so the fit
+# proceeds rather than erroring, and the exclusion is announced so that a caller
+# who named the exposure deliberately can see it did not become a constraint.
+drop_exposure_covariate <- function(selection, exposure_pos, exposure_name) {
+  keep <- selection != exposure_pos
+  if (all(keep)) {
+    return(selection)
+  }
+  alert_info(
+    "Dropping the exposure {.val {exposure_name}} from {.arg .covariates}."
+  )
+  selection[keep]
 }
 
 # The default constraint set for a method with no explicit constraints, dispatched

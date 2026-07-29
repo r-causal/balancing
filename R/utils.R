@@ -80,10 +80,32 @@ group_target_sums <- function(s, groups, focal_level = NULL) {
 # scale to move to and is left alone. The arguments are the weights together
 # with the groups and targets rather than a fitted object, so a caller
 # re-evaluating the weights at other parameters can apply the same convention.
-renormalize_group_weights <- function(w, s, groups, targets) {
+#
+# A solve that diverged returns weights that are not finite, which leaves the
+# group total this divides by as a missing value. That is a failed solve rather
+# than a reporting-scale question, so it is refused here with a classed error
+# instead of steering the comparison below with a missing value.
+renormalize_group_weights <- function(
+  w,
+  s,
+  groups,
+  targets,
+  call = rlang::caller_env()
+) {
   for (level in names(groups)) {
     idx <- groups[[level]]
     current <- sum(s[idx] * w[idx])
+    if (!is.finite(current)) {
+      abort(
+        c(
+          "The solver did not produce finite weights.",
+          x = "The weights for exposure level {.val {level}} do not sum to a finite total.",
+          i = "Check the covariates for collinearity or for a column the exposure determines."
+        ),
+        error_class = "balancing_convergence_error",
+        call = call
+      )
+    }
     if (current > 0) {
       w[idx] <- w[idx] * (targets[[level]] / current)
     }
