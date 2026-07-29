@@ -290,7 +290,7 @@ test_that("a categorical att honors a supplied focal_level", {
 
 test_that("balance() evaluates sampling_weights given as a bare column", {
   data <- sim_binary(n = 200)
-  data$sw <- stats::runif(nrow(data), 0.5, 2)
+  data$sw <- withr::with_seed(414, stats::runif(nrow(data), 0.5, 2))
   fit <- balance(
     data,
     exposure,
@@ -304,7 +304,7 @@ test_that("balance() evaluates sampling_weights given as a bare column", {
 
 test_that("balance() evaluates sampling_weights given as an external vector", {
   data <- sim_binary(n = 200)
-  external <- stats::runif(nrow(data), 0.5, 2)
+  external <- withr::with_seed(414, stats::runif(nrow(data), 0.5, 2))
   fit <- balance(
     data,
     exposure,
