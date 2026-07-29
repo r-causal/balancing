@@ -141,7 +141,7 @@
 #' @param conf_level The confidence level for the intervals. Default `0.95`.
 #' @param ... Ignored, for compatibility with the generic.
 #'
-#' @return An object of class `ipw`, the shared return contract of
+#' @return An object of class `ipw`, an implementation of
 #'   [causalgenerics::ipw()]. Alongside `estimand`, `wt_mod`, `outcome_mod`, and
 #'   the `estimates` table, the result carries two fields describing the
 #'   variance:

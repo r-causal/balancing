@@ -22,7 +22,7 @@ an estimand that disagrees with the fit raises \code{balancing_estimand_error}.}
 \item{...}{Ignored, for compatibility with the generic.}
 }
 \value{
-An object of class \code{ipw}, the shared return contract of
+An object of class \code{ipw}, an implementation of
 \code{\link[causalgenerics:ipw]{causalgenerics::ipw()}}. Alongside \code{estimand}, \code{wt_mod}, \code{outcome_mod}, and
 the \code{estimates} table, the result carries two fields describing the
 variance:
