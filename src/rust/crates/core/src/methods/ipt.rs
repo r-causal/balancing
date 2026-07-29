@@ -117,6 +117,7 @@ struct IptBlock<'a> {
     target: &'a [f64],
     link: Link,
     form: WeightForm,
+    residual_scale: f64,
     pool: Arc<ThreadPool>,
 }
 
@@ -241,6 +242,10 @@ impl EsteqProblem for IptBlock<'_> {
         None
     }
 
+    fn residual_scale(&self) -> f64 {
+        self.residual_scale
+    }
+
     fn psi(&self, beta: &[f64], mut out: MatMut<'_, f64>) {
         // The level's own-unit contributions; the full per-unit matrix, which
         // also carries every unit's target term, is assembled in `solve`. Not on
@@ -278,6 +283,32 @@ fn plan(inputs: &IptInputs<'_>) -> (Vec<(usize, WeightForm)>, Vec<f64>) {
                 .collect();
             (blocks, tau)
         }
+    }
+}
+
+/// The scale the tilting residual carries: one average sampling weight.
+///
+/// Both sides of the moment, the target total and the achieved weighted total,
+/// are sums of `s_i` times a bounded quantity, so expressing the same design in
+/// survey-expansion units multiplies the residual by the expansion factor and
+/// leaves the solution where it was. Dividing the tolerance into that factor,
+/// which the average sampling weight measures, makes the convergence verdict a
+/// statement about the fit rather than about the units. The average, rather than
+/// the accumulated mass, is what keeps the criterion exactly where it has always
+/// been for the unit sampling weights the default tolerance was calibrated on: a
+/// per-mass criterion would loosen it by a factor of the sample size. A
+/// degenerate set of sampling weights falls back to one, the criterion applied
+/// before any scale was read.
+fn sampling_weight_scale(s: &[f64]) -> f64 {
+    if s.is_empty() {
+        return 1.0;
+    }
+    let mass: f64 = s.iter().sum();
+    let scale = mass / s.len() as f64;
+    if scale.is_finite() && scale > 0.0 {
+        scale
+    } else {
+        1.0
     }
 }
 
@@ -321,6 +352,7 @@ pub fn solve(inputs: &IptInputs<'_>, interrupt: &dyn Fn() -> bool) -> IptResult 
         grad_tol: inputs.tol,
         fista_rel_tol: inputs.tol,
     };
+    let residual_scale = sampling_weight_scale(inputs.s);
 
     for (b, &(level, form)) in blocks.iter().enumerate() {
         block_levels.push(level);
@@ -340,6 +372,7 @@ pub fn solve(inputs: &IptInputs<'_>, interrupt: &dyn Fn() -> bool) -> IptResult 
             target: &target,
             link: inputs.link,
             form,
+            residual_scale,
             pool: Arc::clone(&pool),
         };
         let report = esteq::solve(&block, &mut beta, Solver::Newton, &solve_opts, interrupt);
@@ -758,6 +791,50 @@ mod tests {
                 assert_eq!(one.coefs[i].to_bits(), many.coefs[i].to_bits());
             }
         }
+    }
+
+    // The tilting moment is a sampling-weighted total, so expressing the same
+    // design in survey-expansion units multiplies the residual by the expansion
+    // factor while leaving the solution untouched. The verdict must follow the
+    // solution rather than the units.
+    #[test]
+    fn convergence_verdict_is_invariant_to_the_sampling_weight_scale() {
+        let (covs, treat, n) = saturated_design();
+        let solve_at = |scale: f64| {
+            let s = vec![scale; n];
+            let inputs = IptInputs {
+                covs: &covs,
+                n,
+                p: 2,
+                treat: &treat,
+                n_levels: 2,
+                s: &s,
+                link: Link::Logit,
+                estimand: IptEstimand::Ate,
+                threads: 1,
+                max_iter: 200,
+                tol: 1e-10,
+            };
+            solve(&inputs, &no_interrupt())
+        };
+        let base = solve_at(1.0);
+        let expanded = solve_at(1e6);
+
+        for i in 0..n {
+            assert!(
+                (base.weights[i] - expanded.weights[i]).abs() < 1e-9,
+                "weight[{i}]: unscaled {} versus expanded {}",
+                base.weights[i],
+                expanded.weights[i]
+            );
+        }
+        assert!(base.converged, "the unscaled fit must converge");
+        assert!(
+            expanded.converged,
+            "the expanded fit solved to the same weights but reported \
+             grad_norm {} against tolerance 1e-10",
+            expanded.grad_norm
+        );
     }
 
     // Re-evaluating psi at the solved coefficients reproduces the solve's own

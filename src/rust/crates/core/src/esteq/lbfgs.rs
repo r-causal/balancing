@@ -54,10 +54,14 @@ pub fn solve<P: EsteqProblem>(
     let adapter = Adapter { inner: problem };
     let state = LbfgsState::new(beta.to_vec(), HISTORY);
     let solver = Lbfgs::<Unbounded>::new();
+    // The tolerance is read at the scale the problem's gradient carries, the
+    // same convention the Newton method applies, so the solver choice never
+    // moves the verdict.
+    let grad_tol = opts.grad_tol * problem.residual_scale();
 
     let result = Executor::new(adapter, solver, state)
         .terminate_on(MaxIter(opts.max_iter as u64))
-        .terminate_on(GradientTolerance(opts.grad_tol))
+        .terminate_on(GradientTolerance(grad_tol))
         .run()
         .expect("basin L-BFGS is infallible for an infallible problem");
 
@@ -82,7 +86,7 @@ pub fn solve<P: EsteqProblem>(
     // L2 norm above the tolerance while the sup norm is already below it; that run
     // has converged by this criterion.
     SolveReport {
-        converged: grad_norm <= opts.grad_tol,
+        converged: grad_norm <= grad_tol,
         interrupted,
         iterations,
         grad_norm,

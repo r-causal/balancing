@@ -359,6 +359,48 @@ test_that("bw_ipt balances a categorical att under sampling weights", {
   }
 })
 
+test_that("the convergence verdict does not move with the sampling-weight scale", {
+  # The tilting moment is a sampling-weighted total, so the same design expressed
+  # in survey-expansion units carries a residual a million times larger while its
+  # solution is unchanged. The verdict has to follow the solution rather than the
+  # units: both fits converge, the expanded one without a convergence warning,
+  # and the balancing factor each unit's weight carries on top of its sampling
+  # weight is the same at either scale.
+  data <- sim_binary()
+  withr::local_seed(9)
+  data$sw <- stats::runif(nrow(data), 0.5, 1.5)
+  data$sw_expanded <- data$sw * 1e6
+
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate",
+    sampling_weights = sw
+  )
+  expanded <- expect_no_warning(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_ipt(),
+      estimand = "ate",
+      sampling_weights = sw_expanded
+    ),
+    class = "balancing_convergence_warning"
+  )
+
+  expect_true(fit@converged)
+  expect_true(expanded@converged)
+
+  # weights() folds the sampling weights in, so the balancing factor is the
+  # reported weight divided by the unit's own sampling weight.
+  factors <- as.numeric(stats::weights(fit)) / data$sw
+  factors_expanded <- as.numeric(stats::weights(expanded)) / data$sw_expanded
+  expect_equal(factors_expanded, factors, tolerance = 1e-9)
+})
+
 # ---- ESS ------------------------------------------------------------------
 
 test_that("the effective sample size is bounded by n within each group", {

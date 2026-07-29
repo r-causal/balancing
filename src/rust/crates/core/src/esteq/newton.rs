@@ -80,6 +80,12 @@ fn solve_with_min_iter<P: EsteqProblem>(
 ) -> SolveReport {
     let p = problem.n_params();
     let smooth = problem.value(beta).is_some();
+    // The tolerance is read at the scale the problem's gradient carries, so a
+    // problem whose estimating function is a sampling-weight total gets the same
+    // verdict whatever units those weights are expressed in. The scale is a
+    // constant of the problem, so it is resolved once here rather than at every
+    // convergence check.
+    let grad_tol = opts.grad_tol * problem.residual_scale();
 
     let mut g = vec![0.0; p];
     let mut h = vec![0.0; p * p];
@@ -105,7 +111,7 @@ fn solve_with_min_iter<P: EsteqProblem>(
             problem.value_grad_hess(beta, &mut g, h_mat)
         };
         let grad_norm = sup_norm(&g);
-        if iter >= min_iter && grad_norm <= opts.grad_tol {
+        if iter >= min_iter && grad_norm <= grad_tol {
             converged = true;
             break;
         }
@@ -179,10 +185,12 @@ fn solve_with_min_iter<P: EsteqProblem>(
         }
     }
 
-    // Report the gradient and objective at the returned parameters.
+    // Report the gradient and objective at the returned parameters. The reported
+    // norm stays on the problem's own scale, the scale its estimating functions
+    // are stored at; only the tolerance it is judged against moves.
     problem.gradient(beta, &mut g);
     let grad_norm = sup_norm(&g);
-    if grad_norm <= opts.grad_tol {
+    if grad_norm <= grad_tol {
         converged = true;
     }
     let final_value = problem.value(beta).unwrap_or_else(|| 0.5 * dot(&g, &g));

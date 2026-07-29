@@ -58,6 +58,23 @@ pub trait EsteqProblem {
         self.hessian(beta, h);
         self.value(beta)
     }
+
+    /// The magnitude one unit of [`SolveOptions::grad_tol`] stands for on this
+    /// problem's gradient, a constant of the problem rather than of `beta`.
+    ///
+    /// A gradient that is an unnormalized total in the sampling weights carries
+    /// their units: multiplying every sampling weight by a constant multiplies
+    /// the gradient by that constant while leaving the solution untouched. A
+    /// fixed tolerance would then decide convergence by the units the weights
+    /// are expressed in rather than by the fit. Such a problem reports the scale
+    /// its residual carries here, and the solvers judge convergence against
+    /// `grad_tol` times that scale, which leaves the verdict invariant under the
+    /// rescaling. The default of one suits a gradient that is already
+    /// normalized, an average rather than a total, and leaves the tolerance
+    /// exactly as written. Implementations must return a positive, finite value.
+    fn residual_scale(&self) -> f64 {
+        1.0
+    }
 }
 
 /// Which solver drives the estimating-equation iteration.
