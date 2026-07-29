@@ -177,6 +177,47 @@
       ! `base_weights` must have one value per observation.
       x It has length 3, but the data have 100 rows.
 
+# balancing_range_error: infinite covariate values
+
+    Code
+      balance(data, exposure, c(x1, x2), method = bw_entropy())
+    Condition <balancing_range_error>
+      Error in `balance()`:
+      ! `.covariates` must not contain infinite values.
+      x Infinite values in "x1".
+      i A fit centers and scales every numeric input, which an infinity leaves undefined.
+
+# balancing_range_error: an infinite continuous exposure
+
+    Code
+      balance(data, exposure, c(x1, x2), method = bw_entropy())
+    Condition <balancing_range_error>
+      Error in `balance()`:
+      ! `.exposure` must not contain infinite values.
+      x Found 1 infinite value.
+      i A fit centers and scales every numeric input, which an infinity leaves undefined.
+
+# balancing_range_error: infinite sampling weights
+
+    Code
+      balance(data, exposure, c(x1, x2), method = bw_entropy(), sampling_weights = weights)
+    Condition <balancing_range_error>
+      Error in `balance()`:
+      ! `sampling_weights` must not contain infinite values.
+      x Found 1 infinite value.
+      i A fit centers and scales every numeric input, which an infinity leaves undefined.
+
+# balancing_range_error: sampling weights that are all zero
+
+    Code
+      balance(data, exposure, c(x1, x2), method = bw_entropy(), sampling_weights = rep(
+        0, nrow(data)))
+    Condition <balancing_range_error>
+      Error in `balance()`:
+      ! `sampling_weights` must not be zero for every observation.
+      x Every weight is zero, which leaves no sample to reweight.
+      i Individual zero weights are supported; those units are pinned at zero.
+
 # balancing_range_error: an invalid entropy solver option
 
     Code

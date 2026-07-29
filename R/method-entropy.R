@@ -96,9 +96,28 @@ bw_entropy <- new_class(
       max_iterations = max_iterations
     )
   },
+  # The base weights are the measure the tilt anchors to, so each way they can
+  # fail to define one is refused at construction rather than left to reach a
+  # solve. A missing value would stop the sign comparison below on its own, an
+  # infinity would standardize to another infinity, and a vector of zeros leaves
+  # every constraint target a ratio of zero totals. Rejecting all three here
+  # covers the discrete and the continuous fit paths alike. Individual zeros stay
+  # legal: those units are held at no weight.
   validator = function(self) {
-    if (!is.null(self@base_weights) && any(self@base_weights < 0)) {
-      "@base_weights must be non-negative"
+    if (is.null(self@base_weights)) {
+      return(NULL)
+    }
+    if (anyNA(self@base_weights)) {
+      return("@base_weights must not contain missing values")
+    }
+    if (any(is.infinite(self@base_weights))) {
+      return("@base_weights must not contain infinite values")
+    }
+    if (any(self@base_weights < 0)) {
+      return("@base_weights must be non-negative")
+    }
+    if (length(self@base_weights) > 0 && all(self@base_weights == 0)) {
+      return("@base_weights must not be all zero")
     }
   }
 )

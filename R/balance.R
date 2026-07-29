@@ -113,7 +113,7 @@ balance <- function(
     validate_sampling_weights(sampling_weights_value, n)
   }
 
-  validate_no_missing(exposure_vec, .data, covariate_names)
+  validate_finite_data(exposure_vec, .data, covariate_names)
 
   exposure_type <- resolve_exposure_type(exposure_type, exposure_vec, method)
 

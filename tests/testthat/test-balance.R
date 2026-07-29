@@ -479,6 +479,49 @@ test_that("negative sampling weights error", {
   )
 })
 
+test_that("infinite sampling weights error", {
+  data <- sim_binary(n = 200)
+  weights <- rep(1, nrow(data))
+  weights[1] <- Inf
+  expect_error(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(),
+      sampling_weights = weights
+    ),
+    class = "balancing_range_error"
+  )
+  # The covariate balancing propensity score carries the weights across the
+  # solver boundary unstandardized, so it reaches a different failure than the
+  # entropy path and is pinned separately.
+  expect_error(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_cbps(),
+      sampling_weights = weights
+    ),
+    class = "balancing_range_error"
+  )
+})
+
+test_that("all-zero sampling weights error", {
+  data <- sim_binary(n = 200)
+  expect_error(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(),
+      sampling_weights = rep(0, nrow(data))
+    ),
+    class = "balancing_range_error"
+  )
+})
+
 # ---- Dots and missing values ----------------------------------------------
 
 test_that("balance() rejects unnamed arguments through check_dots_empty()", {
@@ -508,6 +551,31 @@ test_that("missing values in the exposure error", {
   expect_error(
     balance(data, exposure, c(x1, x2), method = bw_entropy()),
     class = "balancing_missing_error"
+  )
+})
+
+# An infinity survives `anyNA()` and then standardizes to another infinity, so it
+# is refused alongside the missing values rather than left to poison the solve.
+test_that("infinite values in the covariates error", {
+  data <- sim_binary(n = 200)
+  data$x1[1] <- Inf
+  expect_error(
+    balance(data, exposure, c(x1, x2), method = bw_entropy()),
+    class = "balancing_range_error"
+  )
+  data$x1[1] <- -Inf
+  expect_error(
+    balance(data, exposure, c(x1, x2), method = bw_entropy()),
+    class = "balancing_range_error"
+  )
+})
+
+test_that("infinite values in a continuous exposure error", {
+  data <- sim_continuous(n = 200)
+  data$exposure[1] <- Inf
+  expect_error(
+    balance(data, exposure, c(x1, x2), method = bw_entropy()),
+    class = "balancing_range_error"
   )
 })
 

@@ -208,6 +208,50 @@ test_that("balancing_range_error: base weights of the wrong length", {
   )
 })
 
+test_that("balancing_range_error: infinite covariate values", {
+  data <- sim_binary(n = 100)
+  data$x1[1] <- Inf
+  expect_balancing_error(
+    balance(data, exposure, c(x1, x2), method = bw_entropy())
+  )
+})
+
+test_that("balancing_range_error: an infinite continuous exposure", {
+  data <- sim_continuous(n = 100)
+  data$exposure[1] <- Inf
+  expect_balancing_error(
+    balance(data, exposure, c(x1, x2), method = bw_entropy())
+  )
+})
+
+test_that("balancing_range_error: infinite sampling weights", {
+  data <- sim_binary(n = 100)
+  weights <- rep(1, nrow(data))
+  weights[1] <- Inf
+  expect_balancing_error(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(),
+      sampling_weights = weights
+    )
+  )
+})
+
+test_that("balancing_range_error: sampling weights that are all zero", {
+  data <- sim_binary(n = 100)
+  expect_balancing_error(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(),
+      sampling_weights = rep(0, nrow(data))
+    )
+  )
+})
+
 test_that("balancing_range_error: an invalid entropy solver option", {
   data <- sim_binary(n = 100)
   withr::local_options(balancing.entropy_solver = "nope")

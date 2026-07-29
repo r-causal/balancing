@@ -32,3 +32,23 @@
       ! `sampling_weights` must be non-negative.
       x Found 1 negative value.
 
+# validate_sampling_weights() rejects infinite values of either sign
+
+    Code
+      validate_sampling_weights(c(1, Inf, 1), n = 3)
+    Condition <balancing_range_error>
+      Error:
+      ! `sampling_weights` must not contain infinite values.
+      x Found 1 infinite value.
+      i A fit centers and scales every numeric input, which an infinity leaves undefined.
+
+# validate_sampling_weights() rejects an all-zero vector
+
+    Code
+      validate_sampling_weights(rep(0, 3), n = 3)
+    Condition <balancing_range_error>
+      Error:
+      ! `sampling_weights` must not be zero for every observation.
+      x Every weight is zero, which leaves no sample to reweight.
+      i Individual zero weights are supported; those units are pinned at zero.
+

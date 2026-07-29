@@ -20,6 +20,40 @@ test_that("bw_entropy() rejects negative base weights", {
   expect_error(bw_entropy(base_weights = c(1, -1, 1)))
 })
 
+# A missing base weight used to reach the sign comparison and stop the validator
+# itself, and an infinity used to pass construction and fail mid-solve, so each
+# now reports at construction with a message naming the property.
+test_that("bw_entropy() rejects missing base weights", {
+  expect_equal(bw_entropy(base_weights = c(1, 2))@base_weights, c(1, 2))
+  expect_error(
+    bw_entropy(base_weights = c(1, NA, 1)),
+    "must not contain missing values"
+  )
+  expect_error(
+    bw_entropy(base_weights = c(1, NaN, 1)),
+    "must not contain missing values"
+  )
+})
+
+test_that("bw_entropy() rejects infinite base weights", {
+  expect_error(
+    bw_entropy(base_weights = c(1, Inf, 1)),
+    "must not contain infinite values"
+  )
+  expect_error(
+    bw_entropy(base_weights = c(1, -Inf, 1)),
+    "must not contain infinite values"
+  )
+})
+
+# An all-zero base measure leaves every constraint target undefined, so it is
+# refused at construction, which covers the discrete and the continuous fit paths
+# alike. Individual zero base weights stay legal.
+test_that("bw_entropy() rejects an all-zero base weight vector", {
+  expect_equal(bw_entropy(base_weights = c(0, 1, 2))@base_weights, c(0, 1, 2))
+  expect_error(bw_entropy(base_weights = rep(0, 3)), "must not be all zero")
+})
+
 # ---- balance_terms validators ---------------------------------------------
 
 test_that("balance_terms() rejects a negative tolerance", {

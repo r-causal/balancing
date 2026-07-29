@@ -154,6 +154,9 @@ fn solve_entropy(
     if tols.len() != p {
         return Err(savvy::Error::new("tols must have length p"));
     }
+    require_finite(covs.as_slice(), "covs")?;
+    require_finite(base_weights.as_slice(), "base_weights")?;
+    require_finite(s_weights.as_slice(), "s_weights")?;
 
     let inputs = EntropyInputs {
         covs: covs.as_slice(),
@@ -234,6 +237,9 @@ fn eval_psi_entropy(
             "coefs must have length p times the number of groups",
         ));
     }
+    require_finite(covs.as_slice(), "covs")?;
+    require_finite(base_weights.as_slice(), "base_weights")?;
+    require_finite(s_weights.as_slice(), "s_weights")?;
 
     let inputs = EntropyInputs {
         covs: covs.as_slice(),
@@ -308,6 +314,9 @@ fn eval_weights_entropy(
             "coefs must have length p times the number of groups",
         ));
     }
+    require_finite(covs.as_slice(), "covs")?;
+    require_finite(base_weights.as_slice(), "base_weights")?;
+    require_finite(s_weights.as_slice(), "s_weights")?;
 
     let inputs = EntropyInputs {
         covs: covs.as_slice(),
@@ -371,6 +380,9 @@ fn solve_entropy_cont(
     if tols.len() != p || dist_ind.len() != p {
         return Err(savvy::Error::new("tols and dist_ind must have length p"));
     }
+    require_finite(covs.as_slice(), "covs")?;
+    require_finite(base_weights.as_slice(), "base_weights")?;
+    require_finite(s_weights.as_slice(), "s_weights")?;
 
     let inputs = EntropyInputs {
         covs: covs.as_slice(),
@@ -795,6 +807,9 @@ fn solve_cbps(
             "the just-identified fit requires covs_mod and covs_bal to have the same number of columns",
         ));
     }
+    require_finite(covs_mod.as_slice(), "covs_mod")?;
+    require_finite(covs_bal.as_slice(), "covs_bal")?;
+    require_finite(s_weights.as_slice(), "s_weights")?;
 
     let inputs = CbpsInputs {
         covs_mod: covs_mod.as_slice(),
@@ -856,6 +871,8 @@ fn eval_psi_cbps(
     if coefs.len() != p {
         return Err(savvy::Error::new("coefs must have length p"));
     }
+    require_finite(covs.as_slice(), "covs")?;
+    require_finite(s_weights.as_slice(), "s_weights")?;
 
     let inputs = CbpsInputs {
         covs_mod: covs.as_slice(),
@@ -917,6 +934,8 @@ fn eval_weights_cbps(
     if coefs.len() != p {
         return Err(savvy::Error::new("coefs must have length p"));
     }
+    require_finite(covs.as_slice(), "covs")?;
+    require_finite(s_weights.as_slice(), "s_weights")?;
 
     let inputs = CbpsInputs {
         covs_mod: covs.as_slice(),
@@ -988,6 +1007,9 @@ fn solve_cbps_multi(
         ));
     }
 
+    require_finite(covs.as_slice(), "covs")?;
+    require_finite(s_weights.as_slice(), "s_weights")?;
+
     let inputs = CbpsMultiInputs {
         covs: covs.as_slice(),
         n,
@@ -1036,6 +1058,9 @@ fn solve_cbps_cont(
     if expo.len() != n {
         return Err(savvy::Error::new("expo must have length n"));
     }
+    require_finite(covs.as_slice(), "covs")?;
+    require_finite(expo.as_slice(), "expo")?;
+    require_finite(s_weights.as_slice(), "s_weights")?;
 
     let inputs = CbpsContInputs {
         covs: covs.as_slice(),
