@@ -271,7 +271,86 @@ test_that("a continuous exposure permits only the ate estimand", {
   )
 })
 
+# ---- Exposure level order -------------------------------------------------
+
+test_that("numeric exposure levels order numerically, matching factor()", {
+  # A character sort puts "10" before "9", which would name the wrong second
+  # level. The order follows the data's own type, as base factor() does.
+  exposure <- c(9, 10, 9, 10)
+  expect_identical(exposure_levels(exposure, "binary"), c("9", "10"))
+  expect_identical(
+    exposure_levels(exposure, "binary"),
+    levels(factor(exposure))
+  )
+})
+
+test_that("a many-level numeric exposure orders numerically", {
+  exposure <- c(2, 10, 1, 20)
+  expect_identical(
+    exposure_levels(exposure, "categorical"),
+    c("1", "2", "10", "20")
+  )
+  expect_identical(
+    exposure_levels(exposure, "categorical"),
+    levels(factor(exposure))
+  )
+})
+
+test_that("character exposure levels keep the character sort", {
+  exposure <- c("9", "10", "9", "10")
+  expect_identical(exposure_levels(exposure, "binary"), c("10", "9"))
+  expect_identical(
+    exposure_levels(exposure, "binary"),
+    levels(factor(exposure))
+  )
+})
+
+test_that("factor exposure levels keep the declared order", {
+  exposure <- factor(c("hi", "lo", "hi"), levels = c("lo", "hi"))
+  expect_identical(exposure_levels(exposure, "binary"), c("lo", "hi"))
+})
+
 # ---- Focal level ----------------------------------------------------------
+
+test_that("a binary att targets the numerically larger exposure level", {
+  # With levels 9 and 10 a character sort would infer 9 as the treated level and
+  # reweight the wrong group. The treated level is the second level in the data's
+  # own order, so it is 10.
+  data <- withr::with_seed(11, {
+    n <- 300
+    x1 <- stats::rnorm(n)
+    x2 <- stats::rnorm(n)
+    z <- stats::rbinom(n, 1L, stats::plogis(0.6 * x1 - 0.4 * x2))
+    data.frame(exposure = ifelse(z == 1L, 10, 9), x1 = x1, x2 = x2)
+  })
+
+  att <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "att"
+  )
+  expect_identical(att@focal_level, "10")
+  expect_identical(names(attr(att@weights, "groups")), c("9", "10"))
+
+  # Entropy balancing leaves the focal group at its uniform base weights carried
+  # to its own total, so a fit that held the wrong group fixed would show level
+  # 10 reweighted instead of level 9.
+  w <- as.numeric(stats::weights(att))
+  focal <- data$exposure == 10
+  expect_equal(w[focal], rep(1, sum(focal)))
+  expect_false(isTRUE(all.equal(w[!focal], rep(1, sum(!focal)))))
+
+  atc <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "atc"
+  )
+  expect_identical(atc@focal_level, "9")
+})
 
 test_that("a binary att infers the treated level without focal_level", {
   data <- sim_binary(n = 200)

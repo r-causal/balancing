@@ -346,17 +346,23 @@ column_tolerances <- function(recipe) {
 }
 
 # The distinct exposure levels in a stable order: the factor levels when the
-# exposure is a factor, otherwise the sorted unique values as strings. A factor
-# may carry levels no observation takes; those empty levels would form groups of
-# size zero that misalign the estimating-equation design and yield an undefined
-# effective sample size, so they are dropped with an informational alert and only
-# the levels present in the data are balanced.
+# exposure is a factor, otherwise the unique values sorted in the vector's own
+# type and then converted to strings. Sorting the string forms instead would put
+# "10" before "9", so a two-level numeric dose of 9 and 10 would name 9 as the
+# second level and a focal estimand would reweight the wrong group. Ordering on
+# the values reproduces base `factor()`, which is the order propensity and the
+# rest of the ecosystem promise. A factor may carry levels no observation takes;
+# those empty levels would form groups of size zero that misalign the
+# estimating-equation design and yield an undefined effective sample size, so they
+# are dropped with an informational alert and only the levels present in the data
+# are balanced.
 exposure_levels <- function(exposure_vec, exposure_type) {
   if (identical(exposure_type, "continuous")) {
     return(character(0))
   }
-  present <- unique(as.character(exposure_vec[!is.na(exposure_vec)]))
+  observed <- exposure_vec[!is.na(exposure_vec)]
   if (is.factor(exposure_vec)) {
+    present <- unique(as.character(observed))
     all_levels <- levels(exposure_vec)
     unused <- setdiff(all_levels, present)
     if (length(unused) > 0) {
@@ -364,7 +370,7 @@ exposure_levels <- function(exposure_vec, exposure_type) {
     }
     all_levels[all_levels %in% present]
   } else {
-    sort(present)
+    as.character(sort(unique(observed)))
   }
 }
 

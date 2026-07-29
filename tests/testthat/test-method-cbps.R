@@ -448,6 +448,33 @@ test_that("an over-identified binary fit honors an explicit focal_level", {
   )
 })
 
+test_that("a binary att reads the treated level from the numeric level order", {
+  # With exposure levels 9 and 10 a character sort names 9 as the second level,
+  # which would send the core the opposite estimand and tilt the wrong group. The
+  # treated level follows the data's own numeric order, so it is 10.
+  data <- sim_binary()
+  data$exposure <- ifelse(data$exposure == 1L, 10, 9)
+  levels <- exposure_levels(data$exposure, "binary")
+  expect_identical(cbps_core_estimand("att", "10", levels), "att")
+  expect_identical(cbps_core_estimand("atu", "9", levels), "atc")
+
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_cbps(),
+    estimand = "att"
+  )
+  expect_identical(fit@focal_level, "10")
+  focal <- data$exposure == 10
+  expect_equal(
+    as.numeric(stats::weights(fit))[focal],
+    rep(1, sum(focal)),
+    tolerance = 1e-6
+  )
+  expect_tilted_to_focal(fit, data, "10")
+})
+
 # ---- Statistical promises: categorical ------------------------------------
 
 test_that("bw_cbps balances a categorical ate", {
