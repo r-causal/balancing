@@ -618,11 +618,12 @@ resolve_distribution_moments <- function(requested, constraint_moments) {
 # Standardized centered powers 1..moments of a numeric vector, the marginal
 # moment columns for a distribution constraint. Each column is centered to mean
 # zero and scaled to unit standard deviation on the unweighted sample, and the
-# caller sets the value it holds the column at: entropy balancing holds each
-# marginal at its mean under the base measure, which is the sample value of zero
-# when that measure is uniform and moves off zero once sampling or base weights
-# tilt it, while the energy quadratic program holds them at the unweighted
-# sample value of zero.
+# caller sets the value it holds the column at: both entropy balancing and the
+# energy quadratic program hold each marginal at its mean under the base
+# measure, which is the sample value of zero when that measure is uniform and
+# moves off zero once sampling or base weights tilt it. Entropy balancing names
+# that value as an explicit target; the energy rows are pinned at zero, so it
+# recenters the column on the base measure instead.
 moment_columns <- function(x, moments) {
   centered <- x - mean(x)
   columns <- lapply(seq_len(moments), function(power) {

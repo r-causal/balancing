@@ -271,10 +271,12 @@ NULL
 #'
 #' `treat` holds the continuous exposure. `d_covs` and `d_treat` are the
 #' distribution-moment columns for the covariates and the exposure, centered and
-#' scaled on the R side and held exactly at the unweighted sample value;
-#' `bal_covs` and `bal_tols` are the correlation-constraint covariates and their
-#' tolerances. `dimension_adj` weights the covariate energy distance by the
-#' dimensionality adjustment.
+#' scaled on the R side, and each is held exactly at a weighted mean of zero.
+#' The R side centers them on the base measure, so pinning the rows at zero
+#' holds every marginal at its base-measure sample value; `bal_covs` and
+#' `bal_tols` are the correlation-constraint covariates and their tolerances.
+#' `dimension_adj` weights the covariate energy distance by the dimensionality
+#' adjustment.
 #'
 #' Internal solver entry point, called from the R layer rather than by users, so
 #' it is not exported. `@noRd` keeps it out of the reference and out of

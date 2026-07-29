@@ -398,7 +398,9 @@ pub struct EnergyContInputs<'a> {
     /// adjustment.
     pub dimension_adj: bool,
     /// Column-major `n` by `qd` distribution-moment covariate columns, centered
-    /// and scaled on the R side, held exactly at the unweighted sample value.
+    /// and scaled on the R side, each held exactly at a weighted mean of zero.
+    /// The R side centers them on the base measure, so the pinned zero is the
+    /// column's base-measure sample value.
     pub d_covs: &'a [f64],
     /// Number of distribution-moment covariate columns.
     pub n_d_covs: usize,

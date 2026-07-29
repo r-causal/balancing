@@ -572,6 +572,135 @@ test_that("distribution_moments changes the continuous weights and holds the exp
   expect_equal(weighted_variance(w_moments), sample_variance, tolerance = 1e-3)
 })
 
+test_that("a continuous fit preserves an indicator covariate's marginal", {
+  # An indicator covariate crosses the boundary as a raw zero/one column, so the
+  # marginal it is held to is the sample proportion. A distribution row that
+  # drives that column's weighted mean to zero instead empties the indicated
+  # stratum, which balances nothing.
+  data <- sim_continuous_indicator()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, g),
+    method = bw_energy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  expect_equal(
+    stats::weighted.mean(data$g, w),
+    mean(data$g),
+    tolerance = 1e-6
+  )
+  # The stratum keeps its share of the total weight rather than being annihilated.
+  expect_equal(sum(w[data$g == 1]), sum(data$g == 1), tolerance = 1e-4)
+  expect_true(all(w >= 0))
+})
+
+test_that("a continuous fit holds the base-measure marginals under sampling weights", {
+  # Every distribution row of one fit targets one population. Under informative
+  # sampling that population is the sampling-weighted sample, so the exposure
+  # marginal moves to the sampling-weighted exposure mean alongside the
+  # covariate marginals rather than staying at the unweighted mean, which would
+  # leave the fit targeting two populations at once.
+  withr::local_seed(42)
+  n <- 300
+  x1 <- stats::rnorm(n)
+  x2 <- stats::rnorm(n)
+  exposure <- 0.8 * x1 - 0.5 * x2 + stats::rnorm(n)
+  data <- data.frame(
+    exposure = exposure,
+    x1 = x1,
+    x2 = x2,
+    sw = ifelse(x1 + exposure > 0, 3, 0.5)
+  )
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(),
+    estimand = "ate",
+    sampling_weights = sw
+  )
+  # The accessor already composes the sampling weights, so the achieved means
+  # read off it directly.
+  w <- as.numeric(stats::weights(fit))
+  expect_equal(
+    stats::weighted.mean(data$exposure, w),
+    stats::weighted.mean(data$exposure, data$sw),
+    tolerance = 1e-6
+  )
+  expect_equal(
+    stats::weighted.mean(data$x1, w),
+    stats::weighted.mean(data$x1, data$sw),
+    tolerance = 1e-6
+  )
+  expect_equal(
+    stats::weighted.mean(data$x2, w),
+    stats::weighted.mean(data$x2, data$sw),
+    tolerance = 1e-6
+  )
+})
+
+test_that("a continuous fit holds an indicator's base-measure proportion", {
+  # The two defects meet on an indicator covariate under sampling weights: the
+  # proportion the fit preserves is the sampling-weighted one, and the exposure
+  # mean is preserved on that same measure.
+  data <- sim_continuous_indicator()
+  withr::local_seed(31)
+  data$sw <- stats::runif(nrow(data), 0.3, 3)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, g),
+    method = bw_energy(),
+    estimand = "ate",
+    sampling_weights = sw
+  )
+  w <- as.numeric(stats::weights(fit))
+  expect_equal(
+    stats::weighted.mean(data$g, w),
+    stats::weighted.mean(data$g, data$sw),
+    tolerance = 1e-6
+  )
+  expect_equal(
+    stats::weighted.mean(data$exposure, w),
+    stats::weighted.mean(data$exposure, data$sw),
+    tolerance = 1e-6
+  )
+})
+
+test_that("the higher distribution moments are held on the base measure", {
+  # The rows above the first moment take the same measure as the first. With the
+  # exposure mean and its second moment both held at their sampling-weighted
+  # values, the weighted exposure variance is the sampling-weighted variance.
+  data <- sim_continuous()
+  withr::local_seed(17)
+  data$sw <- stats::runif(nrow(data), 0.3, 3)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(distribution_moments = 2L),
+    estimand = "ate",
+    sampling_weights = sw
+  )
+  w <- as.numeric(stats::weights(fit))
+  weighted_variance <- function(weights) {
+    center <- stats::weighted.mean(data$exposure, weights)
+    sum(weights * (data$exposure - center)^2) / sum(weights)
+  }
+  expect_equal(
+    stats::weighted.mean(data$exposure, w),
+    stats::weighted.mean(data$exposure, data$sw),
+    tolerance = 1e-6
+  )
+  expect_equal(
+    weighted_variance(w),
+    weighted_variance(data$sw),
+    tolerance = 1e-4
+  )
+})
+
 test_that("dimension_adjustment toggles the continuous solution", {
   data <- sim_continuous()
   fit_on <- balance(

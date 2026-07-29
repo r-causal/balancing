@@ -31,7 +31,7 @@
 #' between the exposure and the covariates, following Huling, Greifer, and Chen,
 #' plus the marginal energy distances of the weighted exposure and covariate
 #' distributions. `distribution_moments` sets how many exposure and covariate
-#' marginal moments are held equal to the unweighted sample, and
+#' marginal moments are held equal to the sample under the base measure, and
 #' `dimension_adjustment` reweights the covariate energy distance by the
 #' covariate dimensionality.
 #'
@@ -50,9 +50,11 @@
 #'   quadratic program.
 #' @param min_weight The smallest permitted weight.
 #' @param distribution_moments For a continuous exposure, the number of exposure
-#'   and covariate marginal moments held equal to the unweighted sample, or
-#'   `NULL` for the constraint moments. Raised automatically when smaller than
-#'   the constraint moments.
+#'   and covariate marginal moments held equal to the sample under the base
+#'   measure, or `NULL` for the constraint moments. Raised automatically when
+#'   smaller than the constraint moments. Energy balancing carries no base
+#'   weights, so the base measure is the sampling weights, and without them the
+#'   marginals are held equal to the unweighted sample.
 #' @param dimension_adjustment For a continuous exposure, whether to weight the
 #'   covariate energy distance by the covariate dimensionality adjustment.
 #' @param convergence_tolerance The quadratic-program solver tolerance, or `NULL`
@@ -395,6 +397,21 @@ fit_energy_discrete <- function(method, prepared, enforce) {
   assemble_energy(result, method, prepared, duals, approximate = !enforce)
 }
 
+# Shift each distribution-moment column to its mean under the base measure. The
+# quadratic program pins every distribution row at a weighted mean of zero, so
+# where a column is centered decides which population its row targets: centering
+# on the base measure pins the row at that measure's mean of the incoming
+# column. Numeric covariate columns arrive centered on the sampling weights and
+# do not move. The exposure powers and the higher covariate marginals arrive
+# centered on the unweighted sample, so leaving them there would hold the
+# exposure to one population while the covariates are held to another. An
+# indicator column arrives raw, so a row pinned at its zero would drive the
+# indicated stratum to no weight at all rather than to its proportion.
+center_on_measure <- function(columns, measure) {
+  centers <- as.numeric(crossprod(columns, measure / sum(measure)))
+  sweep(columns, 2, centers, "-")
+}
+
 fit_energy_continuous <- function(method, prepared) {
   n <- prepared$n
   s <- prepared$sampling_weights
@@ -402,12 +419,20 @@ fit_energy_continuous <- function(method, prepared) {
   z <- prepared$matrix
   exposure <- as.numeric(prepared$exposure_vec)
 
+  # The reference distribution the marginals are held to is the base measure, as
+  # it is for entropy balancing. The quadratic-program family carries no base
+  # weights of its own, so that measure is the sampling weights, and without them
+  # it is uniform and the marginals reduce to the unweighted sample.
+  measure <- s
+
   # The distribution-moment constraints hold the weighted exposure and covariate
-  # marginals equal to the unweighted sample. They are raised to at least the
-  # constraint moments, with an alert when the requested value is smaller. The
-  # weighted distance covariance the objective minimizes is what drives the
-  # exposure-covariate association toward zero, so no separate correlation
-  # constraint is added in the default fit.
+  # marginals equal to the sample under the base measure. Every one of those rows
+  # takes the same measure, so a fit under informative sampling holds the
+  # exposure and the covariates to one population rather than two. They are
+  # raised to at least the constraint moments, with an alert when the requested
+  # value is smaller. The weighted distance covariance the objective minimizes is
+  # what drives the exposure-covariate association toward zero, so no separate
+  # correlation constraint is added in the default fit.
   covariate_moments <- covariate_constraint_moments(
     prepared$recipe,
     prepared$covariates
@@ -418,13 +443,16 @@ fit_energy_continuous <- function(method, prepared) {
     constraint_moments
   )
 
-  d_treat <- moment_columns(exposure, moments)
+  d_treat <- center_on_measure(moment_columns(exposure, moments), measure)
   extra_covariate_marginals <- higher_covariate_marginals(
     prepared$data,
     covariate_moments,
     moments
   )
-  d_covs <- do.call(cbind, c(list(z), extra_covariate_marginals))
+  d_covs <- center_on_measure(
+    do.call(cbind, c(list(z), extra_covariate_marginals)),
+    measure
+  )
 
   bal_covs <- matrix(numeric(0), nrow = n, ncol = 0)
   bal_tols <- numeric(0)

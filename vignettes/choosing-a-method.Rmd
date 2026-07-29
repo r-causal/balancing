@@ -189,7 +189,7 @@ dose_fit
 
 For a continuous exposure the printed summary reports the largest weighted exposure-covariate correlation rather than a standardized mean difference.
 
-For `bw_entropy()` and `bw_energy()`, the `distribution_moments` argument on the method constructor sets how many moments of the exposure and covariate marginals are held equal to the sample, extending the identifying conditions beyond the correlation constraints. `bw_entropy()` measures that sample under the base measure, the product of any sampling weights and its `base_weights`, so with neither in play the marginals are held equal to the unweighted sample. It is raised automatically to at least the moments the constraints require.
+For `bw_entropy()` and `bw_energy()`, the `distribution_moments` argument on the method constructor sets how many moments of the exposure and covariate marginals are held equal to the sample, extending the identifying conditions beyond the correlation constraints. Both measure that sample under the base measure: any sampling weights, times the `base_weights` of `bw_entropy()`, which `bw_energy()` does not carry. With neither in play the marginals are held equal to the unweighted sample. It is raised automatically to at least the moments the constraints require.
 
 ```{r distribution-moments}
 dose_moments <- balance(

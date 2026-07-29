@@ -30,9 +30,11 @@ quadratic program.}
 \item{min_weight}{The smallest permitted weight.}
 
 \item{distribution_moments}{For a continuous exposure, the number of exposure
-and covariate marginal moments held equal to the unweighted sample, or
-\code{NULL} for the constraint moments. Raised automatically when smaller than
-the constraint moments.}
+and covariate marginal moments held equal to the sample under the base
+measure, or \code{NULL} for the constraint moments. Raised automatically when
+smaller than the constraint moments. Energy balancing carries no base
+weights, so the base measure is the sampling weights, and without them the
+marginals are held equal to the unweighted sample.}
 
 \item{dimension_adjustment}{For a continuous exposure, whether to weight the
 covariate energy distance by the covariate dimensionality adjustment.}
@@ -69,7 +71,7 @@ For a continuous exposure the objective is the weighted distance covariance
 between the exposure and the covariates, following Huling, Greifer, and Chen,
 plus the marginal energy distances of the weighted exposure and covariate
 distributions. \code{distribution_moments} sets how many exposure and covariate
-marginal moments are held equal to the unweighted sample, and
+marginal moments are held equal to the sample under the base measure, and
 \code{dimension_adjustment} reweights the covariate energy distance by the
 covariate dimensionality.
 
