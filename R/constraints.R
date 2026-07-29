@@ -92,18 +92,43 @@ rebuild_constraint_matrix <- function(recipe, .data) {
 }
 
 # Expand `moments` into a per-covariate named integer vector. A scalar applies to
-# every covariate; a named vector overrides the default of one moment.
-resolve_moments <- function(moments, covariates) {
+# every covariate; a named vector overrides the default of one moment. An unnamed
+# vector of length other than one, or a name that is not a covariate, is a classed
+# error rather than a silent recycle or a silently ignored request, matching how
+# `resolve_tolerance()` treats the same two shapes.
+resolve_moments <- function(moments, covariates, call = rlang::caller_env()) {
   resolved <- stats::setNames(rep(1L, length(covariates)), covariates)
-  if (is.null(moments)) {
+  if (is.null(moments) || length(moments) == 0) {
     return(resolved)
   }
   if (is.null(names(moments))) {
+    if (length(moments) != 1) {
+      abort(
+        c(
+          "{.arg moments} must be a single whole number or a named vector.",
+          x = "It has length {length(moments)} and no names.",
+          i = "Supply one value for every covariate, or name each element with a covariate."
+        ),
+        error_class = "balancing_constraints_error",
+        call = call
+      )
+    }
     resolved[] <- as.integer(moments[[1]])
     return(resolved)
   }
-  named <- intersect(names(moments), covariates)
-  resolved[named] <- as.integer(moments[named])
+  unknown <- setdiff(names(moments), covariates)
+  if (length(unknown) > 0) {
+    abort(
+      c(
+        "{.arg moments} names must be covariates.",
+        x = "Not {cli::qty(unknown)} {?a covariate/covariates}: {.val {unknown}}.",
+        i = "Name each element with one of {.val {covariates}}."
+      ),
+      error_class = "balancing_constraints_error",
+      call = call
+    )
+  }
+  resolved[names(moments)] <- as.integer(moments[names(moments)])
   resolved
 }
 
@@ -199,7 +224,7 @@ build_constraint_matrix <- function(
     )
   }
 
-  moments <- resolve_moments(constraints@moments, .covariates)
+  moments <- resolve_moments(constraints@moments, .covariates, call = call)
   tolerances <- resolve_tolerance(
     constraints@tolerance,
     .covariates,

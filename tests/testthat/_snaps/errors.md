@@ -124,6 +124,28 @@
       x Not a covariate: "nonesuch".
       i Name each element with one of "x1" and "x2".
 
+# balancing_constraints_error: an unnamed multi-element moments vector
+
+    Code
+      balance(data, exposure, c(x1, x2), method = bw_entropy(), constraints = balance_terms(
+        moments = c(2L, 3L)))
+    Condition <balancing_constraints_error>
+      Error in `balance()`:
+      ! `moments` must be a single whole number or a named vector.
+      x It has length 2 and no names.
+      i Supply one value for every covariate, or name each element with a covariate.
+
+# balancing_constraints_error: moments named for a non-covariate
+
+    Code
+      balance(data, exposure, c(x1, x2), method = bw_entropy(), constraints = balance_terms(
+        moments = c(nonesuch = 2L)))
+    Condition <balancing_constraints_error>
+      Error in `balance()`:
+      ! `moments` names must be covariates.
+      x Not a covariate: "nonesuch".
+      i Name each element with one of "x1" and "x2".
+
 # balancing_range_error: base weights of the wrong length
 
     Code

@@ -466,6 +466,50 @@ test_that("rebuild_constraint_matrix() reproduces the built matrix", {
   expect_equal(rebuilt, built$matrix)
 })
 
+# ---- Per-covariate moments ------------------------------------------------
+
+test_that("a scalar moments value applies to every covariate", {
+  data <- withr::with_seed(31, data.frame(x1 = rnorm(20), x2 = rnorm(20)))
+  built <- build_constraint_matrix(
+    data,
+    c("x1", "x2"),
+    balance_terms(moments = 2L),
+    exposure_type = "binary"
+  )
+  expect_identical(record_terms(built$recipe), c("x1", "x1^2", "x2", "x2^2"))
+})
+
+test_that("an unnamed multi-element moments vector is a classed error", {
+  # An unnamed vector of length two recycled its first element to every
+  # covariate and dropped the rest, which is the ambiguity to name rather than
+  # resolve silently.
+  data <- withr::with_seed(31, data.frame(x1 = rnorm(20), x2 = rnorm(20)))
+  expect_error(
+    build_constraint_matrix(
+      data,
+      c("x1", "x2"),
+      balance_terms(moments = c(2L, 3L)),
+      exposure_type = "binary"
+    ),
+    class = "balancing_constraints_error"
+  )
+})
+
+test_that("moments named for a non-covariate is a classed error", {
+  # A misspelled name previously left every covariate at first moments, so the
+  # requested power never reached the fit.
+  data <- withr::with_seed(31, data.frame(x1 = rnorm(20), x2 = rnorm(20)))
+  expect_error(
+    build_constraint_matrix(
+      data,
+      c("x1", "x2"),
+      balance_terms(moments = c(x22 = 2L)),
+      exposure_type = "binary"
+    ),
+    class = "balancing_constraints_error"
+  )
+})
+
 # ---- Per-covariate tolerance ----------------------------------------------
 
 test_that("a scalar tolerance applies to every constraint column", {

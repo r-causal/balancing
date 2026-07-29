@@ -136,6 +136,32 @@ test_that("balancing_constraints_error: a tolerance named for a non-covariate", 
   )
 })
 
+test_that("balancing_constraints_error: an unnamed multi-element moments vector", {
+  data <- sim_binary(n = 100)
+  expect_balancing_error(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(),
+      constraints = balance_terms(moments = c(2L, 3L))
+    )
+  )
+})
+
+test_that("balancing_constraints_error: moments named for a non-covariate", {
+  data <- sim_binary(n = 100)
+  expect_balancing_error(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(),
+      constraints = balance_terms(moments = c(nonesuch = 2L))
+    )
+  )
+})
+
 test_that("balancing_range_error: base weights of the wrong length", {
   data <- sim_binary(n = 100)
   expect_balancing_error(
