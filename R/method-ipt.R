@@ -64,10 +64,10 @@ bw_ipt <- new_class(
     link = class_character
   ),
   constructor = function(
+    ...,
     link = c("logit", "probit", "cloglog"),
     convergence_tolerance = 1e-10,
-    max_iterations = NULL,
-    ...
+    max_iterations = NULL
   ) {
     check_method_dots(...)
     link <- rlang::arg_match(link)

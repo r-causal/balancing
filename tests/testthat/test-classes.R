@@ -155,6 +155,31 @@ test_that("every method casts bare numeric tuning literals", {
   }
 })
 
+# All six constructors document that their tuning parameters must be passed by
+# name, and the position of the dots is what enforces it. With the dots declared
+# last, a bare argument bound positionally to whichever tuning parameter came
+# first, so `bw_ipt("probit")` set the link and `bw_energy("mahalanobis")` set the
+# distance without either being named, while entropy balancing refused the same
+# call. Dots-first makes all six refuse it through the classed method error.
+test_that("no method constructor binds a positional argument", {
+  constructors <- list(
+    bw_entropy = bw_entropy,
+    bw_ipt = bw_ipt,
+    bw_cbps = bw_cbps,
+    bw_energy = bw_energy,
+    bw_cfd = bw_cfd,
+    bw_sbw = bw_sbw
+  )
+  for (name in names(constructors)) {
+    constructor <- constructors[[name]]
+    expect_error(constructor(1e-4), class = "balancing_method_error")
+    expect_error(constructor("probit"), class = "balancing_method_error")
+    expect_error(constructor(TRUE), class = "balancing_method_error")
+    # The named form of the same call still constructs.
+    expect_identical(constructor(max_iterations = 50L)@max_iterations, 50L)
+  }
+})
+
 # ---- balance_terms: named and list variants -------------------------------
 
 test_that("balance_terms() accepts a named tolerance vector", {

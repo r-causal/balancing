@@ -97,6 +97,7 @@ bw_energy <- new_class(
     dimension_adjustment = class_logical
   ),
   constructor = function(
+    ...,
     distance = c("scaled_euclidean", "mahalanobis", "euclidean"),
     improved = TRUE,
     weight_penalty = 1e-4,
@@ -104,8 +105,7 @@ bw_energy <- new_class(
     distribution_moments = NULL,
     dimension_adjustment = TRUE,
     convergence_tolerance = NULL,
-    max_iterations = NULL,
-    ...
+    max_iterations = NULL
   ) {
     check_method_dots(...)
     distance <- rlang::arg_match(distance)

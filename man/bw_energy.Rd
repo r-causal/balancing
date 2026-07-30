@@ -5,6 +5,7 @@
 \title{Energy balancing}
 \usage{
 bw_energy(
+  ...,
   distance = c("scaled_euclidean", "mahalanobis", "euclidean"),
   improved = TRUE,
   weight_penalty = 1e-04,
@@ -12,11 +13,13 @@ bw_energy(
   distribution_moments = NULL,
   dimension_adjustment = TRUE,
   convergence_tolerance = NULL,
-  max_iterations = NULL,
-  ...
+  max_iterations = NULL
 )
 }
 \arguments{
+\item{...}{Reserved for future extensions; must be empty. Tuning parameters
+must be passed by name.}
+
 \item{distance}{The covariate distance definition the energy objective is
 built on, one of \code{"scaled_euclidean"} (each covariate divided by its
 standard deviation), \code{"mahalanobis"}, or \code{"euclidean"}.}
@@ -44,9 +47,6 @@ for the core default.}
 
 \item{max_iterations}{The maximum solver iterations, or \code{NULL} for the core
 default.}
-
-\item{...}{Reserved for future extensions; must be empty. Tuning parameters
-must be passed by name.}
 }
 \value{
 An \code{bw_energy} specification, a \link{balance_method}.

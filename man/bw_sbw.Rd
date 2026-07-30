@@ -5,14 +5,17 @@
 \title{Stable balancing weights}
 \usage{
 bw_sbw(
+  ...,
   norm = c("l2", "l1", "linf"),
   min_weight = 1e-08,
   convergence_tolerance = NULL,
-  max_iterations = NULL,
-  ...
+  max_iterations = NULL
 )
 }
 \arguments{
+\item{...}{Reserved for future extensions; must be empty. Tuning parameters
+must be passed by name.}
+
 \item{norm}{The weight-dispersion norm to minimize, one of \code{"l2"} (the sum of
 squared weights, minimum variance), \code{"l1"} (the sum of absolute deviations
 from one), or \code{"linf"} (the largest absolute deviation from one).}
@@ -24,9 +27,6 @@ for the core default.}
 
 \item{max_iterations}{The maximum solver iterations, or \code{NULL} for the core
 default.}
-
-\item{...}{Reserved for future extensions; must be empty. Tuning parameters
-must be passed by name.}
 }
 \value{
 An \code{bw_sbw} specification, a \link{balance_method}.

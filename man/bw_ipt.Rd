@@ -5,13 +5,16 @@
 \title{Inverse probability tilting}
 \usage{
 bw_ipt(
+  ...,
   link = c("logit", "probit", "cloglog"),
   convergence_tolerance = 1e-10,
-  max_iterations = NULL,
-  ...
+  max_iterations = NULL
 )
 }
 \arguments{
+\item{...}{Reserved for future extensions; must be empty. Tuning parameters
+must be passed by name.}
+
 \item{link}{The propensity link, one of \code{"logit"}, \code{"probit"}, or
 \code{"cloglog"}.}
 
@@ -20,9 +23,6 @@ moment.}
 
 \item{max_iterations}{The maximum solver iterations, or \code{NULL} for the core
 default.}
-
-\item{...}{Reserved for future extensions; must be empty. Tuning parameters
-must be passed by name.}
 }
 \value{
 An \code{bw_ipt} specification, a \link{balance_method}.

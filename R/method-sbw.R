@@ -109,11 +109,11 @@ bw_sbw <- new_class(
     norm = class_character
   ),
   constructor = function(
+    ...,
     norm = c("l2", "l1", "linf"),
     min_weight = 1e-8,
     convergence_tolerance = NULL,
-    max_iterations = NULL,
-    ...
+    max_iterations = NULL
   ) {
     check_method_dots(...)
     norm <- rlang::arg_match(norm)

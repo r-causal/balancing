@@ -5,15 +5,18 @@
 \title{Covariate balancing propensity score}
 \usage{
 bw_cbps(
+  ...,
   over_identified = FALSE,
   two_step = TRUE,
   link = c("logit", "probit", "cloglog"),
   convergence_tolerance = 1e-10,
-  max_iterations = NULL,
-  ...
+  max_iterations = NULL
 )
 }
 \arguments{
+\item{...}{Reserved for future extensions; must be empty. Tuning parameters
+must be passed by name.}
+
 \item{over_identified}{Whether to add the propensity model's score equations
 and minimize the generalized-method-of-moments criterion. \code{FALSE} fits the
 just-identified form, whose balance is exact. Binary exposures only;
@@ -30,9 +33,6 @@ Ignored, with a warning, whenever the fit is not over-identified.}
 
 \item{max_iterations}{The maximum solver iterations, or \code{NULL} for the core
 default.}
-
-\item{...}{Reserved for future extensions; must be empty. Tuning parameters
-must be passed by name.}
 }
 \value{
 A \code{bw_cbps} specification, a \link{balance_method}.

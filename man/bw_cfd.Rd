@@ -5,6 +5,7 @@
 \title{Characteristic function distance balancing}
 \usage{
 bw_cfd(
+  ...,
   kernel = c("gaussian", "matern", "laplace", "t", "energy"),
   smoothness = 1.5,
   degrees_of_freedom = 5,
@@ -13,11 +14,13 @@ bw_cfd(
   weight_penalty = 1e-04,
   min_weight = 1e-08,
   convergence_tolerance = NULL,
-  max_iterations = NULL,
-  ...
+  max_iterations = NULL
 )
 }
 \arguments{
+\item{...}{Reserved for future extensions; must be empty. Tuning parameters
+must be passed by name.}
+
 \item{kernel}{The covariate kernel the objective is built on, one of
 \code{"gaussian"}, \code{"matern"}, \code{"laplace"}, \code{"t"}, or \code{"energy"}.}
 
@@ -47,9 +50,6 @@ for the core default.}
 
 \item{max_iterations}{The maximum solver iterations, or \code{NULL} for the core
 default.}
-
-\item{...}{Reserved for future extensions; must be empty. Tuning parameters
-must be passed by name.}
 }
 \value{
 A \code{bw_cfd} specification, a \link{balance_method}.

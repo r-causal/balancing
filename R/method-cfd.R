@@ -110,6 +110,7 @@ bw_cfd <- new_class(
     improved = class_logical
   ),
   constructor = function(
+    ...,
     kernel = c("gaussian", "matern", "laplace", "t", "energy"),
     smoothness = 1.5,
     degrees_of_freedom = 5,
@@ -118,8 +119,7 @@ bw_cfd <- new_class(
     weight_penalty = 1e-4,
     min_weight = 1e-8,
     convergence_tolerance = NULL,
-    max_iterations = NULL,
-    ...
+    max_iterations = NULL
   ) {
     check_method_dots(...)
     kernel <- rlang::arg_match(kernel)
