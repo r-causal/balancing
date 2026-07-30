@@ -100,7 +100,6 @@ fn solve_with_min_iter<P: EsteqProblem>(
     let mut interrupted = false;
 
     for iter in 0..opts.max_iter {
-        iterations = iter;
         if interrupt() {
             interrupted = true;
             break;
@@ -183,6 +182,13 @@ fn solve_with_min_iter<P: EsteqProblem>(
         for k in 0..p {
             beta[k] += step * dir[k];
         }
+        // The count follows the accepted steps, so it states how many the returned
+        // parameters embody. Recording the pass index at the top of the loop
+        // instead would report one fewer than were taken when the cap is
+        // exhausted, and `iterations == max_iter` is how a caller recognizes a fit
+        // that ran out of its budget. Every other exit leaves the loop before
+        // moving the iterate, so those counts are unchanged.
+        iterations = iter + 1;
     }
 
     // Report the gradient and objective at the returned parameters. The reported
@@ -203,5 +209,127 @@ fn solve_with_min_iter<P: EsteqProblem>(
         final_value,
         ridge_max,
         solver_used: Solver::Newton,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::esteq::EsteqProblem;
+    use faer::prelude::ReborrowMut;
+
+    /// `0.5 (beta - center)^2` per coordinate: one Newton step reaches the
+    /// minimizer exactly, so the number of accepted steps is known in advance.
+    struct Quadratic {
+        center: Vec<f64>,
+    }
+
+    impl EsteqProblem for Quadratic {
+        fn n_params(&self) -> usize {
+            self.center.len()
+        }
+        fn n_units(&self) -> usize {
+            self.center.len()
+        }
+        fn value(&self, beta: &[f64]) -> Option<f64> {
+            Some(
+                beta.iter()
+                    .zip(&self.center)
+                    .map(|(b, c)| 0.5 * (b - c) * (b - c))
+                    .sum(),
+            )
+        }
+        fn gradient(&self, beta: &[f64], g: &mut [f64]) {
+            for (j, gj) in g.iter_mut().enumerate() {
+                *gj = beta[j] - self.center[j];
+            }
+        }
+        fn hessian(&self, _beta: &[f64], mut h: MatMut<'_, f64>) {
+            let p = self.center.len();
+            for i in 0..p {
+                for j in 0..p {
+                    *h.rb_mut().get_mut(i, j) = f64::from(i == j);
+                }
+            }
+        }
+        fn psi(&self, _beta: &[f64], _out: MatMut<'_, f64>) {}
+    }
+
+    /// `0.25 beta^4`, whose Newton step is `beta -> (2/3) beta`. The iteration
+    /// converges only linearly, so a small cap is always exhausted.
+    struct Quartic;
+
+    impl EsteqProblem for Quartic {
+        fn n_params(&self) -> usize {
+            1
+        }
+        fn n_units(&self) -> usize {
+            1
+        }
+        fn value(&self, beta: &[f64]) -> Option<f64> {
+            Some(0.25 * beta[0].powi(4))
+        }
+        fn gradient(&self, beta: &[f64], g: &mut [f64]) {
+            g[0] = beta[0].powi(3);
+        }
+        fn hessian(&self, beta: &[f64], mut h: MatMut<'_, f64>) {
+            *h.rb_mut().get_mut(0, 0) = 3.0 * beta[0] * beta[0];
+        }
+        fn psi(&self, _beta: &[f64], _out: MatMut<'_, f64>) {}
+    }
+
+    fn opts(max_iter: usize) -> SolveOptions {
+        SolveOptions {
+            max_iter,
+            grad_tol: 1e-12,
+            fista_rel_tol: 1e-12,
+        }
+    }
+
+    #[test]
+    fn an_exhausted_cap_reports_every_accepted_step() {
+        // Three passes of the loop take three accepted steps and the quartic is
+        // nowhere near the gradient tolerance afterwards, so the report must read
+        // three: `iterations == max_iter` is how a caller recognizes a fit that
+        // ran out of budget.
+        let mut beta = vec![1.0];
+        let report = solve(&Quartic, &mut beta, &opts(3), &|| false);
+        assert!(
+            !report.converged,
+            "the quartic cannot converge in three steps"
+        );
+        assert_eq!(report.iterations, 3);
+        // Each step multiplies the iterate by 2/3, so three steps land on (2/3)^3.
+        assert!(
+            (beta[0] - (2.0_f64 / 3.0).powi(3)).abs() < 1e-12,
+            "beta {} after three Newton steps",
+            beta[0]
+        );
+    }
+
+    #[test]
+    fn a_converged_solve_counts_only_the_steps_it_took() {
+        // One Newton step solves a quadratic exactly and the next pass sees a zero
+        // gradient, so the count is one. The convergence path is exact today and
+        // must stay exact.
+        let problem = Quadratic {
+            center: vec![1.5, -2.0],
+        };
+        let mut beta = vec![0.0, 0.0];
+        let report = solve(&problem, &mut beta, &opts(50), &|| false);
+        assert!(report.converged);
+        assert_eq!(report.iterations, 1);
+    }
+
+    #[test]
+    fn an_interrupt_before_the_first_step_reports_no_iterations() {
+        let problem = Quadratic {
+            center: vec![1.5, -2.0],
+        };
+        let mut beta = vec![0.0, 0.0];
+        let report = solve(&problem, &mut beta, &opts(50), &|| true);
+        assert!(report.interrupted);
+        assert_eq!(report.iterations, 0);
+        assert_eq!(beta, vec![0.0, 0.0]);
     }
 }

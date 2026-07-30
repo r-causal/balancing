@@ -13,7 +13,7 @@
       Exposure: "exposure" (binary)
       Estimand: "ate"
       Observations: 500
-      Solver: did not converge in 2 iterations
+      Solver: did not converge in 3 iterations
       Constraints: 2 terms (tolerance 0)
       Largest imbalance: 0.0000 (standardized mean difference)
 
