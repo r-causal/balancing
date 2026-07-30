@@ -205,6 +205,15 @@ fn mahalanobis(covs: &[f64], n: usize, p: usize, w: &[f64], threads: usize) -> V
         Ok(e) => e,
         // A covariance that cannot be factored leaves the standardized columns
         // as the transform, which is the scaled-Euclidean fallback.
+        //
+        // This arm is believed unreachable: the matrix is symmetric by
+        // construction and the self-adjoint eigendecomposition of a finite
+        // symmetric matrix converges, singular or not, which is why the rank
+        // deficiency is handled by the eigenvalue floor below rather than here.
+        // Non-finite input poisons the standardized columns as thoroughly as it
+        // poisons the decomposition, so the fallback is no worse than the path it
+        // replaces, and a distance definition is not worth a panic. Silently
+        // changing the distance is the lesser cost of the two.
         Err(_) => return std,
     };
     let values = eigen.S();

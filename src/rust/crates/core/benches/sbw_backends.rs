@@ -350,7 +350,10 @@ fn continuous_spec(
     builder.add_box(min_weight, &pinned);
     builder.add_dense_row(&s_scaled, nf, nf);
 
-    let denom = (nf - 1.0).max(1.0);
+    // The average divides by n, the denominator `solve_cont` uses, so the bench
+    // measures the problem the solver is handed rather than a spuriously tighter
+    // (n - 1)/n band.
+    let denom = nf.max(1.0);
     for c in 0..p {
         let coeffs: Vec<f64> = (0..n)
             .map(|i| covs[c * n + i] * treat_std[i] * s_scaled[i] / denom)

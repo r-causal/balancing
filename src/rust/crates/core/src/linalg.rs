@@ -25,9 +25,12 @@ pub fn col_major(data: &[f64], nrows: usize, ncols: usize) -> MatRef<'_, f64> {
 /// Solve `(H + ridge * I) x = rhs` for a symmetric `H`, writing `x` back into
 /// `rhs`. `H` is a column-major `p * p` slice; only its lower triangle is read.
 ///
-/// Returns `false` when the ridge-shifted matrix is not positive definite and
-/// the LDLT factorization fails, leaving `rhs` untouched. Callers escalate the
-/// ridge and retry.
+/// Returns `false` when the LDLT factorization fails, leaving `rhs` untouched.
+/// The factorization is the signed, unpivoted one, whose only failure is a zero
+/// pivot: a negative pivot is accepted, so an indefinite ridge-shifted matrix is
+/// factored and solved exactly rather than refused. Callers escalate the ridge
+/// and retry, which moves a zero pivot off zero; a caller that needs positive
+/// definiteness has to establish it some other way.
 pub fn solve_symmetric_ridge(h: &[f64], p: usize, ridge: f64, rhs: &mut [f64]) -> bool {
     debug_assert_eq!(h.len(), p * p);
     debug_assert_eq!(rhs.len(), p);

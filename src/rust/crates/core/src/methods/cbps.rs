@@ -2061,9 +2061,9 @@ mod tests {
     }
 
     // A non-saturated design with a continuous covariate whose treated and
-    // untreated supports interleave: the two units nearest the origin take the
-    // assignment the other side of the origin has, so neither group's covariate
-    // values sit entirely above or entirely below the other's. The score and
+    // untreated supports interleave: relative to `separated_design`, the units at
+    // x = -0.2 and x = 0.4 trade assignments, so neither group's covariate values
+    // sit entirely above or entirely below the other's. The score and
     // balancing conditions still cannot both hold, so the weighting matrix
     // matters, but the logistic maximum-likelihood fit that anchors the solve now
     // exists and both weighting policies reach a minimizer.

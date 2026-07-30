@@ -210,7 +210,9 @@ pub struct QpOptions {
     pub polish: bool,
     /// Whether OSQP adapts its step size.
     pub adaptive_rho: bool,
-    /// Iterations solved between interrupt checks.
+    /// OSQP iterations solved between interrupt checks. Clarabel takes a
+    /// termination callback and polls once per iteration, so this does not
+    /// reach it.
     pub chunk_iters: usize,
     /// Backend routing for a positive-semidefinite spec.
     pub backend: QpBackendChoice,
