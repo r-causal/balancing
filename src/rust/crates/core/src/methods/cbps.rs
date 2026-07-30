@@ -2035,9 +2035,44 @@ mod tests {
         );
     }
 
-    // A non-saturated design with a continuous covariate, so the score and
-    // balancing conditions cannot both hold and the weighting matrix matters.
-    fn continuous_cov_design() -> (Vec<f64>, Vec<i32>, usize) {
+    // A non-saturated design with a continuous covariate whose treated and
+    // untreated supports interleave: the two units nearest the origin take the
+    // assignment the other side of the origin has, so neither group's covariate
+    // values sit entirely above or entirely below the other's. The score and
+    // balancing conditions still cannot both hold, so the weighting matrix
+    // matters, but the logistic maximum-likelihood fit that anchors the solve now
+    // exists and both weighting policies reach a minimizer.
+    //
+    // This is the general-purpose over-identified fixture, and the overlap is what
+    // qualifies it: a test written on it reads the behavior it means to read
+    // rather than a failure to solve. Where the failure itself is the subject, use
+    // `separated_design`.
+    fn overlapping_cov_design() -> (Vec<f64>, Vec<i32>, usize) {
+        let x = [
+            -1.3, -0.7, -0.2, 0.4, 0.9, 1.5, -1.1, -0.4, 0.1, 0.6, 1.2, 1.8, -0.9, 0.3, 1.0, -0.5,
+        ];
+        let treat = vec![0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 1, 1, 0, 1, 1, 0];
+        let n = x.len();
+        let mut covs = vec![1.0; n];
+        covs.extend_from_slice(&x);
+        (covs, treat, n)
+    }
+
+    // The same covariate values under a perfectly separated assignment: every
+    // treated unit sits at a positive covariate value and every untreated unit at
+    // a negative one, so no logistic propensity model fits it. The
+    // maximum-likelihood coefficient on the covariate grows without bound, the
+    // warm-start iteration leaves the finite range within ten passes, and the
+    // over-identified solve is left anchored at the all-zero fallback, a point
+    // that carries no information about the design. The continuously-updated arm
+    // barely moves from there and stops with a gradient near a tenth whatever
+    // iteration budget it is given.
+    //
+    // That is what the fixture is for. A design the criterion cannot be solved on
+    // is the one place to pin that nothing in the convergence machinery, neither
+    // the stalled-iterate certificate nor a tolerance read at the problem's own
+    // scale, ever reports a non-stationary stop as convergence.
+    fn separated_design() -> (Vec<f64>, Vec<i32>, usize) {
         let x = [
             -1.3, -0.7, -0.2, 0.4, 0.9, 1.5, -1.1, -0.4, 0.1, 0.6, 1.2, 1.8, -0.9, 0.3, 1.0, -0.5,
         ];
@@ -2048,9 +2083,65 @@ mod tests {
         (covs, treat, n)
     }
 
+    // A stop short of a stationary point is not convergence, however the verdict
+    // is reached. Both halves are asserted here: the separation that makes the
+    // stopping point non-stationary, and the verdict that has to follow from it.
+    #[test]
+    fn a_stall_on_a_separated_design_is_not_reported_as_convergence() {
+        let (covs, treat, n) = separated_design();
+        for i in 0..n {
+            assert_eq!(
+                treat[i] == 1,
+                covs[n + i] > 0.0,
+                "unit {i} breaks the separation the fixture is built on"
+            );
+        }
+
+        let s = vec![1.0; n];
+        let inputs = CbpsInputs {
+            covs_mod: &covs,
+            covs_bal: &covs,
+            n,
+            p_mod: 2,
+            p_bal: 2,
+            treat: &treat,
+            s: &s,
+            link: Link::Logit,
+            estimand: CbpsEstimand::Ate,
+            over: true,
+            twostep: false,
+            threads: 1,
+            max_iter: 500,
+            tol: 1e-10,
+        };
+        let result = solve(&inputs, &no_interrupt());
+
+        // The criterion rebuilt at the returned coefficients under the same
+        // continuously-updated weighting the solve ran on, so the gradient read
+        // here is the one the solve was asked to drive to zero.
+        let problem = GmmProblem {
+            inputs: &inputs,
+            m_total: 4,
+            weighting: GmmWeighting::Continuous,
+            pool: get_pool(1),
+        };
+        let mut grad = vec![0.0; 2];
+        problem.gradient(&result.coefs, &mut grad);
+        let grad_norm = grad.iter().fold(0.0_f64, |acc, g| acc.max(g.abs()));
+        assert!(
+            grad_norm > 1e-3,
+            "the fixture must leave the solve away from a stationary point, \
+             gradient sup norm {grad_norm}"
+        );
+        assert!(
+            !result.converged,
+            "a stop at a gradient of {grad_norm} is not convergence"
+        );
+    }
+
     #[test]
     fn two_step_and_continuous_updating_differ() {
-        let (covs, treat, n) = continuous_cov_design();
+        let (covs, treat, n) = overlapping_cov_design();
         let two = run_over(true, 1, &covs, &treat, n, 2);
         let cue = run_over(false, 1, &covs, &treat, n, 2);
         assert!(two.gmm_obj.unwrap().is_finite());
@@ -2066,7 +2157,7 @@ mod tests {
 
     #[test]
     fn over_identified_is_deterministic_across_thread_counts() {
-        let (covs, treat, n) = continuous_cov_design();
+        let (covs, treat, n) = overlapping_cov_design();
         let one = run_over(true, 1, &covs, &treat, n, 2);
         for threads in [2, 4] {
             let many = run_over(true, threads, &covs, &treat, n, 2);
@@ -2164,15 +2255,15 @@ mod tests {
     }
 
     // The verdict the criterion above earns, end to end through the solve. The
-    // two-step policy is the one this design reaches the tolerance on at the
-    // unscaled reading, so it is the policy that can pin a verdict here: an arm
-    // whose unscaled fit does not converge would pin the backend's difficulty
-    // rather than the scale. The continuously-updated criterion's own degree in
-    // the sampling weights is pinned above, and both policies are exercised end to
-    // end by the R suite.
+    // two-step policy is the one this design holds the tolerance on at both
+    // expansions, so it is the policy that can pin a verdict here: an arm that
+    // misses the tolerance at one of the two readings would pin the backend's
+    // difficulty rather than the scale. The continuously-updated criterion's own
+    // degree in the sampling weights is pinned above, and both policies are
+    // exercised end to end by the R suite.
     #[test]
     fn the_over_identified_verdict_is_invariant_to_the_sampling_weight_scale() {
-        let (covs, treat, n) = continuous_cov_design();
+        let (covs, treat, n) = overlapping_cov_design();
         let solve_at = |scale: f64| {
             let s = vec![scale; n];
             let inputs = CbpsInputs {
@@ -2222,7 +2313,7 @@ mod tests {
 
     #[test]
     fn over_identified_interrupt_is_surfaced() {
-        let (covs, treat, n) = continuous_cov_design();
+        let (covs, treat, n) = overlapping_cov_design();
         let s = vec![1.0; n];
         let inputs = CbpsInputs {
             covs_mod: &covs,
