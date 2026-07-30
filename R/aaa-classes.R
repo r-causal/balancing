@@ -452,16 +452,25 @@ method(print, balancing) <- function(x, ...) {
         "Constraints: {n_constraints} term{?s} (tolerance {tol})"
       )
 
+      # The largest imbalance names how far the fit missed, so it is only offered
+      # when it is a number. A maximum that is not finite means at least one
+      # constraint's statistic is undefined, and printing "NaN" as the largest
+      # imbalance states a distance that was never measured. Saying the
+      # assessment is what failed is the same ruling the balance warning follows.
       statistic <- x@balance_table$statistic[1]
       largest <- max(abs(x@balance_table$weighted))
-      label <- if (identical(statistic, "correlation")) {
-        "correlation"
+      if (is.finite(largest)) {
+        label <- if (identical(statistic, "correlation")) {
+          "correlation"
+        } else {
+          "standardized mean difference"
+        }
+        cli::cli_text(
+          "Largest imbalance: {formatC(largest, format = 'f', digits = 4)} ({label})"
+        )
       } else {
-        "standardized mean difference"
+        cli::cli_text("Largest imbalance: could not be assessed")
       }
-      cli::cli_text(
-        "Largest imbalance: {formatC(largest, format = 'f', digits = 4)} ({label})"
-      )
     }
   })
   invisible(x)

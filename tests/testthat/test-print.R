@@ -140,6 +140,51 @@ test_that("summary() of a cfd fit reports the weight floor count", {
   expect_snapshot(summary(fit))
 })
 
+# ---- An imbalance that was never measured ----------------------------------
+
+# A balance statistic that is not a number states no distance, so the display
+# reports that the imbalance could not be assessed rather than offering NaN as the
+# largest one. That is the ruling the balance warning already follows, applied to
+# the print and summary blocks. No fit reaches this once every exposure level is
+# required to carry base-measure mass, so the table is edited to reach it.
+undefined_balance_fit <- function(value) {
+  data <- sim_binary(n = 150)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  table <- fit@balance_table
+  table$weighted[[1]] <- value
+  fit@balance_table <- table
+  fit
+}
+
+test_that("print() reports an unmeasurable imbalance rather than NaN", {
+  fit <- undefined_balance_fit(NaN)
+  printed <- utils::capture.output(expect_no_warning(print(fit)))
+  expect_false(any(grepl("NaN", printed, fixed = TRUE)))
+  expect_true(any(grepl("could not be assessed", printed, fixed = TRUE)))
+})
+
+test_that("print() reports a missing imbalance rather than NA", {
+  fit <- undefined_balance_fit(NA_real_)
+  printed <- utils::capture.output(expect_no_warning(print(fit)))
+  expect_false(any(grepl("NA", printed, fixed = TRUE)))
+  expect_true(any(grepl("could not be assessed", printed, fixed = TRUE)))
+})
+
+test_that("summary() reports an unmeasurable imbalance rather than NaN", {
+  fit <- undefined_balance_fit(NaN)
+  printed <- utils::capture.output(expect_no_warning(summary(fit)))
+  expect_true(any(grepl("could not be assessed", printed, fixed = TRUE)))
+  # The balance table itself still shows the term's value; only the headline
+  # figure, which claims to measure how far the fit missed, is withheld.
+  expect_false(any(grepl("Largest imbalance: NaN", printed, fixed = TRUE)))
+})
+
 test_that("summary() returns the fit invisibly", {
   data <- sim_binary(200)
   fit <- balance(
