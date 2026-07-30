@@ -227,7 +227,26 @@ test_that("solve_cbps() refuses non-finite covariates and sampling weights", {
       FALSE,
       options
     ),
-    "non-finite"
+    "`covs_mod` contains a non-finite value at position 4",
+    fixed = TRUE
+  )
+  # The balance design is a second numeric block with a guard of its own, and the
+  # just-identified fit passes the same matrix twice, which is what would hide a
+  # missing guard on this one.
+  expect_error(
+    solve_cbps(
+      covs,
+      c(-1, -0.5, NaN, 1),
+      treat,
+      rep(1, 4),
+      "ate",
+      "logit",
+      FALSE,
+      FALSE,
+      options
+    ),
+    "`covs_bal` contains a non-finite value at position 3",
+    fixed = TRUE
   )
   expect_error(
     solve_cbps(
@@ -241,8 +260,117 @@ test_that("solve_cbps() refuses non-finite covariates and sampling weights", {
       FALSE,
       options
     ),
-    "non-finite"
+    "`s_weights` contains a non-finite value at position 4",
+    fixed = TRUE
   )
+})
+
+test_that("solve_cbps_multi() refuses non-finite covariates and sampling weights", {
+  covs <- c(-1, -0.5, 0.5, 1)
+  treat_idx <- c(0L, 1L, 2L, 1L)
+  options <- list(threads = 1L)
+  expect_error(
+    solve_cbps_multi(
+      c(-1, -0.5, 0.5, Inf),
+      treat_idx,
+      0L,
+      rep(1, 4),
+      "ate",
+      "logit",
+      options
+    ),
+    "`covs` contains a non-finite value at position 4",
+    fixed = TRUE
+  )
+  expect_error(
+    solve_cbps_multi(
+      covs,
+      treat_idx,
+      0L,
+      c(1, 1, NaN, 1),
+      "ate",
+      "logit",
+      options
+    ),
+    "`s_weights` contains a non-finite value at position 3",
+    fixed = TRUE
+  )
+})
+
+# The re-evaluation entry points take the same numeric blocks as the solves that
+# produced them, at parameters a caller supplies, so they carry the same guards
+# and are addressed the same way. Each spec plants one non-finite value in one
+# guarded block and reads back which block the refusal names, since a guard
+# pointed at the wrong argument would satisfy a bare check for the refusal
+# alone.
+
+test_that("the entropy re-evaluation entry points refuse non-finite blocks", {
+  # One dual per group over a single constraint column: two groups of two units,
+  # so `coefs` is one value per group and `covs` is the column itself.
+  arguments <- list(
+    coefs = c(0, 0),
+    covs = c(-1, -1, 1, 1),
+    group_idx = c(0L, 0L, 1L, 1L),
+    targets = 0,
+    base_weights = rep(1, 4),
+    s_weights = rep(1, 4),
+    n_eff = 4,
+    esteq_scale = c(1, 1)
+  )
+  call_with <- function(entry, name, value) {
+    modified <- arguments
+    modified[[name]] <- value
+    do.call(entry, modified)
+  }
+
+  for (entry in list(eval_psi_entropy, eval_weights_entropy)) {
+    expect_error(
+      call_with(entry, "covs", c(-1, -1, 1, Inf)),
+      "`covs` contains a non-finite value at position 4",
+      fixed = TRUE
+    )
+    expect_error(
+      call_with(entry, "base_weights", c(1, NaN, 1, 1)),
+      "`base_weights` contains a non-finite value at position 2",
+      fixed = TRUE
+    )
+    expect_error(
+      call_with(entry, "s_weights", c(1, 1, 1, Inf)),
+      "`s_weights` contains a non-finite value at position 4",
+      fixed = TRUE
+    )
+  }
+})
+
+test_that("the cbps re-evaluation entry points refuse non-finite blocks", {
+  # The intercept column followed by one covariate, which is the design the
+  # binary fit solves and re-evaluates at.
+  arguments <- list(
+    coefs = c(0, 0),
+    covs = c(1, 1, 1, 1, -1, -0.5, 0.5, 1),
+    treat = c(0L, 0L, 1L, 1L),
+    s_weights = rep(1, 4),
+    estimand = "ate",
+    link = "logit"
+  )
+  call_with <- function(entry, name, value) {
+    modified <- arguments
+    modified[[name]] <- value
+    do.call(entry, modified)
+  }
+
+  for (entry in list(eval_psi_cbps, eval_weights_cbps)) {
+    expect_error(
+      call_with(entry, "covs", c(1, 1, 1, 1, -1, -0.5, 0.5, Inf)),
+      "`covs` contains a non-finite value at position 8",
+      fixed = TRUE
+    )
+    expect_error(
+      call_with(entry, "s_weights", c(1, 1, NaN, 1)),
+      "`s_weights` contains a non-finite value at position 3",
+      fixed = TRUE
+    )
+  }
 })
 
 test_that("solve_cbps_cont() refuses a non-finite exposure", {
