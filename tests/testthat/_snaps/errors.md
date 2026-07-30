@@ -164,9 +164,19 @@
       focal_level = 1)
     Condition <balancing_estimand_error>
       Error in `balance()`:
-      ! The "att" estimand needs an exposure level outside the focal group.
+      ! Balancing needs an exposure with at least two levels.
       x The exposure takes the single level "1".
-      i Supply an exposure with at least two levels, or use the "ate" estimand.
+      i Supply an exposure whose values differ across the sample.
+
+# balancing_estimand_error: a pooled estimand with one exposure level
+
+    Code
+      balance(data, exposure, c(x1, x2), method = bw_entropy(), estimand = "ate")
+    Condition <balancing_estimand_error>
+      Error in `balance()`:
+      ! Balancing needs an exposure with at least two levels.
+      x The exposure takes the single level "1".
+      i Supply an exposure whose values differ across the sample.
 
 # balancing_range_error: base weights of the wrong length
 

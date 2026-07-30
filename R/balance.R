@@ -156,6 +156,7 @@ balance <- function(
 
   exposure_key <- as.character(exposure_vec)
   levels <- exposure_levels(exposure_vec, exposure_type)
+  validate_exposure_level_count(levels, exposure_type)
   focal_level <- resolve_focal_level(
     estimand,
     exposure_type,
@@ -504,6 +505,33 @@ canonical_estimand <- function(estimand) {
   if (identical(estimand, "atc")) "atu" else estimand
 }
 
+# Refuse an exposure that takes a single level. Balancing reweights one exposure
+# group toward another, so one level leaves nothing to balance whatever the
+# estimand was asked for: a focal estimand would hold the whole sample fixed and
+# carry no parameter blocks, and a pooled estimand would return the weighting it
+# started from and then have no arm-to-arm contrast to report. A declared factor
+# level no observation takes is dropped before the count, so this measures the
+# levels the data carry. A continuous exposure has no levels at all and is not
+# measured by the rule.
+validate_exposure_level_count <- function(
+  levels,
+  exposure_type,
+  call = rlang::caller_env()
+) {
+  if (identical(exposure_type, "continuous") || length(levels) >= 2) {
+    return(invisible())
+  }
+  abort(
+    c(
+      "Balancing needs an exposure with at least two levels.",
+      x = "The exposure takes the single level {.val {levels}}.",
+      i = "Supply an exposure whose values differ across the sample."
+    ),
+    error_class = "balancing_estimand_error",
+    call = call
+  )
+}
+
 # Resolve the focal exposure level for att and atc. A binary exposure infers the
 # treated level (the second level) for att and the control level (the first) for
 # atc; a categorical exposure requires an explicit focal_level. The average
@@ -563,22 +591,6 @@ resolve_focal_level <- function(
       c(
         "{.arg focal_level} must be an exposure level.",
         x = "{.val {resolved}} is not one of {.val {levels}}."
-      ),
-      error_class = "balancing_estimand_error",
-      call = call
-    )
-  }
-
-  # A focal estimand holds the focal group fixed and reweights the others, so an
-  # exposure whose only level is the focal one leaves nothing to reweight. The
-  # solve would then carry no parameter blocks at all, which the core has no
-  # design to describe.
-  if (length(levels) < 2) {
-    abort(
-      c(
-        "The {.val {estimand}} estimand needs an exposure level outside the focal group.",
-        x = "The exposure takes the single level {.val {levels}}.",
-        i = "Supply an exposure with at least two levels, or use the {.val ate} estimand."
       ),
       error_class = "balancing_estimand_error",
       call = call

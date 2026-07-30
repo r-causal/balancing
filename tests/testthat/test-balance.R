@@ -616,6 +616,97 @@ test_that("a focal estimand with focal_level does not warn", {
     )
   )
 })
+
+# ---- An exposure with a single level ---------------------------------------
+
+# Balancing reweights one exposure group toward another, so an exposure that takes
+# a single level leaves nothing to balance whatever the estimand. The focal
+# estimands refused it already; the pooled estimands fitted the uniform weighting
+# they started from and then stopped in the balance table on a maximum over no
+# contrasts, an unclassed base error.
+single_level_data <- function() {
+  withr::with_seed(21, {
+    n <- 60
+    data.frame(
+      exposure = rep(1L, n),
+      x1 = stats::rnorm(n),
+      x2 = stats::rnorm(n)
+    )
+  })
+}
+
+test_that("a single-level exposure is refused for every estimand", {
+  withr::local_options(balancing.quiet = TRUE)
+  data <- single_level_data()
+  expect_error(
+    balance(data, exposure, c(x1, x2), method = bw_entropy(), estimand = "ate"),
+    class = "balancing_estimand_error"
+  )
+  expect_error(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(),
+      estimand = "att",
+      focal_level = 1
+    ),
+    class = "balancing_estimand_error"
+  )
+  expect_error(
+    balance(data, exposure, c(x1, x2), method = bw_cbps(), estimand = "ato"),
+    class = "balancing_estimand_error"
+  )
+})
+
+test_that("a single-level exposure is refused across the method families", {
+  withr::local_options(balancing.quiet = TRUE)
+  data <- single_level_data()
+  methods <- list(
+    bw_entropy(),
+    bw_ipt(),
+    bw_cbps(),
+    bw_energy(),
+    bw_cfd(),
+    bw_sbw()
+  )
+  for (method in methods) {
+    expect_error(
+      balance(data, exposure, c(x1, x2), method = method, estimand = "ate"),
+      class = "balancing_estimand_error"
+    )
+  }
+})
+
+test_that("a single-level factor exposure is refused", {
+  withr::local_options(balancing.quiet = TRUE)
+  data <- single_level_data()
+  data$exposure <- factor(rep("a", nrow(data)))
+  expect_error(
+    balance(data, exposure, c(x1, x2), method = bw_entropy()),
+    class = "balancing_estimand_error"
+  )
+})
+
+test_that("a declared level no observation takes leaves a single-level exposure", {
+  # The unused level is dropped before the count, so a two-level factor with one
+  # level unobserved is a single-level exposure and refused as one.
+  withr::local_options(balancing.quiet = TRUE)
+  data <- single_level_data()
+  data$exposure <- factor(rep("a", nrow(data)), levels = c("a", "b"))
+  expect_error(
+    balance(data, exposure, c(x1, x2), method = bw_entropy()),
+    class = "balancing_estimand_error"
+  )
+})
+
+test_that("a continuous exposure is not measured by the level count", {
+  # A continuous exposure carries no levels at all, so the rule does not reach it.
+  data <- sim_continuous(n = 150)
+  fit <- balance(data, exposure, c(x1, x2), method = bw_entropy())
+  expect_identical(fit@exposure_levels, character(0))
+})
+
 # ---- Sampling weights -----------------------------------------------------
 
 test_that("balance() evaluates sampling_weights given as a bare column", {

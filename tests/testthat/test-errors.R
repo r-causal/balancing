@@ -196,6 +196,27 @@ test_that("balancing_estimand_error: a focal estimand with one exposure level", 
   )
 })
 
+test_that("balancing_estimand_error: a pooled estimand with one exposure level", {
+  withr::local_options(balancing.quiet = TRUE)
+  data <- withr::with_seed(5, {
+    n <- 60
+    data.frame(
+      exposure = rep(1L, n),
+      x1 = stats::rnorm(n),
+      x2 = stats::rnorm(n)
+    )
+  })
+  expect_balancing_error(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(),
+      estimand = "ate"
+    )
+  )
+})
+
 test_that("balancing_range_error: base weights of the wrong length", {
   data <- sim_binary(n = 100)
   expect_balancing_error(
