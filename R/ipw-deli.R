@@ -74,6 +74,10 @@
 #' @param focal_level The fit's focal exposure level, or `NULL` for a pooled
 #'   estimand. It names the target population the marginal means standardize
 #'   over and the group total the reported weights are carried to.
+#' @param call The frame a refusal reports as the failing call. The engine is
+#'   internal, so a caller who reached it through [ipw()] must be sent to
+#'   `ipw()` rather than to a function they cannot go and read; the default
+#'   names this function, which is what a direct call deserves.
 #'
 #' @return A list with `theta`, the stacked parameter vector, and `vcov`, its
 #'   covariance on the standard-error scale, both named by stacked block order.
@@ -87,7 +91,8 @@ ipw_deli_sandwich <- function(
   levels,
   categorical = FALSE,
   sampling_weights = NULL,
-  focal_level = NULL
+  focal_level = NULL,
+  call = rlang::current_env()
 ) {
   n <- nrow(frame)
   family <- stats::family(outcome_mod)
@@ -256,12 +261,13 @@ ipw_deli_sandwich <- function(
   validate_stacked_bread(
     container@jacobian,
     weights_at,
-    as.numeric(weight_parameters)
+    as.numeric(weight_parameters),
+    call = call
   )
 
   list(
     theta = theta,
-    vcov = stacked_covariance(stacked_equations, theta, n)
+    vcov = stacked_covariance(stacked_equations, theta, n, call = call)
   )
 }
 
@@ -287,6 +293,8 @@ ipw_deli_sandwich <- function(
 #' @param exposure_name The exposure column name, which names the design column
 #'   the reported effect is read from once it is quoted as the model writes it.
 #' @param sampling_weights The fit's sampling weights, or `NULL`.
+#' @param call The frame a refusal reports as the failing call, on the same
+#'   terms as the discrete engine's.
 #'
 #' @return A list with `theta`, the stacked parameter vector, and `vcov`, its
 #'   covariance on the standard-error scale, both named by stacked block order.
@@ -296,7 +304,8 @@ ipw_deli_msm_sandwich <- function(
   container,
   outcome_mod,
   exposure_name,
-  sampling_weights = NULL
+  sampling_weights = NULL,
+  call = rlang::current_env()
 ) {
   family <- stats::family(outcome_mod)
   distribution <- deli_distribution(family)
@@ -349,12 +358,13 @@ ipw_deli_msm_sandwich <- function(
   validate_stacked_bread(
     container@jacobian,
     weights_at,
-    as.numeric(weight_parameters)
+    as.numeric(weight_parameters),
+    call = call
   )
 
   list(
     theta = theta,
-    vcov = stacked_covariance(stacked_equations, theta, n)
+    vcov = stacked_covariance(stacked_equations, theta, n, call = call)
   )
 }
 
@@ -406,7 +416,12 @@ make_hooks_cache <- function(container, weights_at, parameters) {
 # than an error, which would otherwise surface much later as a complaint about
 # dimnames applied to a non-array. Name the real cause here instead, at the point
 # where it is still legible.
-stacked_covariance <- function(stacked_equations, theta, n) {
+stacked_covariance <- function(
+  stacked_equations,
+  theta,
+  n,
+  call = rlang::caller_env()
+) {
   covariance <- deli::compute_sandwich(
     stacked_equations,
     theta,
@@ -423,7 +438,8 @@ stacked_covariance <- function(stacked_equations, theta, n) {
         x = "The stacked estimating functions are not finite at the fitted parameters.",
         i = "See the inference vignette for a bootstrap workflow."
       ),
-      error_class = "balancing_ipw_unsupported_error"
+      error_class = "balancing_ipw_unsupported_error",
+      call = call
     )
   }
   dimnames(covariance) <- list(names(theta), names(theta))

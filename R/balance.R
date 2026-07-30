@@ -366,11 +366,16 @@ check_solver_status <- function(fit, method, call = rlang::caller_env()) {
       )
     }
     if (fit$status %in% c("non_convex", "dual_infeasible")) {
+      advice <- if (tunes_weight_penalty(method)) {
+        "Check the covariates for collinearity, or raise {.arg weight_penalty} in {.fn {class(method)[1]}}."
+      } else {
+        "Check the covariates for collinearity."
+      }
       abort(
         c(
           "The solver failed to produce a valid solution.",
           x = "It terminated with status {.val {fit$status}}.",
-          i = "Check the covariates for collinearity, or raise {.arg weight_penalty} in {.fn {class(method)[1]}}."
+          i = advice
         ),
         error_class = "balancing_convergence_error",
         call = call
@@ -380,11 +385,16 @@ check_solver_status <- function(fit, method, call = rlang::caller_env()) {
       fit$status %in%
         c("numerical_error", "insufficient_progress", "not_solved")
     ) {
+      advice <- if (tunes_weight_penalty(method)) {
+        "Rescale the covariates, loosen {.arg convergence_tolerance}, or raise {.arg weight_penalty} in {.fn {class(method)[1]}}."
+      } else {
+        "Rescale the covariates, or loosen {.arg convergence_tolerance} in {.fn {class(method)[1]}}."
+      }
       abort(
         c(
           "The solver stopped without a solution.",
           x = "It terminated with status {.val {fit$status}}.",
-          i = "Rescale the covariates, loosen {.arg convergence_tolerance}, or raise {.arg weight_penalty} in {.fn {class(method)[1]}}."
+          i = advice
         ),
         error_class = "balancing_convergence_error",
         call = call
@@ -463,6 +473,19 @@ method(requires_constraints, balance_method) <- function(method) {
 }
 
 method(requires_constraints, quadratic_program_method) <- function(method) {
+  FALSE
+}
+
+# Whether a method offers `weight_penalty` as an argument a caller can raise, which
+# decides whether the conditioning advice a solver breakdown gives is allowed to
+# name it. Energy and characteristic function distance balancing take the penalty
+# as a tuning argument; stable balancing weights minimize the weight dispersion
+# alone and take no such argument. The property cannot answer this, since stable
+# balancing weights hold the inherited penalty at zero rather than dropping it, so
+# every quadratic program appears to carry one.
+tunes_weight_penalty <- new_generic("tunes_weight_penalty", "method")
+
+method(tunes_weight_penalty, balance_method) <- function(method) {
   FALSE
 }
 

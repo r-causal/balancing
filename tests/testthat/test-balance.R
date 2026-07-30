@@ -1244,6 +1244,34 @@ test_that("a solver breakdown reports conditioning rather than the iteration cap
   }
 })
 
+# The conditioning advice names a knob, so it must name one the method actually
+# has. `weight_penalty` is the ridge term the quadratic-program objective carries;
+# `bw_energy()` and `bw_cfd()` expose it as an argument, while `bw_sbw()` holds it
+# at zero by design and takes no such argument, so advising a caller to raise it
+# in `bw_sbw()` sends them after an argument that does not exist. The advice is
+# therefore conditional on the method rather than fixed text.
+test_that("the conditioning advice names weight_penalty only where there is one", {
+  for (status in c("non_convex", "numerical_error")) {
+    sbw <- expect_error(
+      check_solver_status(
+        list(status = status, converged = FALSE),
+        bw_sbw()
+      ),
+      class = "balancing_convergence_error"
+    )
+    expect_false(grepl("weight_penalty", conditionMessage(sbw), fixed = TRUE))
+
+    energy <- expect_error(
+      check_solver_status(
+        list(status = status, converged = FALSE),
+        bw_energy()
+      ),
+      class = "balancing_convergence_error"
+    )
+    expect_true(grepl("weight_penalty", conditionMessage(energy), fixed = TRUE))
+  }
+})
+
 test_that("a reached iteration cap still advises raising it", {
   expect_warning(
     check_solver_status(

@@ -271,6 +271,7 @@ balance_terms <- new_class(
       }
     }
     tolerance <- vctrs::vec_cast(tolerance, double(), x_arg = "tolerance")
+    check_tolerance(tolerance)
     new_object(
       S7_object(),
       moments = moments,

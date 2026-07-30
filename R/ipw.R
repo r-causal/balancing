@@ -374,7 +374,8 @@ method(causalgenerics_ipw, balancing) <- function(
       container = container,
       outcome_mod = outcome_mod,
       exposure_name = exposure_name,
-      sampling_weights = wt_mod@sampling_weights
+      sampling_weights = wt_mod@sampling_weights,
+      call = rlang::current_env()
     )
     effect <- msm_effect_name(outcome_mod)
     estimates <- ipw_estimate_rows(
@@ -411,7 +412,8 @@ method(causalgenerics_ipw, balancing) <- function(
       levels = levels,
       categorical = categorical,
       sampling_weights = wt_mod@sampling_weights,
-      focal_level = wt_mod@focal_level
+      focal_level = wt_mod@focal_level,
+      call = rlang::current_env()
     )
 
     estimates <- ipw_estimates(
@@ -650,11 +652,33 @@ validate_ipw_outcome_model <- function(
   }
   validate_ipw_response_shape(outcome_mod, call = call)
   if (!exposure_name %in% model_term_variables(outcome_mod)) {
+    # What the model may do with the exposure depends on the exposure type. A
+    # discrete exposure is read through predictions with the exposure fixed to
+    # each level, so a transformation of it is fine and `factor()` is the usual
+    # one. A continuous exposure reports the exposure's own coefficient, and the
+    # slope check below refuses every transformation, so offering one here would
+    # send that caller to a second refusal.
+    latitude <- if (continuous_exposure) {
+      "The model may adjust for covariates alongside the exposure, which must enter as a term of its own."
+    } else {
+      "The model may adjust for covariates alongside the exposure, and may carry the exposure inside a transformation such as {.fun factor}."
+    }
+    # A model whose only mention of the exposure is an offset reaches here, since
+    # an offset is not a term, and would otherwise be told the exposure is absent
+    # while the caller can see it written in the formula. The offset check below
+    # would refuse such a model anyway once a real exposure term were added, so
+    # the pointer saves a round trip as well as the confusion.
+    offset_note <- if (
+      any(offsets_read_exposure(offset_expressions(outcome_mod), exposure_name))
+    ) {
+      "An offset is not a term, so an exposure that reaches the model only through one is not carried by it."
+    }
     abort(
       c(
         "{.arg outcome_mod} must include the exposure among its predictors.",
         x = "The exposure {.val {exposure_name}} appears in none of its terms.",
-        i = "The model may adjust for covariates alongside the exposure, and may carry the exposure inside a transformation such as {.fun factor}."
+        i = latitude,
+        i = offset_note
       ),
       error_class = "balancing_ipw_input_error",
       call = call
@@ -802,6 +826,35 @@ validate_ipw_exposure_slope <- function(
   invisible(NULL)
 }
 
+# Both places an offset can enter a fitted model, since neither records the
+# other: a formula offset lives in the terms object, whose `offset` attribute
+# indexes it among the variables, and the `offset` argument lives in the fitted
+# call. A model carrying no offset yields the one `NULL` the argument left
+# behind, which names nothing.
+offset_expressions <- function(outcome_mod) {
+  terms <- stats::terms(outcome_mod)
+  variables <- attr(terms, "variables")
+  c(
+    lapply(
+      attr(terms, "offset"),
+      function(position) variables[[position + 1L]]
+    ),
+    list(stats::getCall(outcome_mod)$offset)
+  )
+}
+
+# Which of a model's offset expressions name the exposure. Two checks read this:
+# the refusal below, which reports the offending expressions, and the
+# exposure-presence check, which points a caller at an offset when that is the
+# only place the exposure is written.
+offsets_read_exposure <- function(expressions, exposure_name) {
+  vapply(
+    expressions,
+    function(expression) exposure_name %in% all.vars(expression),
+    logical(1)
+  )
+}
+
 # An offset is the second way the exposure can reach the linear predictor, and
 # it reaches it past the term labels the check above reads: an offset is not a
 # term, so a model whose offset is the exposure carries exactly one exposure
@@ -820,10 +873,6 @@ validate_ipw_exposure_slope <- function(
 # means comes back with the opposite sign to the g-computation the same model
 # implies, which is why the check runs for every exposure type.
 #
-# Both places an offset can enter are inspected, since neither records the
-# other. A formula offset lives in the terms object, whose `offset` attribute
-# indexes its variables, and the `offset` argument lives in the fitted call.
-#
 # The inspection is static, so what it refuses is an offset expression that
 # names the exposure. An offset that does not, including a precomputed vector
 # whose symbol carries some other name, is beyond reach: nothing in the fitted
@@ -834,23 +883,20 @@ validate_ipw_exposure_offset <- function(
   exposure_name,
   call = rlang::caller_env()
 ) {
-  terms <- stats::terms(outcome_mod)
-  variables <- attr(terms, "variables")
-  expressions <- lapply(
-    attr(terms, "offset"),
-    function(position) variables[[position + 1L]]
-  )
-  expressions <- c(expressions, list(stats::getCall(outcome_mod)$offset))
-
-  reads_exposure <- vapply(
-    expressions,
-    function(expression) exposure_name %in% all.vars(expression),
-    logical(1)
-  )
+  expressions <- offset_expressions(outcome_mod)
+  reads_exposure <- offsets_read_exposure(expressions, exposure_name)
   if (!any(reads_exposure)) {
     return(invisible(NULL))
   }
-  offending <- vapply(expressions[reads_exposure], deparse1, character(1))
+  # The offending expressions are spelled the way the model writes them, which
+  # back-quotes a name R cannot parse as a symbol. An offset supplied through the
+  # argument is often a bare column name, so this is the spelling the slope
+  # message already uses for the exposure and the two agree.
+  offending <- vapply(
+    expressions[reads_exposure],
+    function(expression) deparse1(expression, backtick = TRUE),
+    character(1)
+  )
   abort(
     c(
       "{.arg outcome_mod} must not carry an offset that reads the exposure.",

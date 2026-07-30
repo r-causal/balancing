@@ -100,6 +100,11 @@ rebuild_constraint_matrix <- function(recipe, .data) {
 # silently kept the first value and dropped the rest, so the second request never
 # reached the fit. Both join the unknown-name check here so one set of rules covers
 # both arguments.
+#
+# A missing name counts as no name. `nzchar()` reads a missing string as a name of
+# some length, so a missing name would walk past the check below and be reported
+# as a covariate the data does not have, which names the wrong defect again:
+# nothing was misspelled, an element was left unnamed.
 check_covariate_names <- function(
   values,
   covariates,
@@ -107,7 +112,7 @@ check_covariate_names <- function(
   call = rlang::caller_env()
 ) {
   element_names <- names(values)
-  unnamed <- sum(!nzchar(element_names))
+  unnamed <- sum(is.na(element_names) | !nzchar(element_names))
   if (unnamed > 0) {
     abort(
       c(

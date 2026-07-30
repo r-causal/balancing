@@ -100,6 +100,41 @@ test_that("balance_terms() rejects missing values in every range property", {
   expect_error(balance_terms(quantiles = list(x1 = c(0.5, NA))), "missing")
 })
 
+# The tolerance is the property callers tune most, and its three unusable inputs
+# are turned away by three different mechanisms, none of them the package's own.
+# `NULL` reaches the S7 property type check, which reports a class mismatch
+# rather than a tolerance that has no value; `Inf` is neither missing nor
+# negative, so it passes every check and constructs a specification whose box is
+# unbounded; a missing value is caught, but by the validator, which raises the
+# base S7 condition. Every other refusal a caller can trigger from a balance
+# specification carries `balancing_constraints_error`, so these do too. Each is
+# pinned by class rather than by wording, and separately, since a test stops at
+# the first input it refuses the wrong way.
+test_that("balance_terms() classes its refusal of an absent tolerance", {
+  expect_error(
+    balance_terms(tolerance = NULL),
+    class = "balancing_constraints_error"
+  )
+})
+
+test_that("balance_terms() classes its refusal of an infinite tolerance", {
+  expect_error(
+    balance_terms(tolerance = Inf),
+    class = "balancing_constraints_error"
+  )
+  expect_error(
+    balance_terms(tolerance = c(x1 = 0.1, x2 = Inf)),
+    class = "balancing_constraints_error"
+  )
+})
+
+test_that("balance_terms() classes its refusal of a missing tolerance", {
+  expect_error(
+    balance_terms(tolerance = NA_real_),
+    class = "balancing_constraints_error"
+  )
+})
+
 # ---- balance_method validators --------------------------------------------
 
 # The optional solver tuning parameters are validated for being a single usable

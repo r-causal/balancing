@@ -264,6 +264,12 @@ method(supports_estimating_equations, bw_cfd) <- function(
   FALSE
 }
 
+# The weight penalty is a tuning argument here, so a solver breakdown may advise
+# raising it.
+method(tunes_weight_penalty, bw_cfd) <- function(method) {
+  TRUE
+}
+
 # Assemble the Rust option list. The worker-thread count and the quadratic-program
 # backend are resolved on the R side and passed on every call; tuning parameters
 # left at the core default are dropped so the solver applies its own.

@@ -30,7 +30,14 @@ improved variant for the average treatment effect with a discrete exposure.}
 \item{weight_penalty}{The L2 penalty on the weights, which stabilizes the
 quadratic program.}
 
-\item{min_weight}{The smallest permitted weight.}
+\item{min_weight}{The smallest permitted weight. The reported weights average
+one within each exposure group, so a floor approaching one leaves almost no
+room above it: the weight spread shrinks in proportion to the headroom
+\code{1 - min_weight}, and the fit degenerates smoothly into uniform weights and
+reports the balance uniform weights achieve. Nothing warns at that boundary,
+because the problem stays feasible and the solution is a real one.
+\code{\link[=bw_sbw]{bw_sbw()}}, whose tolerances are hard constraints rather than an objective,
+refuses the same floor as infeasible instead.}
 
 \item{distribution_moments}{For a continuous exposure, the number of exposure
 and covariate marginal moments held equal to the sample under the base

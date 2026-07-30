@@ -163,6 +163,64 @@ check_method_dots <- function(..., call = rlang::caller_env()) {
   )
 }
 
+# Guard the tolerance a balance specification is constructed with. The property
+# validator refuses a missing or negative tolerance as well, but an S7 validator
+# answers with a bare string, so those refusals reach a caller unclassed while
+# every other refusal a balance specification raises carries
+# `balancing_constraints_error`. Checking the argument here classes them and
+# covers two shapes the validator never sees: `NULL`, which the property type
+# check turns away first and reports as a class mismatch rather than as a
+# tolerance with no value, and an infinity, which is neither missing nor negative
+# and would otherwise construct a specification whose constraint box is
+# unbounded. The validator keeps its own clauses, since a property may also be
+# assigned after construction.
+check_tolerance <- function(tolerance, call = rlang::caller_env()) {
+  if (is.null(tolerance)) {
+    abort(
+      c(
+        "{.arg tolerance} must be a number.",
+        x = "It is {.code NULL}.",
+        i = "Use {.code 0} to request exact balance."
+      ),
+      error_class = "balancing_constraints_error",
+      call = call
+    )
+  }
+  if (anyNA(tolerance)) {
+    abort(
+      c(
+        "{.arg tolerance} must not contain missing values.",
+        i = "Give every covariate you name a non-negative number."
+      ),
+      error_class = "balancing_constraints_error",
+      call = call
+    )
+  }
+  if (!all(is.finite(tolerance))) {
+    abort(
+      c(
+        "{.arg tolerance} must be finite.",
+        x = "An infinite tolerance leaves its constraint unbounded, which asks for no balance at all.",
+        i = "Relax a constraint with a large finite tolerance, or drop the covariate."
+      ),
+      error_class = "balancing_constraints_error",
+      call = call
+    )
+  }
+  if (any(tolerance < 0)) {
+    abort(
+      c(
+        "{.arg tolerance} must be non-negative.",
+        x = "A tolerance is the largest imbalance permitted, which cannot be less than none.",
+        i = "Use {.code 0} to request exact balance."
+      ),
+      error_class = "balancing_constraints_error",
+      call = call
+    )
+  }
+  invisible(tolerance)
+}
+
 # Resolve the worker-thread count for a solver call. The resolution order is the
 # explicit `threads` argument, then the `balancing.threads` option, then an
 # automatic count. The automatic count is the physical core count, capped by

@@ -637,6 +637,27 @@ test_that("a partially named tolerance vector names the unnamed elements", {
   )
 })
 
+# A name that is missing is a name the caller never supplied, so it belongs to
+# the same refusal as an empty one. `nzchar()` reads a missing string as a name
+# of some length, which walks a missing name past the unnamed-element check and
+# leaves it to be reported as a covariate the data does not have. That names the
+# wrong defect: nothing was misspelled, an element was left unnamed.
+test_that("a missing tolerance name is reported as an element with no name", {
+  data <- data.frame(x1 = rnorm(20), x2 = rnorm(20))
+  tolerance <- c(0.1, 0.2)
+  names(tolerance) <- c("x1", NA)
+  expect_error(
+    build_constraint_matrix(
+      data,
+      c("x1", "x2"),
+      balance_terms(tolerance = tolerance),
+      exposure_type = "binary"
+    ),
+    "no name",
+    class = "balancing_constraints_error"
+  )
+})
+
 # ---- List quantiles -------------------------------------------------------
 
 test_that("a quantile list adds per-covariate quantile columns", {

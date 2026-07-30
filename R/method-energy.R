@@ -48,7 +48,14 @@
 #'   improved variant for the average treatment effect with a discrete exposure.
 #' @param weight_penalty The L2 penalty on the weights, which stabilizes the
 #'   quadratic program.
-#' @param min_weight The smallest permitted weight.
+#' @param min_weight The smallest permitted weight. The reported weights average
+#'   one within each exposure group, so a floor approaching one leaves almost no
+#'   room above it: the weight spread shrinks in proportion to the headroom
+#'   `1 - min_weight`, and the fit degenerates smoothly into uniform weights and
+#'   reports the balance uniform weights achieve. Nothing warns at that boundary,
+#'   because the problem stays feasible and the solution is a real one.
+#'   [bw_sbw()], whose tolerances are hard constraints rather than an objective,
+#'   refuses the same floor as infeasible instead.
 #' @param distribution_moments For a continuous exposure, the number of exposure
 #'   and covariate marginal moments held equal to the sample under the base
 #'   measure, or `NULL` for the constraint moments. Raised automatically when
@@ -198,6 +205,12 @@ method(supports_estimating_equations, bw_energy) <- function(
 ) {
   rlang::check_dots_empty()
   FALSE
+}
+
+# The weight penalty is a tuning argument here, so a solver breakdown may advise
+# raising it.
+method(tunes_weight_penalty, bw_energy) <- function(method) {
+  TRUE
 }
 
 # Assemble the Rust option list, dropping the tuning parameters left at the core

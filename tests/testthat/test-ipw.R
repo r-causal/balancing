@@ -5176,6 +5176,102 @@ test_that("ipw_deli_sandwich() refuses a stack whose bread is not finite", {
   )
 })
 
+# Both refusals above are raised from inside the variance engine, which no caller
+# ever writes. Reached the way a caller reaches them, through `ipw()`, they must
+# report the call that was made rather than the internal frame the failure
+# happened in: `ipw_deli_sandwich()` and `stacked_covariance()` are not functions
+# the caller can go and look at, and naming them in the error header sends a
+# reader after code that is not theirs. Every other classed refusal `ipw()`
+# raises already reports `ipw()`, so these two are the exceptions.
+#
+# The pin is on the calling frame alone. The rest of the condition is covered by
+# the engine-level specs above, and the call is read through `call_name()` so an
+# argument the header happens to carry does not decide the test.
+test_that("the variance engine's refusals report ipw() as the failing call", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+  ee <- estimating_equations(fit)
+
+  with_container <- function(container) {
+    doctored <- fit
+    doctored@estimating_equations <- container
+    doctored
+  }
+
+  # A rank deficiency the reported weights move along, refused by the bread
+  # check the engine makes before it differences anything.
+  deficient <- with_container(near_singular_container(
+    ee,
+    shift = 0.1 * as.numeric(scale(data$x1)),
+    extra = data$x1 - mean(data$x1)
+  ))
+  expect_error(
+    ipw(deficient, outcome_mod),
+    class = "balancing_ipw_unsupported_error"
+  )
+  deficient_cnd <- rlang::catch_cnd(
+    ipw(deficient, outcome_mod),
+    classes = "balancing_ipw_unsupported_error"
+  )
+  expect_identical(rlang::call_name(conditionCall(deficient_cnd)), "ipw")
+
+  # A stack whose bread is not finite, refused after the difference is taken.
+  # deli warns on its own account there, which is suppressed rather than pinned.
+  not_finite <- with_container(na_psi_container(ee))
+  expect_error(
+    suppressWarnings(ipw(not_finite, outcome_mod)),
+    class = "balancing_ipw_unsupported_error"
+  )
+  not_finite_cnd <- rlang::catch_cnd(
+    suppressWarnings(ipw(not_finite, outcome_mod)),
+    classes = "balancing_ipw_unsupported_error"
+  )
+  expect_identical(rlang::call_name(conditionCall(not_finite_cnd)), "ipw")
+})
+
+# A continuous exposure assembles its stack in a third function, which the two
+# refusals above are reached from as well. It carries the same defect, so it is
+# pinned on its own rather than left to the discrete path's coverage. One case is
+# enough here: the covariance helper is shared with the discrete path and already
+# pinned above, so the rank check is the only frame this route adds.
+test_that("the continuous variance engine reports ipw() as the failing call", {
+  data <- ipw_continuous_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_msm(y_cont ~ exposure, data, w)
+
+  deficient <- fit
+  deficient@estimating_equations <- near_singular_container(
+    estimating_equations(fit),
+    shift = 0.1 * as.numeric(scale(data$x1)),
+    extra = data$x1 - mean(data$x1)
+  )
+
+  expect_error(
+    ipw(deficient, outcome_mod),
+    class = "balancing_ipw_unsupported_error"
+  )
+  cnd <- rlang::catch_cnd(
+    ipw(deficient, outcome_mod),
+    classes = "balancing_ipw_unsupported_error"
+  )
+  expect_identical(rlang::call_name(conditionCall(cnd)), "ipw")
+})
+
 # ---- Hook evaluations through the deli engine ------------------------------
 
 # The stacked closure reaches the weight path only through the container's two
