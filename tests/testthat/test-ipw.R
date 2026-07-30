@@ -270,6 +270,43 @@ coherent_categorical_rd_se <- function(fit, data, level, sampling = NULL) {
   sqrt(as.numeric(t(contrast) %*% cov %*% contrast))
 }
 
+# A continuous-exposure fixture carrying one outcome per link the continuous
+# effect naming distinguishes. The exposure and the balanced covariates come
+# from the shared `sim_continuous()` data-generating process; the outcomes are
+# drawn here under their own seed so the fixture is fixed without changing the
+# shared helper.
+#
+# `v` is prognostic for the continuous outcome and is not among the balanced
+# covariates, which is what makes an adjusted marginal structural model
+# distinguishable from a marginal one. A covariate the fit balanced is
+# orthogonal to the exposure under the fitted weights, since driving that
+# correlation to zero is the constraint, so adjusting for one leaves the
+# exposure coefficient and its standard error where the marginal model puts
+# them.
+#
+# `y_rare` is drawn from a log risk model rather than a logistic one because the
+# log-link fit that reports a log risk ratio has to keep every fitted risk below
+# one, which a rare outcome leaves room for.
+ipw_continuous_fixture <- function(n = 300) {
+  data <- sim_continuous(n)
+  withr::with_seed(404, {
+    data$v <- stats::rnorm(n)
+    data$y_cont <- 1 +
+      0.4 * data$exposure +
+      0.5 * data$x1 -
+      0.3 * data$x2 +
+      0.9 * data$v +
+      stats::rnorm(n)
+    data$y <- stats::rbinom(
+      n,
+      1L,
+      stats::plogis(-0.4 + 0.5 * data$exposure + 0.3 * data$x1)
+    )
+    data$y_rare <- stats::rbinom(n, 1L, exp(-1.9 + 0.15 * data$exposure))
+  })
+  data
+}
+
 # ---- Estimating-equations container contract ------------------------------
 
 # These pin the container ipw() consumes. The dimension and column-sum
@@ -2168,6 +2205,763 @@ test_that("the categorical reference level follows the fit's level ordering", {
   )
 })
 
+# ---- Continuous exposures --------------------------------------------------
+
+# A continuous exposure has no levels to contrast, so there is no pair of
+# marginal means to difference and no g-computation step to standardize. What
+# ipw() reports instead is the dose-response coefficient of a weighted marginal
+# structural model: the balancing weights break the exposure-covariate
+# association, the outcome model carries exactly one term in the exposure, and
+# that term's coefficient is the effect of a one-unit change in the exposure on
+# the model's own link scale. The estimates table therefore holds a single row,
+# named for that link, and carries neither the marginal-mean rows nor the
+# contrast rows a discrete exposure produces.
+#
+# Only entropy balancing reaches this path, and only at exact balance and the
+# average treatment effect, which is the only estimand a continuous entropy fit
+# targets.
+
+# The pieces of the continuous entropy tilt, re-derived here in plain R rather
+# than read off the fit. The tilt weights a single group of every unit,
+#
+#   w_i(theta) = n_eff q_i exp(-c_i' theta) / sum_j s_j q_j exp(-c_j' theta),
+#
+# with c_i the unit's constraint row, q the base weights, s the sampling
+# weights, and n_eff the total the group is normalized to. Its estimating
+# functions are psi_ij = s_i w_i(theta) (c_ij - t_j), one per constraint.
+#
+# The constraint rows are the marginal columns the fit holds at their
+# base-measure means, the standardized exposure followed by the covariate
+# columns, and then the exposure-covariate product columns it drives to zero.
+# The covariate columns come from the fit's own recipe, which records the
+# centers and scales they were built with; everything else is assembled here.
+# The helpers assume the uniform base weights every fixture in this file uses,
+# which is what lets the base measure be the sampling weights alone.
+continuous_tilt_pieces <- function(fit, data, sampling = NULL) {
+  n <- nrow(data)
+  s <- sampling %||% rep(1, n)
+  base <- rep(1, n)
+  measure <- s * base
+  total <- sum(measure)
+
+  exposure <- as.numeric(data[[fit@exposure]])
+  covariates <- rebuild_constraint_matrix(fit@recipe, data)
+
+  # The exposure crosses the product columns centered and scaled on the base
+  # measure, so that a product column of weighted mean zero is a weighted
+  # correlation of zero. The reliability denominator is the one the package's
+  # own weighted spread uses, and it reduces to the unweighted standard
+  # deviation when the measure is uniform.
+  center <- sum(measure * exposure) / total
+  spread <- sqrt(
+    sum(measure * (exposure - center)^2) / (total - sum(measure^2) / total)
+  )
+
+  marginals <- cbind(
+    (exposure - mean(exposure)) / stats::sd(exposure),
+    covariates
+  )
+  products <- covariates * ((exposure - center) / spread)
+  list(
+    covs = unname(cbind(marginals, products)),
+    targets = c(
+      as.numeric(crossprod(marginals, measure / total)),
+      rep(0, ncol(products))
+    ),
+    base = base,
+    sampling = s,
+    n_eff = sum(s)
+  )
+}
+
+continuous_tilt_weights <- function(pieces, theta) {
+  tilt <- pieces$base * exp(-as.numeric(pieces$covs %*% theta))
+  pieces$n_eff * tilt / sum(pieces$sampling * tilt)
+}
+
+continuous_tilt_psi <- function(pieces, theta) {
+  (pieces$sampling * continuous_tilt_weights(pieces, theta)) *
+    sweep(pieces$covs, 2, pieces$targets, "-")
+}
+
+# An independent standard error for the exposure coefficient of a weighted
+# marginal structural model, and the continuous counterpart of
+# `coherent_rd_se()`. It is the whole stacked M-estimator written out in plain
+# R: the tilt's estimating functions above, then the outcome model's weighted
+# score, evaluated together at the root each fit already found. The bread is a
+# central finite difference of the stacked column sums at that root and the meat
+# is their empirical second moment, so the oracle shares no algebra with the
+# implementation and reaches nothing the implementation reaches.
+#
+# The score is written for the general link, `s_i w_i (y_i - mu_i) mu'(eta_i) /
+# V(mu_i) x_i`, which is the equation `glm()` solves and which reduces to
+# `s_i w_i (y_i - x_i' beta) x_i` for a linear model.
+continuous_msm_se <- function(fit, outcome_mod, data, sampling = NULL) {
+  pieces <- continuous_tilt_pieces(fit, data, sampling)
+  n <- nrow(data)
+  s <- pieces$sampling
+  design <- stats::model.matrix(outcome_mod)
+  family <- stats::family(outcome_mod)
+  response <- as.numeric(
+    stats::model.response(stats::model.frame(outcome_mod))
+  )
+
+  theta <- estimating_equations(fit)@parameters
+  p <- length(theta)
+  q <- ncol(design)
+  root <- c(theta, stats::coef(outcome_mod))
+
+  stacked <- function(parameters) {
+    tilt <- parameters[seq_len(p)]
+    coefficients <- parameters[p + seq_len(q)]
+    tilted <- continuous_tilt_weights(pieces, tilt)
+    eta <- as.numeric(design %*% coefficients)
+    mu <- family$linkinv(eta)
+    score <- (s *
+      tilted *
+      (response - mu) *
+      family$mu.eta(eta) /
+      family$variance(mu)) *
+      design
+    cbind(continuous_tilt_psi(pieces, tilt), score)
+  }
+
+  meat <- crossprod(stacked(root)) / n
+  size <- p + q
+  bread <- vapply(
+    seq_len(size),
+    function(j) {
+      step <- 1e-6 * max(1, abs(root[[j]]))
+      up <- root
+      down <- root
+      up[[j]] <- up[[j]] + step
+      down[[j]] <- down[[j]] - step
+      (colSums(stacked(up)) - colSums(stacked(down))) / (2 * step * n)
+    },
+    numeric(size)
+  )
+
+  bread_inv <- solve(bread)
+  covariance <- bread_inv %*% meat %*% t(bread_inv) / n
+  position <- p + match(fit@exposure, colnames(design))
+  sqrt(covariance[position, position])
+}
+
+# The standard error the same marginal structural model carries when the weights
+# are treated as fixed: the empirical sandwich of its score alone, with no
+# weight-parameter block above it. It is the continuous counterpart of
+# `naive_rd_se()` and is used the same way, to show that accounting for having
+# estimated the weights moves the standard error. Written for a linear model,
+# whose residuals are the score's own.
+naive_msm_se <- function(outcome_mod, wts, exposure_name) {
+  design <- stats::model.matrix(outcome_mod)
+  n <- nrow(design)
+  residual <- as.numeric(stats::residuals(outcome_mod))
+  score <- (wts * residual) * design
+  bread <- -crossprod(design * wts, design) / n
+  bread_inv <- solve(bread)
+  covariance <- bread_inv %*% (crossprod(score) / n) %*% t(bread_inv) / n
+  position <- match(exposure_name, colnames(design))
+  sqrt(covariance[position, position])
+}
+
+# A weighted marginal structural model of the shape the continuous path accepts.
+# A `NULL` family fits a plain linear model, which is the identity-link case;
+# every other family goes through `glm()`, wrapped because balancing weights are
+# not counts and a binomial fit says so at every call. The weights ride along as
+# a column so the model frame resolves them, as they do for the discrete path.
+fit_msm <- function(formula, data, wts, family = NULL, ...) {
+  data[[".wts"]] <- wts
+  if (is.null(family)) {
+    return(stats::lm(formula, data = data, weights = .wts))
+  }
+  suppressWarnings(
+    stats::glm(formula, data = data, family = family, weights = .wts, ...)
+  )
+}
+
+# The oracle above is only an oracle if its reconstruction of the tilt is the
+# tilt the fit solved, so that reconstruction is pinned against the container
+# before anything is asked of it. Both the weights and the estimating functions
+# are checked, with and without sampling weights, since the sampling weights
+# enter the base measure the constraint targets are taken under as well as the
+# estimating functions themselves.
+
+test_that("the continuous entropy container matches a hand-rolled tilt", {
+  data <- ipw_continuous_fixture()
+  data$sw <- withr::with_seed(7, stats::runif(nrow(data), 0.5, 2))
+
+  for (sampled in c(FALSE, TRUE)) {
+    fit <- if (sampled) {
+      balance(
+        data,
+        exposure,
+        c(x1, x2),
+        method = bw_entropy(),
+        estimand = "ate",
+        sampling_weights = sw
+      )
+    } else {
+      balance(
+        data,
+        exposure,
+        c(x1, x2),
+        method = bw_entropy(),
+        estimand = "ate"
+      )
+    }
+    pieces <- continuous_tilt_pieces(
+      fit,
+      data,
+      sampling = if (sampled) data$sw else NULL
+    )
+    theta <- estimating_equations(fit)@parameters
+
+    expect_equal(
+      continuous_tilt_weights(pieces, theta),
+      as.numeric(stats::weights(fit, include_sampling_weights = FALSE)),
+      tolerance = 1e-10
+    )
+    expect_equal(
+      unname(continuous_tilt_psi(pieces, theta)),
+      unname(estimating_equations(fit)@psi),
+      tolerance = 1e-10
+    )
+  }
+})
+
+# ---- The reported effect ---------------------------------------------------
+
+test_that("ipw() reports the exposure slope for a continuous entropy ate fit", {
+  data <- ipw_continuous_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  outcome_mod <- fit_msm(
+    y_cont ~ exposure,
+    data,
+    as.numeric(stats::weights(fit))
+  )
+
+  result <- ipw(fit, outcome_mod)
+  estimates <- as.data.frame(result)
+
+  expect_s3_class(result, "ipw")
+  expect_identical(nrow(estimates), 1L)
+  expect_identical(estimates$effect, "slope")
+  expect_named(
+    estimates,
+    c(
+      "effect",
+      "estimate",
+      "std.err",
+      "z",
+      "ci.lower",
+      "ci.upper",
+      "conf.level",
+      "p.value"
+    )
+  )
+  expect_equal(
+    estimates$estimate,
+    stats::coef(outcome_mod)[["exposure"]],
+    tolerance = 1e-10
+  )
+  expect_true(is.finite(estimates$std.err))
+  expect_gt(estimates$std.err, 0)
+})
+
+test_that("ipw() accepts a covariate-adjusted continuous marginal structural model", {
+  data <- ipw_continuous_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  marginal_mod <- fit_msm(y_cont ~ exposure, data, w)
+  adjusted_mod <- fit_msm(y_cont ~ exposure + v, data, w)
+
+  marginal <- as.data.frame(ipw(fit, marginal_mod))
+  adjusted <- as.data.frame(ipw(fit, adjusted_mod))
+
+  expect_identical(nrow(adjusted), 1L)
+  expect_identical(adjusted$effect, "slope")
+  expect_equal(
+    adjusted$estimate,
+    stats::coef(adjusted_mod)[["exposure"]],
+    tolerance = 1e-10
+  )
+  expect_true(is.finite(adjusted$std.err))
+  expect_gt(adjusted$std.err, 0)
+
+  # `v` is prognostic and unbalanced, so adjusting for it is a real change to
+  # the model rather than one the weights have already made irrelevant. Pinning
+  # that the two results differ is what makes this a check on the adjusted path.
+  expect_false(isTRUE(all.equal(adjusted$estimate, marginal$estimate)))
+  expect_false(isTRUE(all.equal(adjusted$std.err, marginal$std.err)))
+})
+
+# The single effect row is named for the outcome model's link, since that is the
+# scale the exposure coefficient is a one-unit effect on. An identity link
+# reports a slope, whether it arrives as a linear model or as a gaussian model
+# with the same link; a logit reports a log odds ratio; a log link reports a log
+# risk ratio.
+
+test_that("ipw() names the continuous effect for the outcome model's link", {
+  data <- ipw_continuous_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+
+  models <- list(
+    list(effect = "slope", model = fit_msm(y_cont ~ exposure, data, w)),
+    list(
+      effect = "slope",
+      model = fit_msm(y_cont ~ exposure, data, w, stats::gaussian())
+    ),
+    list(
+      effect = "log(or)",
+      model = fit_msm(y ~ exposure, data, w, stats::binomial())
+    ),
+    list(
+      effect = "log(rr)",
+      model = fit_msm(
+        y_rare ~ exposure,
+        data,
+        w,
+        stats::quasibinomial(link = "log"),
+        start = c(log(mean(data$y_rare)), 0)
+      )
+    )
+  )
+
+  for (spec in models) {
+    outcome_mod <- spec$model
+    # A log-link fit has to keep every fitted risk below one, so a run that
+    # stopped short would leave the coefficient this case reads meaningless.
+    expect_false(isFALSE(outcome_mod$converged))
+    estimates <- as.data.frame(ipw(fit, outcome_mod))
+
+    expect_identical(nrow(estimates), 1L)
+    expect_identical(estimates$effect, spec$effect)
+    expect_equal(
+      estimates$estimate,
+      stats::coef(outcome_mod)[["exposure"]],
+      tolerance = 1e-10
+    )
+  }
+})
+
+# ---- Continuous standard errors --------------------------------------------
+
+# Each case compares the reported standard error against the independent stacked
+# oracle at a tolerance the finite-differenced bread clears by several orders of
+# magnitude. The three shapes separate what the stack has to carry: the marginal
+# linear model, where the design is the exposure alone; the adjusted one, where
+# the score couples an unbalanced covariate into the weight block; and the
+# binomial one, where the link enters the score and its derivative.
+
+for (spec in list(
+  list(
+    label = "a marginal linear model",
+    formula = quote(y_cont ~ exposure),
+    family = NULL
+  ),
+  list(
+    label = "an adjusted linear model",
+    formula = quote(y_cont ~ exposure + v),
+    family = NULL
+  ),
+  list(
+    label = "a binomial outcome model",
+    formula = quote(y ~ exposure),
+    family = quote(stats::binomial())
+  )
+)) {
+  local({
+    spec <- spec
+    test_that(
+      paste0(
+        "the continuous ipw() standard error matches the stacked oracle for ",
+        spec$label
+      ),
+      {
+        data <- ipw_continuous_fixture()
+        fit <- balance(
+          data,
+          exposure,
+          c(x1, x2),
+          method = bw_entropy(),
+          estimand = "ate"
+        )
+        outcome_mod <- fit_msm(
+          eval(spec$formula),
+          data,
+          as.numeric(stats::weights(fit)),
+          eval(spec$family)
+        )
+        oracle_se <- continuous_msm_se(fit, outcome_mod, data)
+
+        estimates <- as.data.frame(ipw(fit, outcome_mod))
+
+        expect_identical(nrow(estimates), 1L)
+        expect_equal(estimates$std.err, oracle_se, tolerance = 1e-8)
+      }
+    )
+  })
+}
+
+test_that("the continuous ipw() standard error is coherent with sampling weights", {
+  data <- ipw_continuous_fixture()
+  data$sw <- withr::with_seed(7, stats::runif(nrow(data), 0.5, 2))
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate",
+    sampling_weights = sw
+  )
+  outcome_mod <- fit_msm(
+    y_cont ~ exposure,
+    data,
+    as.numeric(stats::weights(fit))
+  )
+  oracle_se <- continuous_msm_se(fit, outcome_mod, data, sampling = data$sw)
+
+  estimates <- as.data.frame(ipw(fit, outcome_mod))
+
+  expect_true(is.finite(estimates$std.err))
+  expect_gt(estimates$std.err, 0)
+  expect_equal(estimates$std.err, oracle_se, tolerance = 1e-8)
+})
+
+test_that("the continuous ipw() standard error differs from the weights-fixed sandwich", {
+  data <- ipw_continuous_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_msm(y_cont ~ exposure, data, w)
+  naive_se <- naive_msm_se(outcome_mod, w, "exposure")
+
+  estimates <- as.data.frame(ipw(fit, outcome_mod))
+
+  # Accounting for weight estimation moves the standard error; it does not equal
+  # the sandwich a weighted regression reports when it treats the weights as a
+  # design quantity.
+  expect_false(isTRUE(all.equal(estimates$std.err, naive_se)))
+})
+
+test_that("ipw() reports the mestimation variance system for a continuous fit", {
+  data <- ipw_continuous_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  outcome_mod <- fit_msm(
+    y_cont ~ exposure,
+    data,
+    as.numeric(stats::weights(fit))
+  )
+
+  result <- ipw(fit, outcome_mod)
+  estimates <- as.data.frame(result)
+
+  expect_identical(result$se_method, "mestimation")
+  expect_named(result$fit, c("theta", "vcov"))
+  expect_equal(
+    estimates$estimate,
+    unname(result$fit$theta[estimates$effect]),
+    tolerance = 1e-12
+  )
+  expect_equal(
+    estimates$std.err,
+    unname(sqrt(diag(result$fit$vcov))[estimates$effect]),
+    tolerance = 1e-12
+  )
+})
+
+# ---- Continuous validation -------------------------------------------------
+
+# A continuous entropy fit targets the average treatment effect and nothing
+# else, so an estimand supplied to ipw() either agrees with the fit or is a
+# specification error, on the same terms as for a discrete exposure.
+
+test_that("ipw() takes the estimand from a continuous fit and refuses another", {
+  data <- ipw_continuous_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  outcome_mod <- fit_msm(
+    y_cont ~ exposure,
+    data,
+    as.numeric(stats::weights(fit))
+  )
+
+  expect_identical(ipw(fit, outcome_mod)$estimand, "ate")
+  expect_identical(ipw(fit, outcome_mod, estimand = "ate")$estimand, "ate")
+  expect_error(
+    ipw(fit, outcome_mod, estimand = "att"),
+    class = "balancing_estimand_error"
+  )
+})
+
+# The reported effect is one coefficient, so the outcome model has to have one
+# coefficient to report: exactly one design column that reads the exposure. A
+# model carrying a second exposure column describes a dose-response curve rather
+# than a slope, and no single coefficient of it is the effect. The three ways to
+# arrive at one are pinned together, since they differ in how the second column
+# gets in: a second term in the exposure, one term that expands to two columns,
+# and an interaction that makes the slope depend on a covariate. Covariates
+# alongside the exposure remain fine, so an accepted model is pinned beside
+# them.
+
+test_that("ipw() refuses a continuous outcome model with more than one exposure term", {
+  data <- ipw_continuous_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  accepted <- fit_msm(y_cont ~ exposure + v, data, w)
+  refused <- list(
+    quadratic = fit_msm(y_cont ~ exposure + I(exposure^2), data, w),
+    polynomial = fit_msm(y_cont ~ poly(exposure, 2), data, w),
+    interaction = fit_msm(y_cont ~ exposure * x1, data, w)
+  )
+
+  expect_s3_class(ipw(fit, accepted), "ipw")
+  for (outcome_mod in refused) {
+    expect_error(
+      ipw(fit, outcome_mod),
+      class = "balancing_ipw_input_error"
+    )
+  }
+})
+
+# An offset is a second way for the exposure to reach the linear predictor, and
+# it reaches it outside the term labels the exposure-term check reads. An offset
+# in the exposure shifts the fitted coefficient by whatever the offset
+# contributes, so the reported effect would be a number the model does not
+# estimate rather than the dose-response coefficient the table names. Both entry
+# points are pinned, since the terms object records only the first: an
+# `offset()` term in the formula, and the model's `offset` argument.
+
+test_that("ipw() refuses a continuous outcome model whose offset reads the exposure", {
+  data <- ipw_continuous_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  data$.wts <- w
+  refused <- list(
+    formula_term = fit_msm(y_cont ~ exposure + offset(exposure), data, w),
+    formula_transformed = fit_msm(
+      y_cont ~ exposure + offset(2 * exposure),
+      data,
+      w
+    ),
+    # The `offset` argument is written into the call here rather than passed
+    # through `fit_msm()`, because a model function records `..1` for an
+    # argument that arrived through another function's dots, and it is the
+    # argument's own expression the check reads.
+    offset_argument = stats::lm(
+      y_cont ~ exposure,
+      data = data,
+      weights = .wts,
+      offset = exposure
+    )
+  )
+
+  for (outcome_mod in refused) {
+    expect_error(
+      ipw(fit, outcome_mod),
+      class = "balancing_ipw_input_error"
+    )
+  }
+})
+
+# An offset that never reads the exposure is a legitimate part of the model and
+# stays supported. A log-link rate model is the case that motivates one: its
+# person-time offset makes the exposure coefficient a log rate ratio, which is
+# the effect the table already names log(rr). Both entry points are pinned
+# again, since the refusal above has to separate the offsets that read the
+# exposure from the offsets that do not rather than turn them all away.
+
+test_that("ipw() accepts a continuous outcome model with an exposure-free offset", {
+  data <- ipw_continuous_fixture()
+  data$followup <- withr::with_seed(91, stats::runif(nrow(data), 0.5, 2))
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+
+  rate_mod <- fit_msm(
+    y_rare ~ exposure + offset(log(followup)),
+    data,
+    w,
+    stats::quasibinomial(link = "log"),
+    start = c(log(mean(data$y_rare)), 0)
+  )
+  # A log-link fit has to keep every fitted risk below one, so a run that
+  # stopped short would leave the coefficient this case reads meaningless.
+  expect_false(isFALSE(rate_mod$converged))
+  data$.wts <- w
+  shifted_mod <- stats::lm(
+    y_cont ~ exposure,
+    data = data,
+    weights = .wts,
+    offset = followup
+  )
+
+  rate <- as.data.frame(ipw(fit, rate_mod))
+  shifted <- as.data.frame(ipw(fit, shifted_mod))
+
+  expect_identical(nrow(rate), 1L)
+  expect_identical(rate$effect, "log(rr)")
+  expect_equal(
+    rate$estimate,
+    stats::coef(rate_mod)[["exposure"]],
+    tolerance = 1e-10
+  )
+  expect_true(is.finite(rate$std.err))
+  expect_gt(rate$std.err, 0)
+
+  expect_identical(nrow(shifted), 1L)
+  expect_identical(shifted$effect, "slope")
+  expect_equal(
+    shifted$estimate,
+    stats::coef(shifted_mod)[["exposure"]],
+    tolerance = 1e-10
+  )
+  expect_true(is.finite(shifted$std.err))
+  expect_gt(shifted$std.err, 0)
+})
+
+# A column name R cannot parse as a symbol is written back-quoted in a formula,
+# and the term label and the coefficient name carry those back-quotes while the
+# fit records the bare name. The exposure-term check compares the two, so it has
+# to compare them on one spelling: a single-term marginal structural model over
+# such a column is an ordinary model and is accepted, and only the name it
+# reports the coefficient under differs from the syntactic case.
+
+test_that("ipw() accepts a continuous marginal structural model with a non-syntactic exposure name", {
+  data <- ipw_continuous_fixture()
+  renamed <- data.frame(data, check.names = FALSE)
+  names(renamed)[names(renamed) == "exposure"] <- "dose level"
+
+  reference_fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  fit <- balance(
+    renamed,
+    `dose level`,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  expect_identical(fit@exposure, "dose level")
+
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_msm(y_cont ~ `dose level`, renamed, w)
+  reference_mod <- fit_msm(
+    y_cont ~ exposure,
+    data,
+    as.numeric(stats::weights(reference_fit))
+  )
+
+  estimates <- as.data.frame(ipw(fit, outcome_mod))
+  reference <- as.data.frame(ipw(reference_fit, reference_mod))
+
+  expect_identical(nrow(estimates), 1L)
+  expect_identical(estimates$effect, "slope")
+  expect_equal(
+    estimates$estimate,
+    stats::coef(outcome_mod)[["`dose level`"]],
+    tolerance = 1e-10
+  )
+  expect_equal(estimates$estimate, reference$estimate, tolerance = 1e-8)
+  expect_equal(estimates$std.err, reference$std.err, tolerance = 1e-8)
+})
+
+# The continuous path is exact entropy balancing alone. A continuous fit from
+# another method solves no smooth estimating equations at all, and an entropy
+# fit at a positive tolerance stops solving them the moment the tolerance binds,
+# so both raise the shared unsupported condition pointing to the bootstrap
+# workflow.
+
+test_that("ipw() rejects continuous fits outside exact entropy balancing", {
+  data <- ipw_continuous_fixture()
+  energy <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(),
+    estimand = "ate"
+  )
+  # The relaxed fit cannot meet the requested tolerance on this fixture and says
+  # so; the warning is the fit's own and is not what this test is about.
+  inexact <- suppressWarnings(balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate",
+    constraints = balance_terms(tolerance = 0.05)
+  ))
+
+  for (fit in list(energy, inexact)) {
+    outcome_mod <- fit_msm(
+      y_cont ~ exposure,
+      data,
+      as.numeric(stats::weights(fit))
+    )
+    expect_error(
+      ipw(fit, outcome_mod),
+      class = "balancing_ipw_unsupported_error"
+    )
+  }
+})
+
 # ---- Exposure coding -------------------------------------------------------
 
 # A categorical exposure need not be a factor. A character column and an integer
@@ -3521,43 +4315,11 @@ test_that("ipw() rejects a continuous-exposure bw_cbps fit", {
   )
 })
 
-# A container alone is not sufficient: the stacked variance is derived for a
-# discrete exposure. A continuous fit carries estimating equations yet still
-# raises the unsupported condition with the bootstrap pointer, and its message
-# names the exposure type that was refused.
-
-test_that("ipw() rejects a continuous-exposure fit that has a container", {
-  data <- sim_continuous(200)
-  data$y <- stats::rbinom(nrow(data), 1L, 0.5)
-  fit <- balance(
-    data,
-    exposure,
-    c(x1, x2),
-    method = bw_entropy(),
-    estimand = "ate"
-  )
-  expect_false(is.null(fit@estimating_equations))
-  w <- as.numeric(stats::weights(fit))
-  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::gaussian())
-
-  expect_error(
-    ipw(fit, outcome_mod),
-    class = "balancing_ipw_unsupported_error"
-  )
-
-  cnd <- rlang::catch_cnd(
-    ipw(fit, outcome_mod),
-    classes = "balancing_ipw_unsupported_error"
-  )
-  expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
-})
-
 # The variance engine reaches the weight path only through the container's two
 # re-evaluation hooks, so a container carrying neither cannot be differentiated
-# at all. Every fit that reaches ipw() today populates both, and the binary gate
-# turns away the one family whose container could arrive without them, so the
-# guard is defence in depth. What it buys is a comprehensible refusal in place of
-# a failure raised from inside the engine against a NULL it was handed.
+# at all. Every fit that reaches ipw() today populates both, so the guard is
+# defence in depth. What it buys is a comprehensible refusal in place of a
+# failure raised from inside the engine against a NULL it was handed.
 
 test_that("ipw() rejects a fit whose container carries no re-evaluation hooks", {
   data <- ipw_fixture()

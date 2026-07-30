@@ -112,17 +112,6 @@
       x Its response is a matrix of 2 columns, so `glm()` scaled the weights it was given by each row's trial count.
       i Fit the weights and the outcome model on data with one row per trial, or see the inference vignette for a bootstrap workflow.
 
-# ipw() rejects a continuous-exposure fit that has a container
-
-    Code
-      stop(cnd)
-    Condition <balancing_ipw_unsupported_error>
-      Error in `ipw()`:
-      ! `ipw()` cannot compute a stacked variance for this balancing fit.
-      x This fit has a continuous exposure, and only binary and categorical exposures are supported.
-      i The stacked variance is derived for a discrete exposure.
-      i See the inference vignette for a bootstrap workflow.
-
 # ipw() rejects a fit whose container carries no re-evaluation hooks
 
     Code

@@ -86,7 +86,7 @@ data.frame(
 )
 ```
 
-`ipw()` computes this variance for a binary or categorical exposure and an estimating-equation fit at exact balance. The outcome model may be a `glm()` with a binomial, quasibinomial, or gaussian family, or a plain `lm()`. Any link those families carry is handled exactly, including a non-canonical one such as probit, because the sandwich differentiates the score it is given rather than assuming an information matrix. Model offsets are supported natively, written either as an `offset()` term in the formula or passed through the model's `offset` argument, and are carried through both the outcome-model score and the marginal means.
+`ipw()` computes this variance for an estimating-equation fit at exact balance: any of the three methods at a binary or categorical exposure, and entropy balancing at a continuous one. The outcome model may be a `glm()` with a binomial, quasibinomial, or gaussian family, or a plain `lm()`. For a discrete exposure any link those families carry is handled exactly, including a non-canonical one such as probit, because the sandwich differentiates the score it is given rather than assuming an information matrix. Model offsets are supported natively, written either as an `offset()` term in the formula or passed through the model's `offset` argument, and are carried through both the outcome-model score and the marginal means. A continuous exposure reports a coefficient rather than a contrast of predictions, so an offset that reads the exposure moves that coefficient off the effect it names and is refused there; an exposure-free offset, such as the person-time offset of a rate model, is supported as it is everywhere else. That refusal reads the offset expression, so an offset arriving as a precomputed vector is beyond it and keeping the exposure out of one is yours to honor.
 
 ### Categorical exposures
 
@@ -139,6 +139,32 @@ ipw(arm_fit, arm_mod)
 
 Each effect measure appears once per comparison, so the estimates table gains a `comparison` column naming the two levels each row contrasts. Everything else carries over unchanged: the outcome model may adjust for covariates, the marginal means standardize over the estimand's target population, and the standard errors account for having estimated the weights.
 
+### Continuous exposures
+
+A continuous exposure has no levels to contrast, so there is no pair of marginal means to difference. `ipw()` reports the dose-response coefficient of a weighted marginal structural model instead: entropy balancing removes the association between the exposure and the covariates, the outcome model carries exactly one term in the exposure, and that term's coefficient is the effect of a one-unit change in the exposure on the model's own link scale.
+
+```{r continuous}
+study$dose <- 0.8 * age - 0.5 * score + rnorm(n)
+study$response <- 1 + 0.4 * study$dose + 0.5 * age - 0.3 * score + rnorm(n)
+
+dose_fit <- balance(
+  study,
+  dose,
+  c(age, score),
+  method = bw_entropy(),
+  estimand = "ate"
+)
+study$dose_w <- as.numeric(weights(dose_fit))
+
+dose_mod <- lm(response ~ dose, data = study, weights = dose_w)
+
+ipw(dose_fit, dose_mod)
+```
+
+The table holds one row, named for the link: `slope` for an identity link, `log(or)` for a logit, and `log(rr)` for a log link. The model may adjust for covariates, but exactly one of its terms may read the exposure: `response ~ dose + age` is accepted, while `response ~ poly(dose, 2)` and `response ~ dose * age` are refused, since no single coefficient of either is the effect the row would name. Only entropy balancing at exact balance reaches this path, and only for the ATE, which is the only estimand a continuous fit targets.
+
+The continuous standard error reaches its nominal coverage more slowly than the binary risk difference does. Over 500 draws, its ratio of mean standard error to the standard deviation of the estimates was 0.836 at 300 observations and 0.942 at 1200, so an interval at a few hundred observations is too narrow. Bootstrap it at that size.
+
 ### Covariate-adjusted outcome models
 
 The outcome model must carry the exposure among its predictors, but it may adjust for covariates alongside it, and may interact them with the exposure. Adjusting for the same covariates the weights balance is a common way to reduce residual confounding and tighten the estimate.
@@ -177,7 +203,7 @@ ipw(sbw_fit, outcome_mod)
 
 ## Bootstrapping the other fits
 
-Where a fit carries no estimating equations, inference uses resampling instead. The recipe is a standard nonparametric bootstrap: resample the rows with replacement, refit the weights and the outcome model on each resample, and take the spread of the effect estimates across resamples as the standard error. The important detail is that the reweighting is refit inside the loop, so every source of variation, including the estimation of the weights, is captured. The example below uses `bw_sbw()`, but the recipe is the same for any fit and it also covers the cases `ipw()` declines for reasons other than the weights, such as a continuous exposure.
+Where a fit carries no estimating equations, inference uses resampling instead. The recipe is a standard nonparametric bootstrap: resample the rows with replacement, refit the weights and the outcome model on each resample, and take the spread of the effect estimates across resamples as the standard error. The important detail is that the reweighting is refit inside the loop, so every source of variation, including the estimation of the weights, is captured. The example below uses `bw_sbw()`, but the recipe is the same for any fit and it also covers the cases `ipw()` declines for reasons other than the weights, such as an outcome model outside the supported families.
 
 We keep the example small so it runs quickly: a few hundred resamples on a modest sample.
 
@@ -231,4 +257,4 @@ A production analysis would use more resamples, typically at least one or two th
 
 ## Choosing an approach
 
-Use `ipw()` when the method carries estimating equations, which is the estimating-equation family with a binary or categorical exposure and exact balance. It is faster and needs no tuning. Use the bootstrap for the quadratic-program methods, for an entropy fit at a positive tolerance, for an over-identified `bw_cbps()` fit, and for a continuous exposure. Covariate-adjusted outcome models need neither route in particular: `ipw()` stacks them directly. The bootstrap is more general but more expensive, and its precision improves with the number of resamples.
+Use `ipw()` when the method carries estimating equations, which is the estimating-equation family with a binary or categorical exposure and exact balance, and entropy balancing with exact balance at a continuous exposure. It is faster and needs no tuning. Use the bootstrap for the quadratic-program methods, for an entropy fit at a positive tolerance, for an over-identified `bw_cbps()` fit, and for a continuous fit from a method that solves no estimating equations. A continuous exposure is worth bootstrapping at a small sample size in any case: its stacked standard error is a large-sample one and runs anticonservative at a few hundred observations. Covariate-adjusted outcome models need neither route in particular: `ipw()` stacks them directly. The bootstrap is more general but more expensive, and its precision improves with the number of resamples.

@@ -8,10 +8,15 @@
 
 \item{outcome_mod}{A weighted outcome model of class \code{\link[stats:glm]{stats::glm()}} or
 \code{\link[stats:lm]{stats::lm()}}, fitted with the balancing weights and carrying the exposure
-among its predictors. It may adjust for covariates alongside the exposure.}
+among its predictors. It may adjust for covariates alongside the exposure.
+For a continuous exposure it is a marginal structural model carrying
+exactly one term in the exposure.}
 
 \item{.data}{The data frame holding the exposure and outcome. If \code{NULL}, the
-values are taken from the outcome model frame.}
+values are taken from the outcome model frame. It carries the exposure
+column the fixed-exposure predictions are built from, so it has nothing to
+supply for a continuous exposure, which makes no such predictions, and is
+ignored there.}
 
 \item{estimand}{The causal estimand. If \code{NULL}, the fit's estimand is used.
 As in \code{\link[=balance]{balance()}}, \code{"atc"} is accepted as a synonym for \code{"atu"}. Supplying
@@ -36,8 +41,11 @@ followed by the design column name for the outcome-model coefficients,
 then the marginal means and one name per contrast. A binary exposure names
 its means \code{mu0} and \code{mu1} and its contrasts by measure alone; a
 categorical exposure names each mean \code{mu_} followed by its level and each
-contrast by measure and level, as \code{rd_b}. The standard errors in
-\code{estimates} are \code{sqrt(diag(fit$vcov))} read at those contrast names.
+contrast by measure and level, as \code{rd_b}. A continuous exposure carries
+neither block, since the effect is one of the outcome-model coefficients;
+that coefficient is named for the effect, as \code{slope}, in place of the
+\code{beta_} name the others carry. The standard errors in \code{estimates} are
+\code{sqrt(diag(fit$vcov))} read at those effect names.
 }
 }
 \description{
@@ -64,6 +72,22 @@ block of measures per non-reference level, and the estimates table gains a
 \code{"<level> vs <reference>"}. A binary exposure keeps the table it has always
 returned, with no \code{comparison} column.
 
+A continuous exposure has no levels to contrast, so there is no pair of
+marginal means to difference. What the method reports instead is the
+dose-response coefficient of a weighted marginal structural model: the
+balancing weights break the exposure-covariate association, the outcome model
+carries exactly one term in the exposure, and that term's coefficient is the
+effect of a one-unit change in the exposure on the model's own link scale. The
+estimates table holds a single row, keeping the columns it holds for every
+other exposure and gaining no \code{comparison} column, and that row is named for
+the link: \code{slope} for an identity link, whether the model arrives as a
+\code{\link[stats:lm]{stats::lm()}} or as a gaussian \code{\link[stats:glm]{stats::glm()}}; \code{log(or)} for a logit; and
+\code{log(rr)} for a log link. Another link raises \code{balancing_ipw_input_error},
+since its coefficient is none of those three. A continuous fit targets the
+average treatment effect and nothing else, so an \code{estimand} supplied
+alongside it either agrees or raises \code{balancing_estimand_error}, as it does
+for any other fit.
+
 The standard errors come from a stacked M-estimator that the deli package
 differentiates and sandwiches. The stacked parameter vector holds four
 blocks: the
@@ -82,6 +106,12 @@ equal to its formula in the two means.
 \code{\link[deli:compute_sandwich]{deli::compute_sandwich()}} differentiates that system at the fitted values
 and returns its empirical sandwich covariance.
 
+A continuous exposure stacks the same system with the g-computation half
+removed. There are no fixed-exposure predictions to standardize and no
+contrasts to form, so the stack holds the weight parameters and the marginal
+structural model's coefficients alone, and the effect is already one of those
+coefficients rather than a parameter derived from them.
+
 Nothing is re-solved along the way. Every parameter enters at the value its
 own fit already found, and the stacked estimating functions are only
 re-evaluated around that point. Because each contrast is a parameter of the
@@ -92,13 +122,22 @@ propagates the uncertainty from estimating the weights into the effect
 standard errors, which a variance that treats the weights as fixed would
 understate.
 
+That covariance is a large-sample one, and how large a sample it takes
+differs by exposure. The binary risk-difference standard error is calibrated
+at a few hundred observations; the continuous slope's is anticonservative
+there. Over 500 draws its ratio of mean standard error to the standard
+deviation of the estimates was 0.836 at 300 observations and 0.942 at 1200.
+Read a continuous interval as the asymptotic statement it is, and prefer the
+bootstrap of the inference vignette at small sample sizes.
+
 The method is available only for fits whose weights solve smooth estimating
-equations with a discrete exposure: the estimating-equation family (entropy
-balancing, inverse probability tilting, and the just-identified covariate
-balancing propensity score) with exact balance, at a binary or categorical
-exposure. Any other fit, including an entropy fit at a positive tolerance, an
-over-identified or quadratic-program fit, or a continuous exposure, raises
-\code{balancing_ipw_unsupported_error} and points to the bootstrap workflow
+equations: the estimating-equation family (entropy balancing, inverse
+probability tilting, and the just-identified covariate balancing propensity
+score) with exact balance at a binary or categorical exposure, and entropy
+balancing with exact balance at a continuous one. Any other fit, including an
+entropy fit at a positive tolerance, an over-identified or quadratic-program
+fit, or a continuous fit from a method that solves no estimating equations,
+raises \code{balancing_ipw_unsupported_error} and points to the bootstrap workflow
 described in the inference vignette.
 
 The outcome model must carry the same exposure levels the fit weighted.
@@ -115,6 +154,25 @@ fixed-exposure designs come from the model's own contrasts. A model without an
 exposure term raises \code{balancing_ipw_input_error}, since its fixed-exposure
 predictions would all be the same prediction and every contrast it reported
 would be zero.
+
+A continuous exposure narrows that to exactly one term, the exposure itself,
+since what it reports is one coefficient of the model rather than a contrast
+of predictions from it. \code{y ~ exposure} and \code{y ~ exposure + x1} are supported,
+while \code{y ~ exposure + I(exposure^2)}, \code{y ~ poly(exposure, 2)}, and
+\code{y ~ exposure * x1} raise \code{balancing_ipw_input_error}: each carries a second
+design column in the exposure, so the effect of a one-unit change depends on
+where it is read and no single coefficient is it. The check reads the model's
+terms rather than the text of its formula, so a transformed or interacted
+exposure term is caught however it is written.
+
+An offset reaches the linear predictor without being a term, so it is checked
+on its own. An offset expression naming the exposure, written either into the
+formula or passed through the model's \code{offset} argument, raises
+\code{balancing_ipw_input_error}, since it moves with the exposure and leaves the
+coefficient something other than the effect of a one-unit change. An
+exposure-free offset stays supported. That check is static, so an offset
+supplied as a precomputed vector whose name says nothing about the exposure
+is accepted, and keeping the exposure out of it is the caller's to honor.
 
 The exposure may be a factor, a character column, or an integer code, and a
 term that transforms it counts as carrying it. A character column becomes a
@@ -167,7 +225,9 @@ An offset is supported, written either as an \code{offset()} term in the outcome
 formula or passed through the model's \code{offset} argument. It is carried
 through both the outcome-model score and the fixed-exposure linear
 predictors, so the marginal means are the g-computation means with each
-unit's offset held at its observed value.
+unit's offset held at its observed value. A continuous exposure takes an
+offset on the narrower terms stated above, since what it reports is a
+coefficient of the model rather than a contrast of predictions from it.
 }
 \examples{
 n <- 200
@@ -231,6 +291,17 @@ arm_mod <- glm(
 )
 
 ipw(arm_fit, arm_mod)
+
+# A continuous exposure reports one effect, the exposure coefficient of a
+# weighted marginal structural model, named for that model's link.
+df$dose <- 0.7 * x1 + rnorm(n)
+df$score <- 2 + 0.5 * df$dose + 0.4 * x1 + rnorm(n)
+
+dose_fit <- balance(df, dose, x1, method = bw_entropy(), estimand = "ate")
+df$.dose_wts <- as.numeric(weights(dose_fit))
+dose_mod <- lm(score ~ dose, data = df, weights = .dose_wts)
+
+ipw(dose_fit, dose_mod)
 
 }
 \references{

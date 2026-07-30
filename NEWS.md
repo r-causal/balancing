@@ -35,6 +35,15 @@
   non-reference level against the reference level, and the estimates table names
   each contrast in a `comparison` column.
 
+* `ipw()` also accepts a continuous exposure from an entropy balancing fit with
+  exact balance, whose estimand is the average treatment effect. It reports the
+  exposure coefficient of a weighted marginal structural model, which must carry
+  exactly one term in the exposure, as a single row named for the outcome
+  model's link: `slope` for an identity link, `log(or)` for a logit, and
+  `log(rr)` for a log link. The standard error comes from the same stacked
+  M-estimator, the weight parameters above the outcome-model score, and is a
+  large-sample one: at a few hundred observations it runs anticonservative.
+
 * Added the `bw` weight vector class, a sibling of `propensity::psw` under the
   shared `causal_wts` parent.
 

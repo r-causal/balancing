@@ -575,9 +575,12 @@ fit_entropy_continuous <- function(method, prepared) {
   n_eff <- sum(s)
 
   # A continuous fit is a single group normalized to n_eff and reported at the
-  # same total, so its estimating-equation scale is unity.
+  # same total, so its estimating-equation scale is unity. The solve and the
+  # re-evaluation hooks below read the same value, since the scale the hooks
+  # carry has to be the scale the stored matrices were computed at.
+  esteq_scale <- 1
   options <- entropy_options(method, inexact = inexact)
-  options$esteq_scale <- 1
+  options$esteq_scale <- esteq_scale
 
   result <- solve_entropy_cont(
     covs,
@@ -596,8 +599,28 @@ fit_entropy_continuous <- function(method, prepared) {
     w <- w * (n_eff / current)
   }
 
-  # The continuous form has no re-evaluation entrypoints in the core, so its
-  # container carries the matrices at the solution and neither hook.
+  # The continuous form carries the same optional re-evaluation hooks the
+  # discrete form does, built over the continuous eval entrypoints. What differs
+  # is the shape of the tilt they re-evaluate: the whole sample is one group, so
+  # the entrypoints take the constraint matrix and its targets without a group
+  # index and with a single normalization total in place of the discrete path's
+  # per-group scale.
+  psi_fn <- make_entropy_cont_psi_fn(covs, targets, base, s, n_eff, esteq_scale)
+  weights_eval <- make_entropy_cont_weights_eval(
+    covs,
+    targets,
+    base,
+    s,
+    n_eff,
+    esteq_scale
+  )
+
+  # The entrypoint normalizes the single group to the same total the reported
+  # weights carry, so the ratio the hook applies is one. Passing both vectors
+  # keeps the algebra the same shape it has for the methods whose container
+  # stores the raw scale.
+  weights_fn <- make_weights_fn(weights_eval, reported = w, weights_raw = w)
+
   list(
     weights = w,
     coefficients = as.numeric(result$duals),
@@ -606,9 +629,76 @@ fit_entropy_continuous <- function(method, prepared) {
     iterations = as.integer(result$iterations),
     objective = entropy_objective(s, w, base),
     solver_status = result$solver,
-    estimating_equations = estimating_equations_from_result(result, w),
+    estimating_equations = estimating_equations_from_result(
+      result,
+      w,
+      psi_fn,
+      weights_fn
+    ),
     groups = NULL
   )
+}
+
+# A closure re-evaluating the continuous estimating functions at new duals, over
+# the Rust eval entrypoint and the solve inputs captured here. The captured
+# constraint matrix is the memory cost the optional container accepts, as it is
+# for the discrete path.
+make_entropy_cont_psi_fn <- function(
+  covs,
+  targets,
+  base,
+  s,
+  n_eff,
+  esteq_scale
+) {
+  force(covs)
+  force(targets)
+  force(base)
+  force(s)
+  force(n_eff)
+  force(esteq_scale)
+  function(theta) {
+    eval_psi_entropy_cont(
+      as.numeric(theta),
+      covs,
+      targets,
+      base,
+      s,
+      n_eff,
+      esteq_scale
+    )
+  }
+}
+
+# A closure re-evaluating the continuous balancing weights at new duals. The
+# entrypoint normalizes the sample to `n_eff` at every set of duals, which is
+# the total the reported weights carry, so its output is already on the reported
+# scale.
+make_entropy_cont_weights_eval <- function(
+  covs,
+  targets,
+  base,
+  s,
+  n_eff,
+  esteq_scale
+) {
+  force(covs)
+  force(targets)
+  force(base)
+  force(s)
+  force(n_eff)
+  force(esteq_scale)
+  function(theta) {
+    eval_weights_entropy_cont(
+      as.numeric(theta),
+      covs,
+      targets,
+      base,
+      s,
+      n_eff,
+      esteq_scale
+    )
+  }
 }
 
 # The entropy objective is the achieved Kullback-Leibler divergence from the base

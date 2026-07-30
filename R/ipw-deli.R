@@ -24,6 +24,13 @@
 # `mu0` and `mu1` and its contrasts are unsuffixed, since one comparison needs no
 # label to tell it from another.
 #
+# A continuous exposure has no levels to fix, so the last two blocks are absent
+# and the stack stops at the outcome-model coefficients. What it reports is the
+# exposure coefficient of a weighted marginal structural model, which is already
+# a parameter of the stack, so the same reading applies: the effect's standard
+# error is on the diagonal of the returned covariance under the name that
+# coefficient carries.
+#
 # Two details of that system are there for the outcome models that adjust for
 # covariates, and both reduce to what a marginal model already did.
 #
@@ -183,18 +190,6 @@ ipw_deli_sandwich <- function(
   # another crossing into the method, so it is cheap and it caches with the
   # values it is derived from.
   #
-  # Those two hooks are the expensive part of the closure: each crosses into the
-  # method's own evaluation entrypoint over the whole data set. Both are pure
-  # functions of the weight block, and the finite difference presents the same
-  # weight sub-vector many times over, because perturbing a coordinate outside
-  # that block leaves the sub-vector exactly at its fitted value. Two cached
-  # entries cover every repeat. The fitted sub-vector is pinned, since each of
-  # the central difference's two sweeps returns to it in a long run and a single
-  # most-recent entry would lose it in between; one further entry holds the most
-  # recent perturbation, which a sweep asks for twice in succession. The keys
-  # are short numeric vectors, so comparing them outright is cheaper than
-  # hashing them.
-  #
   # The reported weight map is named on its own because the rank check below
   # differences the same map the closure carries, and reads it at parameters the
   # closure never asks for.
@@ -206,24 +201,11 @@ ipw_deli_sandwich <- function(
       targets
     )
   }
-  evaluate_hooks <- function(weight_theta) {
-    list(
-      key = weight_theta,
-      weights = weights_at(weight_theta),
-      psi = t(container@psi_fn(weight_theta))
-    )
-  }
-  base_hooks <- evaluate_hooks(as.numeric(weight_parameters))
-  recent_hooks <- base_hooks
-  hooks_at <- function(weight_theta) {
-    if (identical(weight_theta, base_hooks$key)) {
-      return(base_hooks)
-    }
-    if (!identical(weight_theta, recent_hooks$key)) {
-      recent_hooks <<- evaluate_hooks(weight_theta)
-    }
-    recent_hooks
-  }
+  hooks_at <- make_hooks_cache(
+    container,
+    weights_at,
+    as.numeric(weight_parameters)
+  )
 
   stacked_equations <- function(theta) {
     beta <- theta[p + seq_len(q)]
@@ -277,10 +259,154 @@ ipw_deli_sandwich <- function(
     as.numeric(weight_parameters)
   )
 
-  # A central difference trades truncation error, of order the step squared,
-  # against cancellation error, of order the double epsilon over the step; deli's
-  # 1e-9 default sits far into the cancellation regime, where agreement with the
-  # analytic bread is near 2e-7 rather than the 2e-10 a 1e-6 step reaches.
+  list(
+    theta = theta,
+    vcov = stacked_covariance(stacked_equations, theta, n)
+  )
+}
+
+#' The deli-backed stacked sandwich for a continuous exposure
+#'
+#' The same M-estimator with the g-computation half removed. There are no
+#' exposure levels to fix and no pair of marginal means to contrast, so the
+#' stack is `[theta_w | beta]` alone: the weight parameters, then the
+#' coefficients of the weighted marginal structural model whose score they
+#' enter. The reported effect is one of those coefficients, the exposure's, so
+#' it needs no parameter of its own and no contrast row to carry it. Naming that
+#' entry for the outcome model's link is what puts it on the same footing as the
+#' discrete path's contrasts, whose standard errors are read off the same
+#' diagonal under the same names.
+#'
+#' The weights the score carries come straight from the container's hook. The
+#' reported scale for a continuous fit carries the whole sample to one total,
+#' and the hook already normalizes to it at every set of parameters, so there is
+#' no per-group renormalization to apply on top.
+#'
+#' @param container The fit's [balancing_estimating_equations].
+#' @param outcome_mod The fitted weighted marginal structural model.
+#' @param exposure_name The exposure column name, which names the design column
+#'   the reported effect is read from once it is quoted as the model writes it.
+#' @param sampling_weights The fit's sampling weights, or `NULL`.
+#'
+#' @return A list with `theta`, the stacked parameter vector, and `vcov`, its
+#'   covariance on the standard-error scale, both named by stacked block order.
+#'
+#' @noRd
+ipw_deli_msm_sandwich <- function(
+  container,
+  outcome_mod,
+  exposure_name,
+  sampling_weights = NULL
+) {
+  family <- stats::family(outcome_mod)
+  distribution <- deli_distribution(family)
+  outcome <- resolve_outcome_response(outcome_mod)
+  design <- stats::model.matrix(outcome_mod)
+  offset <- outcome_mod$offset
+  n <- nrow(design)
+
+  # The sampling weights compose multiplicatively onto the balancing weights and
+  # the stack holds them fixed, exactly as it does for a discrete exposure.
+  sampling <- sampling_weights %||% rep(1, n)
+
+  weight_parameters <- container@parameters
+  p <- length(weight_parameters)
+  coefficients <- stats::coef(outcome_mod)
+  q <- length(coefficients)
+
+  theta <- c(weight_parameters, coefficients)
+  names(theta) <- c(
+    paste0("theta_w", seq_len(p)),
+    paste0("beta_", colnames(design))
+  )
+  effect_position <- p + match(quoted_name(exposure_name), colnames(design))
+  names(theta)[[effect_position]] <- msm_effect_name(outcome_mod)
+
+  weights_at <- function(weight_theta) {
+    as.numeric(container@weights_fn(weight_theta))
+  }
+  hooks_at <- make_hooks_cache(
+    container,
+    weights_at,
+    as.numeric(weight_parameters)
+  )
+
+  stacked_equations <- function(theta) {
+    beta <- theta[p + seq_len(q)]
+    hooks <- hooks_at(as.numeric(theta[seq_len(p)]))
+    score <- deli::ee_glm(
+      beta,
+      X = design,
+      y = outcome,
+      distribution = distribution,
+      link = family$link,
+      weights = hooks$weights * sampling,
+      offset = offset
+    )
+    rbind(hooks$psi, score)
+  }
+
+  validate_stacked_bread(
+    container@jacobian,
+    weights_at,
+    as.numeric(weight_parameters)
+  )
+
+  list(
+    theta = theta,
+    vcov = stacked_covariance(stacked_equations, theta, n)
+  )
+}
+
+# The container's two hooks are the expensive part of either stack: each crosses
+# into the method's own evaluation entrypoint over the whole data set. Both are
+# pure functions of the weight block, and the finite difference presents the
+# same weight sub-vector many times over, because perturbing a coordinate
+# outside that block leaves the sub-vector exactly at its fitted value. Two
+# cached entries cover every repeat. The fitted sub-vector is pinned, since each
+# of the central difference's two sweeps returns to it in a long run and a
+# single most-recent entry would lose it in between; one further entry holds the
+# most recent perturbation, which a sweep asks for twice in succession. The keys
+# are short numeric vectors, so comparing them outright is cheaper than hashing
+# them.
+#
+# The weight map is passed in rather than read off the container, since the
+# reported scale is the caller's to decide: a discrete exposure renormalizes the
+# hook's output per group and a continuous one takes it as it comes.
+make_hooks_cache <- function(container, weights_at, parameters) {
+  evaluate_hooks <- function(weight_theta) {
+    list(
+      key = weight_theta,
+      weights = weights_at(weight_theta),
+      psi = t(container@psi_fn(weight_theta))
+    )
+  }
+  base_hooks <- evaluate_hooks(parameters)
+  recent_hooks <- base_hooks
+  function(weight_theta) {
+    if (identical(weight_theta, base_hooks$key)) {
+      return(base_hooks)
+    }
+    if (!identical(weight_theta, recent_hooks$key)) {
+      recent_hooks <<- evaluate_hooks(weight_theta)
+    }
+    recent_hooks
+  }
+}
+
+# The empirical sandwich covariance of a stacked system at its root, named by
+# stacked block.
+#
+# A central difference trades truncation error, of order the step squared,
+# against cancellation error, of order the double epsilon over the step; deli's
+# 1e-9 default sits far into the cancellation regime, where agreement with the
+# analytic bread is near 2e-7 rather than the 2e-10 a 1e-6 step reaches.
+#
+# A bread holding missing values is warned about and answered with `NULL` rather
+# than an error, which would otherwise surface much later as a complaint about
+# dimnames applied to a non-array. Name the real cause here instead, at the point
+# where it is still legible.
+stacked_covariance <- function(stacked_equations, theta, n) {
   covariance <- deli::compute_sandwich(
     stacked_equations,
     theta,
@@ -290,10 +416,6 @@ ipw_deli_sandwich <- function(
   ) /
     n
 
-  # A bread holding missing values is warned about and answered with `NULL`
-  # rather than an error, which would otherwise surface much later as a
-  # complaint about dimnames applied to a non-array. Name the real cause here
-  # instead, at the point where it is still legible.
   if (!is.matrix(covariance)) {
     abort(
       c(
@@ -305,8 +427,36 @@ ipw_deli_sandwich <- function(
     )
   }
   dimnames(covariance) <- list(names(theta), names(theta))
+  covariance
+}
 
-  list(theta = theta, vcov = covariance)
+# The name the single continuous effect is reported under, which is set by the
+# outcome model's link, since the link is what the exposure coefficient is a
+# one-unit effect on. An identity link moves the mean itself, so the coefficient
+# is a slope; a logit moves the log odds, so it is a log odds ratio; a log link
+# moves the log mean, so it is a log risk ratio.
+#
+# Another link leaves the coefficient without a name of that kind: a probit
+# coefficient is a shift in a latent standard normal scale, which is neither a
+# slope on the response nor the log of any ratio, and reporting it under one of
+# those labels would name an effect the model does not estimate. Such a model is
+# refused rather than labeled.
+msm_effect_name <- function(outcome_mod, call = rlang::caller_env()) {
+  link <- stats::family(outcome_mod)$link
+  named <- c(identity = "slope", logit = "log(or)", log = "log(rr)")
+  if (!link %in% names(named)) {
+    abort(
+      c(
+        "{.arg outcome_mod} must use a link the continuous effect can be named for.",
+        x = "Its link is {.val {link}}.",
+        i = "The supported links are {.val {names(named)}}, whose exposure coefficients are a slope, a log odds ratio, and a log risk ratio.",
+        i = "See the inference vignette for a bootstrap workflow with other links."
+      ),
+      error_class = "balancing_ipw_input_error",
+      call = call
+    )
+  }
+  named[[link]]
 }
 
 # Refuse a stacked system whose weight parameters are not identified in a
