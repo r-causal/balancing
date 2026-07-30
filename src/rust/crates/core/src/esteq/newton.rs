@@ -606,6 +606,35 @@ mod tests {
     }
 
     #[test]
+    fn a_polish_steps_before_the_surrogate_certificate_can_fire() {
+        // The configuration `solve` certifies without moving, run through the
+        // polish instead. The polish exists to collect the machine-precision
+        // accuracy a warm start leaves on the table, so the step it promises has to
+        // outrank every convergence verdict, the certificate included. Both runs
+        // start from the same iterate and differ only in the minimum-iteration
+        // contract, which is what makes the step count the whole difference.
+        let problem = FlatQuadratic {
+            offset: 1.0,
+            surrogate: true,
+        };
+        let mut certified_beta = vec![1e-9];
+        let certified = solve(&problem, &mut certified_beta, &opts(50), &|| false);
+        assert_eq!(
+            certified.iterations, 0,
+            "the fixture must be one the certificate stops before any step"
+        );
+
+        let mut beta = vec![1e-9];
+        let report = solve_polish(&problem, &mut beta, &opts(50), &|| false);
+        assert_eq!(
+            report.iterations, 1,
+            "the promised step precedes the certificate"
+        );
+        assert_eq!(beta[0], 0.0, "and it reaches the minimizer");
+        assert!(report.converged);
+    }
+
+    #[test]
     fn an_interrupt_before_the_first_step_reports_no_iterations() {
         let problem = Quadratic {
             center: vec![1.5, -2.0],

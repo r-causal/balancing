@@ -277,21 +277,67 @@ mod tests {
 
     #[test]
     fn mahalanobis_matches_scaled_on_uncorrelated_columns() {
-        // Two uncorrelated columns with different variances: after whitening by
-        // the correlation matrix (identity here) the transform equals the
-        // standardized columns, so pairwise Euclidean distances match the
-        // scaled-Euclidean transform up to the shared standardization.
-        let n = 4;
+        // Three deliberately orthogonal columns: each has mean zero and each pair
+        // has zero cross product, so the weighted correlation matrix the whitening
+        // reads is the identity and the whitening can only rotate the standardized
+        // columns. A rotation leaves every pairwise Euclidean distance where it
+        // was, so the transform's distances must equal the distances on the
+        // per-column standardized data, which is what the Mahalanobis metric
+        // reduces to when the covariance is diagonal.
+        //
+        // The standardizing scales are written out from the reliability variance
+        // rather than taken from the transform: five equal weights give the
+        // denominator 1 - 5/25, so a mean-zero column's variance is its mean
+        // square over 0.8, and the mean squares here are 2, 2.8, and 2.
+        let n = 5;
+        let p = 3;
         let covs = [
-            0.0, 1.0, 2.0, 3.0, // column 1
-            0.0, 2.0, 4.0, 6.0, // column 2 (perfectly proportional to column 1)
+            -2.0, -1.0, 0.0, 1.0, 2.0, // column 1
+            2.0, -1.0, -2.0, -1.0, 2.0, // column 2
+            -1.0, 2.0, 0.0, -2.0, 1.0, // column 3
         ];
-        let w = [1.0; 4];
-        // Columns are collinear, so the correlation matrix is singular; the
-        // whitening drops the null direction and still returns a finite result.
-        let out = mahalanobis(&covs, n, 2, &w, 1);
-        assert_eq!(out.len(), n * 2);
-        assert!(out.iter().all(|v| v.is_finite()));
+        let w = [1.0; 5];
+        let sds = [
+            (2.0_f64 / 0.8).sqrt(),
+            (2.8_f64 / 0.8).sqrt(),
+            (2.0_f64 / 0.8).sqrt(),
+        ];
+        let mut standardized = vec![0.0; n * p];
+        for j in 0..p {
+            for i in 0..n {
+                standardized[j * n + i] = covs[j * n + i] / sds[j];
+            }
+        }
+
+        let distance = |x: &[f64], i: usize, k: usize| {
+            (0..p)
+                .map(|j| {
+                    let d = x[j * n + i] - x[j * n + k];
+                    d * d
+                })
+                .sum::<f64>()
+                .sqrt()
+        };
+
+        // Standardizing has to be a real change on this fixture, or leaving the
+        // covariates alone would satisfy the equality below.
+        assert!(
+            (distance(&covs, 0, 4) - distance(&standardized, 0, 4)).abs() > 0.5,
+            "the fixture must standardize to something other than itself"
+        );
+
+        let out = mahalanobis(&covs, n, p, &w, 1);
+        assert_eq!(out.len(), n * p);
+        for i in 0..n {
+            for k in (i + 1)..n {
+                let got = distance(&out, i, k);
+                let want = distance(&standardized, i, k);
+                assert!(
+                    (got - want).abs() < 1e-12,
+                    "pair ({i}, {k}): whitened distance {got}, standardized distance {want}"
+                );
+            }
+        }
     }
 
     #[test]
