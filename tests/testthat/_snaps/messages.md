@@ -94,6 +94,24 @@
       Constraints: 2 terms (tolerance 0)
       Largest imbalance: 0.0000 (correlation)
 
+# balancing_ignored_argument_warning: link for a continuous exposure
+
+    Code
+      balance(data, exposure, c(x1, x2), method = bw_cbps(link = "probit"), estimand = "ate")
+    Condition <balancing_ignored_argument_warning>
+      Warning in `method(fit_method, balancing::bw_cbps)`:
+      `link` applies only to a discrete exposure and is ignored.
+      i A continuous exposure balances the exposure-covariate covariance through an exponential tilt, which fits no propensity model to link.
+    Output
+      
+      -- Covariate balancing propensity score ----------------------------------------
+      Exposure: "exposure" (continuous)
+      Estimand: "ate"
+      Observations: 500
+      Solver: converged in 6 iterations
+      Constraints: 2 terms (tolerance 0)
+      Largest imbalance: 0.0000 (correlation)
+
 # balancing_ignored_argument_warning: every argument a categorical fit ignores
 
     Code

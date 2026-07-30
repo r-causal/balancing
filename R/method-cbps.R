@@ -66,7 +66,9 @@
 #'   over-identified criterion, rather than the continuously updating criterion.
 #'   Ignored, with a warning, whenever the fit is not over-identified.
 #' @param link The propensity link, one of `"logit"`, `"probit"`, or
-#'   `"cloglog"`. Binary exposures only.
+#'   `"cloglog"`. Binary and categorical exposures both fit a propensity model
+#'   and consume it. A continuous exposure fits none, so the setting is ignored,
+#'   with a warning, there.
 #' @param convergence_tolerance The solver convergence tolerance.
 #' @param max_iterations The maximum solver iterations, or `NULL` for the core
 #'   default.
@@ -237,6 +239,24 @@ method(fit_method, bw_cbps) <- function(method, prepared) {
       c(
         "{.arg two_step} applies only to the over-identified fit and is ignored.",
         i = "The two-step weighting matrix belongs to the over-identified criterion, which {.fn bw_cbps} fits for a binary exposure with {.code over_identified = TRUE}."
+      ),
+      warning_class = "balancing_ignored_argument_warning"
+    )
+  }
+
+  # The link parameterizes the propensity model the binary and categorical
+  # solvers fit, and both consume it. The continuous solver fits no propensity
+  # model at all, since it balances the exposure-covariate covariance through an
+  # exponential tilt, so there is nothing for the link to parameterize. Only a
+  # link the caller chose is announced: the default is the link every exposure
+  # type would otherwise have used, so a caller who named none is told nothing.
+  if (
+    identical(exposure_type, "continuous") && !identical(method@link, "logit")
+  ) {
+    warn(
+      c(
+        "{.arg link} applies only to a discrete exposure and is ignored.",
+        i = "A continuous exposure balances the exposure-covariate covariance through an exponential tilt, which fits no propensity model to link."
       ),
       warning_class = "balancing_ignored_argument_warning"
     )

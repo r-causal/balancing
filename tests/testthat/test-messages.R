@@ -82,6 +82,23 @@ test_that("balancing_ignored_argument_warning: over_identified for a continuous 
   )
 })
 
+test_that("balancing_ignored_argument_warning: link for a continuous exposure", {
+  # The link names a propensity model, which the continuous form does not fit:
+  # it balances the exposure-covariate covariance through an exponential tilt
+  # instead. The message names the argument it dropped and why the exposure type
+  # has nothing to apply it to.
+  data <- sim_continuous()
+  expect_balancing_warning(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_cbps(link = "probit"),
+      estimand = "ate"
+    )
+  )
+})
+
 test_that("balancing_ignored_argument_warning: every argument a categorical fit ignores", {
   # Once the over-identified request is ignored the fit is not over-identified,
   # so the two-step weighting matrix has no criterion to weight either. Each

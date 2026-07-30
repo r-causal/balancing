@@ -1170,6 +1170,89 @@ test_that("the continuous over-identified capability matches its container", {
   )
 })
 
+# ---- link outside a discrete exposure -------------------------------------
+
+test_that("link is warned and ignored for a continuous exposure", {
+  # The link names the propensity model the discrete solvers fit, and it reaches
+  # them: a categorical fit at the probit link returns different weights from the
+  # logit one. The continuous form has no propensity model at all, since it
+  # balances the exposure-covariate covariance through an exponential tilt, so
+  # the setting cannot be honored there. A request the exposure type cannot use
+  # is announced on the convention over_identified and two_step follow rather
+  # than dropped in silence.
+  data <- sim_continuous()
+  reference <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_cbps(),
+    estimand = "ate"
+  )
+
+  for (link in c("probit", "cloglog")) {
+    expect_warning(
+      fit <- balance(
+        data,
+        exposure,
+        c(x1, x2),
+        method = bw_cbps(link = link),
+        estimand = "ate"
+      ),
+      class = "balancing_ignored_argument_warning"
+    )
+    expect_equal(
+      as.numeric(stats::weights(fit)),
+      as.numeric(stats::weights(reference)),
+      tolerance = 1e-12
+    )
+  }
+})
+
+test_that("a continuous fit at the default link raises no ignored warning", {
+  # Only a link the fit cannot honor is announced. The default is the link every
+  # exposure type would have used, so a caller who never named one is told
+  # nothing.
+  data <- sim_continuous()
+  expect_no_warning(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_cbps(),
+      estimand = "ate"
+    ),
+    class = "balancing_ignored_argument_warning"
+  )
+})
+
+test_that("a discrete fit honors link without the ignored warning", {
+  # The binary and categorical solvers take the link and it changes their
+  # answers, so nothing is ignored there.
+  for (data in list(sim_binary(), sim_categorical())) {
+    fit <- expect_no_warning(
+      balance(
+        data,
+        exposure,
+        c(x1, x2),
+        method = bw_cbps(link = "probit"),
+        estimand = "ate"
+      ),
+      class = "balancing_ignored_argument_warning"
+    )
+    reference <- balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_cbps(),
+      estimand = "ate"
+    )
+    expect_false(isTRUE(all.equal(
+      as.numeric(stats::weights(fit)),
+      as.numeric(stats::weights(reference))
+    )))
+  }
+})
+
 # ---- Over-identified GMM --------------------------------------------------
 
 test_that("an over-identified fit succeeds and records its criterion", {

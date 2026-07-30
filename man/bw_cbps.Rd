@@ -27,7 +27,9 @@ over-identified criterion, rather than the continuously updating criterion.
 Ignored, with a warning, whenever the fit is not over-identified.}
 
 \item{link}{The propensity link, one of \code{"logit"}, \code{"probit"}, or
-\code{"cloglog"}. Binary exposures only.}
+\code{"cloglog"}. Binary and categorical exposures both fit a propensity model
+and consume it. A continuous exposure fits none, so the setting is ignored,
+with a warning, there.}
 
 \item{convergence_tolerance}{The solver convergence tolerance.}
 
