@@ -68,6 +68,18 @@
       ! `outcome_mod` must be fitted with the weights from `wt_mod`.
       x Its weights differ from the fit's, compared per unit at relative tolerance 1e-6.
       i Refit it with `weights = weights(fit)`, where `fit` is the balancing fit.
+      i A fit with sampling weights composes them into `weights(fit)`, so the outcome model takes that composed vector rather than either factor on its own.
+
+# the weight-mismatch message points at the composed weights
+
+    Code
+      stop(cnd)
+    Condition <balancing_ipw_input_error>
+      Error in `ipw()`:
+      ! `outcome_mod` must be fitted with the weights from `wt_mod`.
+      x Its weights differ from the fit's, compared per unit at relative tolerance 1e-6.
+      i Refit it with `weights = weights(fit)`, where `fit` is the balancing fit.
+      i A fit with sampling weights composes them into `weights(fit)`, so the outcome model takes that composed vector rather than either factor on its own.
 
 # ipw() rejects a poisson outcome model
 

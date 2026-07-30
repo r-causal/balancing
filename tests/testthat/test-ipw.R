@@ -2805,6 +2805,37 @@ test_that("ipw() rejects an outcome model fitted with the wrong weights", {
   )
 })
 
+test_that("the weight-mismatch message points at the composed weights", {
+  # A fit with sampling weights reports them composed into the balancing weights,
+  # and the outcome model has to be fitted with that composed vector. Fitting it
+  # with either factor alone is the mistake this message is most often read
+  # after, so it names the composition rather than only the accessor.
+  data <- ipw_fixture()
+  data$sw <- withr::with_seed(7, stats::runif(nrow(data), 0.5, 2))
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate",
+    sampling_weights = sw
+  )
+  sampling_mod <- fit_outcome(y ~ exposure, data, data$sw, stats::binomial())
+
+  expect_error(
+    ipw(fit, sampling_mod),
+    class = "balancing_ipw_input_error",
+    regexp = "sampling weights",
+    fixed = TRUE
+  )
+
+  cnd <- rlang::catch_cnd(
+    ipw(fit, sampling_mod),
+    classes = "balancing_ipw_input_error"
+  )
+  expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
+})
+
 # ---- Offsets in the outcome model -----------------------------------------
 
 # An offset is supported: the variance engine carries it through both the

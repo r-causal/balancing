@@ -592,7 +592,8 @@ validate_ipw_weight_consistency <- function(
     c(
       "{.arg outcome_mod} must be fitted with the weights from {.arg wt_mod}.",
       x = "Its weights differ from the fit's, compared per unit at relative tolerance 1e-6.",
-      i = "Refit it with {.code weights = weights(fit)}, where {.arg fit} is the balancing fit."
+      i = "Refit it with {.code weights = weights(fit)}, where {.arg fit} is the balancing fit.",
+      i = "A fit with sampling weights composes them into {.code weights(fit)}, so the outcome model takes that composed vector rather than either factor on its own."
     ),
     error_class = "balancing_ipw_input_error",
     call = call
