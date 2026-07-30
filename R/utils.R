@@ -164,16 +164,15 @@ check_method_dots <- function(..., call = rlang::caller_env()) {
 }
 
 # Guard the tolerance a balance specification is constructed with. The property
-# validator refuses a missing or negative tolerance as well, but an S7 validator
-# answers with a bare string, so those refusals reach a caller unclassed while
-# every other refusal a balance specification raises carries
-# `balancing_constraints_error`. Checking the argument here classes them and
-# covers two shapes the validator never sees: `NULL`, which the property type
+# validator refuses a missing, infinite, or negative tolerance as well, but an S7
+# validator answers with a bare string, so those refusals reach a caller
+# unclassed while every other refusal a balance specification raises carries
+# `balancing_constraints_error`. Checking the argument here classes them, and
+# covers the one shape the validator never sees: `NULL`, which the property type
 # check turns away first and reports as a class mismatch rather than as a
-# tolerance with no value, and an infinity, which is neither missing nor negative
-# and would otherwise construct a specification whose constraint box is
-# unbounded. The validator keeps its own clauses, since a property may also be
-# assigned after construction.
+# tolerance with no value. The validator keeps its own clauses, since a property
+# may also be assigned after construction, and an assignment reaches nothing
+# else.
 check_tolerance <- function(tolerance, call = rlang::caller_env()) {
   if (is.null(tolerance)) {
     abort(

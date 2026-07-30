@@ -308,6 +308,8 @@ balance_terms <- new_class(
         any(quantile_values <= 0 | quantile_values >= 1)
     ) {
       "@quantiles must lie strictly between 0 and 1"
+    } else if (!all(is.finite(self@tolerance))) {
+      "@tolerance must be finite"
     } else if (any(self@tolerance < 0)) {
       "@tolerance must be non-negative"
     }

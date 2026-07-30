@@ -135,6 +135,24 @@ test_that("balance_terms() classes its refusal of a missing tolerance", {
   )
 })
 
+# A property may be assigned after construction, and an assignment reaches the
+# validator alone, so the validator has to refuse what the constructor refuses.
+# Each unusable tolerance it can see is pinned here, by wording rather than by
+# class, since a validator answers with a bare string rather than a condition.
+# The infinite one is what this adds: the validator checked for missingness and
+# for a negative value alone, so a specification built with a usable tolerance
+# could be given an unbounded constraint box afterwards.
+test_that("balance_terms() validates a tolerance assigned after construction", {
+  terms <- balance_terms(tolerance = 0.1)
+  expect_error(terms@tolerance <- Inf, "finite")
+  expect_error(terms@tolerance <- c(x1 = 0.1, x2 = Inf), "finite")
+  expect_error(terms@tolerance <- NA_real_, "missing values")
+  expect_error(terms@tolerance <- -0.5, "non-negative")
+
+  terms@tolerance <- 0.2
+  expect_identical(terms@tolerance, 0.2)
+})
+
 # ---- balance_method validators --------------------------------------------
 
 # The optional solver tuning parameters are validated for being a single usable

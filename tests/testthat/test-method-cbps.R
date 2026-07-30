@@ -1201,10 +1201,9 @@ test_that("link is warned and ignored for a continuous exposure", {
       ),
       class = "balancing_ignored_argument_warning"
     )
-    expect_equal(
+    expect_identical(
       as.numeric(stats::weights(fit)),
-      as.numeric(stats::weights(reference)),
-      tolerance = 1e-12
+      as.numeric(stats::weights(reference))
     )
   }
 })

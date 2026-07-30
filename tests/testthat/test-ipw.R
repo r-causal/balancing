@@ -1803,6 +1803,52 @@ test_that("ipw() requires the exposure among the outcome model's predictors", {
   expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
 })
 
+# A caller who writes the exposure into an offset has written it into the
+# formula, so being told it appears in none of the model's terms reads as a
+# contradiction of what they can see. The refusal adds a line naming the offset
+# as the reason. Both spellings reach that line, since the terms object records
+# only the first, and such a model would be refused by the offset check anyway
+# once a real exposure term were added, so the line saves a round trip as well
+# as the confusion.
+
+test_that("ipw() names the offset when it carries the only mention of the exposure", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  data$.wts <- as.numeric(stats::weights(fit))
+  formula_offset <- suppressWarnings(stats::glm(
+    y ~ x1 + x2 + offset(exposure),
+    data = data,
+    family = stats::binomial(),
+    weights = .wts
+  ))
+  argument_offset <- suppressWarnings(stats::glm(
+    y ~ x1 + x2,
+    data = data,
+    family = stats::binomial(),
+    weights = .wts,
+    offset = exposure
+  ))
+
+  for (outcome_mod in list(formula_offset, argument_offset)) {
+    expect_error(
+      ipw(fit, outcome_mod),
+      "An offset is not a term",
+      class = "balancing_ipw_input_error"
+    )
+  }
+  cnd <- rlang::catch_cnd(
+    ipw(fit, formula_offset),
+    classes = "balancing_ipw_input_error"
+  )
+  expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
+})
+
 # An interaction between the exposure and a covariate needs no special handling.
 # The fixed-exposure design is rebuilt from the model's own terms with the
 # exposure column set to one level, so `model.matrix()` recomputes the
@@ -2764,6 +2810,37 @@ test_that("ipw() refuses a continuous outcome model with more than one exposure 
       class = "balancing_ipw_input_error"
     )
   }
+})
+
+# What a model missing the exposure is told it may do instead depends on the
+# exposure type, and the two readings promise different things. A discrete
+# exposure is read through predictions with the exposure fixed to each level, so
+# such a model may carry the exposure inside a transformation. A continuous
+# exposure reports the exposure's own coefficient, and the one-term contract
+# above refuses every transformation, so this refusal has to ask for a term of
+# its own rather than offer one that would only be turned away a second time. A
+# transformation written into the formula still names the exposure and so reaches
+# the one-term contract instead; the model that arrives here is one whose
+# transformed exposure was computed into a column of its own beforehand.
+
+test_that("ipw() asks a continuous outcome model for the exposure as its own term", {
+  data <- ipw_continuous_fixture()
+  data$exposure_scaled <- data$exposure / 10
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  transformed_mod <- fit_msm(y_cont ~ exposure_scaled + x1, data, w)
+
+  cnd <- rlang::catch_cnd(
+    ipw(fit, transformed_mod),
+    classes = "balancing_ipw_input_error"
+  )
+  expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
 })
 
 # An offset is a second way for the exposure to reach the linear predictor, and
