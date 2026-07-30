@@ -89,12 +89,26 @@ balance <- function(
     )
   }
 
-  exposure_pos <- tidyselect::eval_select(rlang::enquo(.exposure), .data)
+  # A selection may not rename. A rename resolves the column by position but
+  # supplies a new name, and every lookup after this indexes the data by the
+  # selection's names: a covariate renamed to the exposure would build the
+  # constraints on the exposure column, and a renamed exposure would name a column
+  # the data do not have. Refusing the rename at the selection reports the real
+  # defect where it was written, through tidyselect's own classed error.
+  exposure_pos <- tidyselect::eval_select(
+    rlang::enquo(.exposure),
+    .data,
+    allow_rename = FALSE
+  )
   validate_selection(exposure_pos, ".exposure", expected = "one")
   exposure_name <- names(exposure_pos)
   exposure_vec <- .data[[exposure_pos]]
 
-  covariate_pos <- tidyselect::eval_select(rlang::enquo(.covariates), .data)
+  covariate_pos <- tidyselect::eval_select(
+    rlang::enquo(.covariates),
+    .data,
+    allow_rename = FALSE
+  )
   covariate_pos <- drop_exposure_covariate(
     covariate_pos,
     exposure_pos,

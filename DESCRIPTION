@@ -29,7 +29,7 @@ Imports:
     rlang,
     S7,
     stats,
-    tidyselect,
+    tidyselect (>= 1.2.0),
     vctrs
 Suggests:
     halfmoon,

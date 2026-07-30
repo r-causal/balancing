@@ -69,6 +69,39 @@ test_that("a covariate selection naming only the exposure is a classed error", {
   )
 })
 
+# A rename inside a selection resolves the column by position but supplies a new
+# name, and every downstream lookup indexes the data by name. A rename that
+# collided with the exposure therefore built the constraints on the exposure
+# column and died blaming collinearity; a partial rename died on an unclassed
+# dimnames error; a renamed exposure produced a fit naming a column the data do
+# not have. Renaming is refused at the selection instead.
+test_that("a renamed covariate selection is refused", {
+  data <- sim_binary(n = 200)
+  expect_error(
+    balance(data, exposure, c(exposure = x1), method = bw_entropy()),
+    "rename"
+  )
+  expect_error(
+    balance(data, exposure, c(foo = x1, x2), method = bw_entropy()),
+    "rename"
+  )
+})
+
+test_that("a renamed exposure selection is refused", {
+  data <- sim_binary(n = 200)
+  expect_error(
+    balance(data, c(foo = exposure), c(x1, x2), method = bw_entropy()),
+    "rename"
+  )
+})
+
+test_that("an unrenamed selection still resolves", {
+  data <- sim_binary(n = 200)
+  fit <- balance(data, exposure, c(x1, x2), method = bw_entropy())
+  expect_identical(fit@exposure, "exposure")
+  expect_identical(fit@covariates, c("x1", "x2"))
+})
+
 # ---- Exposure-type detection ----------------------------------------------
 
 test_that("balance() auto-detects the exposure type and stores it", {
