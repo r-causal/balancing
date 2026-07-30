@@ -59,6 +59,27 @@ pub trait EsteqProblem {
         self.value(beta)
     }
 
+    /// Whether [`EsteqProblem::hessian`] returns the objective's exact second
+    /// derivative rather than a surrogate for it.
+    ///
+    /// The answer decides what an iterate the objective can no longer resolve a
+    /// decrease at is evidence of. With the exact Hessian the Newton step is
+    /// superlinear, so the parameters keep gaining digits after the objective has
+    /// stopped registering the improvement: the value flattens long before the
+    /// root is reached, and stopping there would discard accuracy the step
+    /// delivers for nothing. A surrogate Hessian is a descent direction and no
+    /// more, its steps advance at a linear rate, and the progress it can still
+    /// make is bounded by the decrease the objective can verify, so an iterate
+    /// below that resolution is as far as the method goes and is reported as the
+    /// optimum it is.
+    ///
+    /// The default of `true` suits the members of this family whose Jacobian is
+    /// the exact second derivative of a strictly convex dual, and it is the
+    /// conservative answer: it never cuts an iteration short.
+    fn hessian_is_exact(&self) -> bool {
+        true
+    }
+
     /// The magnitude one unit of [`SolveOptions::grad_tol`] stands for on this
     /// problem's gradient, a constant of the problem rather than of `beta`.
     ///

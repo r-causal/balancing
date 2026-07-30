@@ -189,6 +189,44 @@ fn solve_with_min_iter<P: EsteqProblem>(
             dot(&merit_grad, &dir)
         };
 
+        // The decrease the full step predicts is the measure of how far the
+        // objective still has to fall. Once it sits at or below the objective's own
+        // floating-point resolution, and the direction comes from a surrogate
+        // Hessian whose progress that resolution bounds, there is nothing left to
+        // fall: every step the line search could still accept would realize a
+        // decrease no larger than a rounding of the current value, so the iterate
+        // minimizes the objective to the precision the arithmetic carries and the
+        // iterations that follow only shuffle the parameters inside the flat
+        // region. A generalized-method-of-moments criterion left to run two
+        // thousand such steps moves in no printed digit.
+        //
+        // This is the same certificate the stalled line search below applies, read
+        // one step earlier, and reading it earlier is what makes it reachable: a
+        // line search need not stall to be finished. The Armijo test asks for a ten
+        // thousandth of a predicted decrease that is already below the resolution,
+        // which the unchanged objective supplies, so the step is accepted, nothing
+        // moves, and the solve crawls to its iteration cap instead of reporting the
+        // optimum it is standing on.
+        //
+        // Three things are excluded. A predicted decrease the objective can still
+        // resolve goes to the line search as before, so genuine progress is
+        // untouched. A root-finding problem has no objective of its own, only the
+        // merit built from the gradient it is zeroing, so there is no independent
+        // resolution to certify against. And a problem carrying the exact Hessian
+        // is excluded because the premise fails for it: its steps are superlinear
+        // and keep sharpening the parameters well after the value has stopped
+        // moving, which is the accuracy the polish exists to collect. The
+        // minimum-iteration contract is honored the way the gradient test honors
+        // it, so a polish still takes the step it promises before any verdict.
+        if smooth
+            && iter >= min_iter
+            && !problem.hessian_is_exact()
+            && -dderiv <= value_resolution(base)
+        {
+            converged = true;
+            break;
+        }
+
         let mut step = 1.0;
         let mut accepted = false;
         for _ in 0..MAX_BACKTRACKS {
@@ -364,6 +402,46 @@ mod tests {
         fn psi(&self, _beta: &[f64], _out: MatMut<'_, f64>) {}
     }
 
+    /// `offset + 0.5 beta^2` reported at its accumulated magnitude rather than
+    /// relative to the offset, so near the minimizer the objective's resolution is
+    /// `eps * offset`: the decrease a full step predicts disappears into the
+    /// rounding of the sum while the gradient is still far above a tight tolerance,
+    /// and the line search accepts the step anyway, because an objective that does
+    /// not move satisfies a sufficient-decrease test asking for a ten thousandth of
+    /// nothing. That combination is the micro-crawl, and it is what separates this
+    /// from [`OffsetQuadratic`], whose line search stalls outright.
+    ///
+    /// The gradient and Hessian are exact in both configurations. `surrogate`
+    /// changes only the answer given to `EsteqProblem::hessian_is_exact`, the
+    /// declaration the solver reads, so the two configurations isolate that branch
+    /// and nothing else about the problem.
+    struct FlatQuadratic {
+        offset: f64,
+        surrogate: bool,
+    }
+
+    impl EsteqProblem for FlatQuadratic {
+        fn n_params(&self) -> usize {
+            1
+        }
+        fn n_units(&self) -> usize {
+            1
+        }
+        fn hessian_is_exact(&self) -> bool {
+            !self.surrogate
+        }
+        fn value(&self, beta: &[f64]) -> Option<f64> {
+            Some(self.offset + 0.5 * beta[0] * beta[0])
+        }
+        fn gradient(&self, beta: &[f64], g: &mut [f64]) {
+            g[0] = beta[0];
+        }
+        fn hessian(&self, _beta: &[f64], mut h: MatMut<'_, f64>) {
+            *h.rb_mut().get_mut(0, 0) = 1.0;
+        }
+        fn psi(&self, _beta: &[f64], _out: MatMut<'_, f64>) {}
+    }
+
     /// `0.25 beta^4`, whose Newton step is `beta -> (2/3) beta`. The iteration
     /// converges only linearly, so a small cap is always exhausted.
     struct Quartic;
@@ -469,6 +547,62 @@ mod tests {
             !report.converged,
             "a stall short of the resolution must not claim convergence"
         );
+    }
+
+    #[test]
+    fn a_surrogate_hessian_certifies_an_unresolvable_predicted_decrease() {
+        // The predicted decrease of 1e-18 is below the objective's resolution of
+        // one machine epsilon, and the direction comes from a surrogate whose
+        // progress that resolution bounds, so the iterate is the optimum the method
+        // can reach. The verdict is read before the line search, which is the point:
+        // this line search would have accepted the step and crawled to the cap.
+        let problem = FlatQuadratic {
+            offset: 1.0,
+            surrogate: true,
+        };
+        let mut beta = vec![1e-9];
+        let report = solve(&problem, &mut beta, &opts(50), &|| false);
+        assert!(
+            report.grad_norm > opts(50).grad_tol,
+            "the scenario needs a gradient above the tolerance, got {}",
+            report.grad_norm
+        );
+        assert_eq!(report.iterations, 0, "the certificate precedes any step");
+        assert!(report.converged);
+    }
+
+    #[test]
+    fn an_exact_hessian_keeps_stepping_where_the_objective_has_flattened() {
+        // The identical objective and start point, differing only in the answer to
+        // `hessian_is_exact`. A superlinear step goes on sharpening the parameters
+        // after the value has stopped registering the improvement, so this one is
+        // taken rather than certified away, and it lands on the minimizer exactly.
+        let problem = FlatQuadratic {
+            offset: 1.0,
+            surrogate: false,
+        };
+        let mut beta = vec![1e-9];
+        let report = solve(&problem, &mut beta, &opts(50), &|| false);
+        assert!(report.converged);
+        assert_eq!(report.iterations, 1, "the exact step is worth taking");
+        assert_eq!(beta[0], 0.0, "and it reaches the minimizer");
+    }
+
+    #[test]
+    fn a_resolvable_predicted_decrease_is_taken_not_certified() {
+        // A surrogate Hessian on the same objective, started where the predicted
+        // decrease of 1e-6 sits far above the resolution. The certificate must not
+        // fire on progress the objective can still measure, so the step is taken
+        // and the solve converges on the gradient as it always did.
+        let problem = FlatQuadratic {
+            offset: 1.0,
+            surrogate: true,
+        };
+        let mut beta = vec![1e-3];
+        let report = solve(&problem, &mut beta, &opts(50), &|| false);
+        assert!(report.converged);
+        assert_eq!(report.iterations, 1);
+        assert_eq!(beta[0], 0.0);
     }
 
     #[test]
