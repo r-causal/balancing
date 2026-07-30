@@ -28,7 +28,9 @@
 //! matrix `W` is the pseudo-inverse of the moment covariance, held fixed at a
 //! preliminary estimate for the two-step variant or recomputed at each iterate
 //! for the continuously-updated variant. The criterion is minimized by the
-//! limited-memory BFGS solver, which needs only the objective and its gradient.
+//! limited-memory BFGS solver, which needs only the objective and its gradient;
+//! where that backend is not compiled in, the damped Newton method minimizes the
+//! same criterion against the Gauss-Newton Hessian `2 G' W G`.
 //!
 //! A continuous exposure balances the weighted exposure-covariate covariance.
 //! The covariate balancing conditions ask the weighted exposure mean to match
@@ -710,10 +712,43 @@ impl EsteqProblem for GmmProblem<'_> {
         }
     }
 
-    fn hessian(&self, _beta: &[f64], _h: MatMut<'_, f64>) {
-        // The GMM criterion is minimized by L-BFGS, which never asks for a
-        // Hessian; this satisfies the trait without a dense second derivative.
-        unreachable!("the GMM criterion is solved by L-BFGS");
+    /// The Gauss-Newton Hessian `2 G' W G`, the criterion's second derivative with
+    /// the moment curvature dropped.
+    ///
+    /// The exact Hessian of `m' W m` carries the second derivative of the moments
+    /// in the parameters, and for continuous updating the second derivative of the
+    /// weighting matrix as well. Neither is needed to generate a search direction:
+    /// `W` is a pseudo-inverse of a covariance and so positive semidefinite, which
+    /// makes this approximation positive semidefinite too and a descent direction
+    /// whenever it is invertible, with the solver's ridge escalation covering the
+    /// singular case. The line search and the convergence test both run on the
+    /// exact criterion and its exact gradient, so the stationary point the solve
+    /// reaches is the true minimizer regardless of the approximation. At a
+    /// saturated design, where every moment vanishes at the solution, dropping the
+    /// curvature term costs nothing at all.
+    fn hessian(&self, beta: &[f64], mut h: MatMut<'_, f64>) {
+        let p = self.inputs.p_mod;
+        let m_total = self.m_total;
+        let continuous = matches!(self.weighting, GmmWeighting::Continuous);
+        let acc = self.accumulate(beta, continuous);
+        let w = self.weighting_matrix(&acc.cov);
+
+        // W G, one column of the moment-parameter Jacobian at a time.
+        let mut wg = vec![0.0; m_total * p];
+        for k in 0..p {
+            let g_col = &acc.grad[k * m_total..(k + 1) * m_total];
+            wg[k * m_total..(k + 1) * m_total]
+                .copy_from_slice(&mat_vec(&w, g_col, m_total, m_total));
+        }
+        for j in 0..p {
+            for k in 0..p {
+                let mut entry = 0.0;
+                for a in 0..m_total {
+                    entry += acc.grad[j * m_total + a] * wg[k * m_total + a];
+                }
+                *h.rb_mut().get_mut(j, k) = 2.0 * entry;
+            }
+        }
     }
 
     fn psi(&self, _beta: &[f64], _out: MatMut<'_, f64>) {
@@ -1846,6 +1881,66 @@ mod tests {
         assert!(obj < 1e-10, "criterion {obj} should vanish");
         assert!(result.weights.iter().all(|&w| w >= 0.0));
         assert!(result.psi.is_none());
+    }
+
+    #[test]
+    fn the_gmm_criterion_minimizes_under_the_newton_solver() {
+        // The over-identified criterion is minimized by L-BFGS when the basin
+        // backend is compiled in and by Newton when it is not, so the problem has
+        // to supply a Hessian the Newton step can use. Driving Newton directly
+        // exercises that path in either build: on the saturated design every
+        // moment can be driven to zero, so the criterion reaches its floor.
+        let (covs, treat, n) = saturated_design();
+        let s = vec![1.0; n];
+        let inputs = CbpsInputs {
+            covs_mod: &covs,
+            covs_bal: &covs,
+            n,
+            p_mod: 2,
+            p_bal: 2,
+            treat: &treat,
+            s: &s,
+            link: Link::Logit,
+            estimand: CbpsEstimand::Ate,
+            over: true,
+            twostep: true,
+            threads: 1,
+            max_iter: 200,
+            tol: 1e-10,
+        };
+        let pool = get_pool(1);
+        let m_total = inputs.p_mod + inputs.p_bal;
+        let mut beta = vec![0.0; inputs.p_mod];
+
+        // The two-step weighting anchored at the start point, the same
+        // construction `solve_binary_over` uses.
+        let probe = GmmProblem {
+            inputs: &inputs,
+            m_total,
+            weighting: GmmWeighting::Continuous,
+            pool: Arc::clone(&pool),
+        };
+        let anchor = pseudo_inverse_symmetric(&probe.accumulate(&beta, true).cov, m_total)
+            .expect("the moment covariance at the start point decomposes");
+        let problem = GmmProblem {
+            inputs: &inputs,
+            m_total,
+            weighting: GmmWeighting::TwoStep(anchor),
+            pool,
+        };
+
+        let opts = SolveOptions {
+            max_iter: 200,
+            grad_tol: 1e-10,
+            fista_rel_tol: 1e-10,
+        };
+        let report = esteq::solve(&problem, &mut beta, Solver::Newton, &opts, &no_interrupt());
+        let criterion = problem.value(&beta).expect("the criterion has a value");
+        assert!(
+            criterion < 1e-10,
+            "criterion {criterion} after {} Newton iterations",
+            report.iterations
+        );
     }
 
     // A non-saturated design with a continuous covariate, so the score and
