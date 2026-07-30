@@ -7,7 +7,7 @@
 //! interrupt closure is polled, and the primal and dual iterates carry into the
 //! next chunk so the split does not change the trajectory.
 
-use osqp::{CscMatrix, Problem, Settings, Status};
+use osqp::{CscMatrix, Problem, Settings, Solution, Status};
 
 use super::{
     QpBackend, QpError, QpOptions, QpSolution, QpSpec, QpStatus, objective, upper_triangular_csc,
@@ -115,30 +115,46 @@ impl QpBackend for Osqp {
     }
 }
 
-/// Extract the primal and dual iterates from any OSQP status that carries a
-/// solution. OSQP attaches a `Solution` to `Solved`, `SolvedInaccurate`,
+/// The OSQP solution a status carries, when it carries one.
+///
+/// OSQP attaches a `Solution` to `Solved`, `SolvedInaccurate`,
 /// `MaxIterationsReached`, and `TimeLimitReached`; the infeasibility and
 /// non-convex certificates carry none. The crate's own `Status::solution()` is
 /// `Some` only for `Solved`, so a solve that stopped at the iteration cap with a
 /// usable iterate would otherwise read as all zeros.
-fn extract_solution(status: &Status<'_>) -> Option<(Vec<f64>, Vec<f64>)> {
+fn solution_of<'a>(status: &Status<'a>) -> Option<Solution<'a>> {
     match status {
         Status::Solved(s)
         | Status::SolvedInaccurate(s)
         | Status::MaxIterationsReached(s)
-        | Status::TimeLimitReached(s) => Some((s.x().to_vec(), s.y().to_vec())),
+        | Status::TimeLimitReached(s) => Some(s.clone()),
         _ => None,
     }
 }
 
-/// Build a [`QpSolution`] from an OSQP status. When the solve was interrupted or
-/// produced no usable iterate (an infeasibility or non-convex certificate) the
-/// primal is reported as zeros so the caller reacts to the status rather than to a
-/// partial vector.
+/// Copy the primal and dual iterates out of a status that carries a solution.
+/// Copying releases the borrow of the problem, which the warm start of the next
+/// chunk needs mutably.
+fn extract_solution(status: &Status<'_>) -> Option<(Vec<f64>, Vec<f64>)> {
+    solution_of(status).map(|s| (s.x().to_vec(), s.y().to_vec()))
+}
+
+/// Build a [`QpSolution`] from an OSQP status.
+///
+/// The residuals are the ones OSQP measured at the iterate it returns, read off
+/// the solution it attaches to every status that carries one, which includes the
+/// iteration-cap and time-limit outcomes an interrupted or capped solve ends on.
+/// A status that carries no iterate at all (an infeasibility or non-convex
+/// certificate) has no residual to report either, so the primal, the duals, and
+/// both residuals are zeros together and the caller reacts to the status rather
+/// than to a number describing nothing.
 fn finish(spec: &QpSpec, status: &Status<'_>, iterations: usize, interrupted: bool) -> QpSolution {
     let n = spec.n;
     let m = spec.m;
-    let (x, duals) = extract_solution(status).unwrap_or_else(|| (vec![0.0; n], vec![0.0; m]));
+    let (x, duals, pri_res, dua_res) = match solution_of(status) {
+        Some(s) => (s.x().to_vec(), s.y().to_vec(), s.pri_res(), s.dua_res()),
+        None => (vec![0.0; n], vec![0.0; m], 0.0, 0.0),
+    };
     let mapped = if interrupted {
         QpStatus::Interrupted
     } else {
@@ -151,8 +167,8 @@ fn finish(spec: &QpSpec, status: &Status<'_>, iterations: usize, interrupted: bo
         status: mapped,
         iterations,
         obj,
-        pri_res: 0.0,
-        dua_res: 0.0,
+        pri_res,
+        dua_res,
         interrupted,
     }
 }
@@ -258,6 +274,63 @@ mod tests {
         assert!((chunked.x[0] - single.x[0]).abs() < 1e-6, "x0 diverged");
         assert!((chunked.x[1] - single.x[1]).abs() < 1e-6, "x1 diverged");
         assert!((chunked.x[0] - 0.5).abs() < 1e-5, "x0 = {}", chunked.x[0]);
+    }
+
+    /// The sup norm of the constraint violation of `x`, the distance from `A x`
+    /// to `[l, u]` row by row. OSQP measures its primal residual against a slack
+    /// that lies inside the bounds, so the residual it reports is never smaller
+    /// than this.
+    fn sup_norm_violation(spec: &QpSpec, x: &[f64]) -> f64 {
+        let mut ax = vec![0.0; spec.m];
+        for (j, &xj) in x.iter().enumerate().take(spec.n) {
+            for k in spec.a_indptr[j]..spec.a_indptr[j + 1] {
+                ax[spec.a_indices[k]] += spec.a_values[k] * xj;
+            }
+        }
+        (0..spec.m)
+            .map(|r| (spec.l[r] - ax[r]).max(ax[r] - spec.u[r]).max(0.0))
+            .fold(0.0_f64, f64::max)
+    }
+
+    #[test]
+    fn a_capped_solve_reports_the_backend_residuals() {
+        // The solution contract documents both residuals as backend-reported. A
+        // single ADMM iteration from the origin is nowhere near the simplex, so a
+        // one-iteration cap must report a primal residual that is genuinely
+        // nonzero and no smaller than the violation its own iterate carries.
+        let spec = simplex_spec();
+        let opts = QpOptions {
+            max_iter: 1,
+            chunk_iters: 1,
+            polish: false,
+            ..QpOptions::default()
+        };
+        let capped = Osqp.solve(&spec, &opts, &|| false).expect("setup succeeds");
+        assert_eq!(capped.status, QpStatus::MaxIter);
+        assert!(
+            capped.pri_res.is_finite() && capped.pri_res > 0.0,
+            "pri_res {} at the iteration cap",
+            capped.pri_res
+        );
+        assert!(capped.dua_res.is_finite(), "dua_res {}", capped.dua_res);
+        let violation = sup_norm_violation(&spec, &capped.x);
+        assert!(
+            capped.pri_res >= violation - 1e-12,
+            "pri_res {} is below the iterate's own violation {violation}",
+            capped.pri_res
+        );
+
+        // The other side of the same evidence: a converged solve reports a
+        // residual at its tolerance rather than a constant.
+        let solved = Osqp
+            .solve(&spec, &QpOptions::default(), &|| false)
+            .expect("setup succeeds");
+        assert!(solved.status.is_solved(), "status {:?}", solved.status);
+        assert!(
+            solved.pri_res.is_finite() && solved.pri_res < 1e-6,
+            "pri_res {} at convergence",
+            solved.pri_res
+        );
     }
 
     #[test]
