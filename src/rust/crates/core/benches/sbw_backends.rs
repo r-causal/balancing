@@ -25,9 +25,12 @@ use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
 use balancing_core::methods::qp_balance::{ConstraintBuilder, ZERO_SW, group_normalized};
 use balancing_core::methods::sbw::SbwEstimand;
+#[cfg(feature = "qp-clarabel")]
 use balancing_core::qp::clarabel::Clarabel;
 use balancing_core::qp::osqp::Osqp;
-use balancing_core::qp::{Convexity, PMat, QpBackend, QpOptions, QpSolution, QpSpec, objective};
+use balancing_core::qp::{Convexity, PMat, QpBackend, QpOptions, QpSpec};
+#[cfg(feature = "qp-clarabel")]
+use balancing_core::qp::{QpSolution, objective};
 
 // -- Deterministic data generation ------------------------------------------
 
@@ -572,9 +575,10 @@ fn build_grid() -> Vec<Instance> {
 
 /// The worst constraint violation of `x` against the spec bounds: for every row,
 /// how far `A x` falls below `l` or above `u`, maxed over rows and clamped at
-/// zero.
+/// zero. Read only by the parity contract, which compares the two backends.
 // The indexed loops walk several parallel arrays (the CSC triplet, then the row
 // bounds) where an index is the clearest form.
+#[cfg(feature = "qp-clarabel")]
 #[allow(clippy::needless_range_loop)]
 fn max_violation(spec: &QpSpec, x: &[f64]) -> f64 {
     let mut ax = vec![0.0; spec.m];
@@ -600,7 +604,9 @@ fn max_violation(spec: &QpSpec, x: &[f64]) -> f64 {
 /// gap, worst constraint violations, and iteration counts. The report reads
 /// these lines to decide the parity precondition and the promotion inputs. No
 /// assertion aborts the bench: a stress instance is allowed to fail, and the
-/// failure is data the report records.
+/// failure is data the report records. The contract is a statement about the two
+/// backends together, so it exists only where both are compiled in.
+#[cfg(feature = "qp-clarabel")]
 fn record_sbw_parity(instances: &[Instance]) {
     let opts = QpOptions::default();
     eprintln!("sbw_parity: begin ({} instances)", instances.len());
@@ -626,6 +632,7 @@ fn record_sbw_parity(instances: &[Instance]) {
 }
 
 /// Status name, objective, iterations, and worst violation of a backend result.
+#[cfg(feature = "qp-clarabel")]
 fn summarize(
     spec: &QpSpec,
     res: &Result<QpSolution, balancing_core::qp::QpError>,
@@ -645,6 +652,7 @@ fn summarize(
 
 fn bench_sbw(c: &mut Criterion) {
     let instances = build_grid();
+    #[cfg(feature = "qp-clarabel")]
     record_sbw_parity(&instances);
 
     let opts = QpOptions::default();
@@ -658,6 +666,7 @@ fn bench_sbw(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("osqp", &inst.name), spec, |b, spec| {
             b.iter(|| black_box(Osqp.solve(spec, &opts, &|| false).unwrap()));
         });
+        #[cfg(feature = "qp-clarabel")]
         group.bench_with_input(BenchmarkId::new("clarabel", &inst.name), spec, |b, spec| {
             b.iter(|| black_box(Clarabel.solve(spec, &opts, &|| false).unwrap()));
         });

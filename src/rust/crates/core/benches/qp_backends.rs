@@ -19,9 +19,12 @@ use balancing_core::dist::{Distance, pairwise};
 use balancing_core::methods::energy::{
     EnergyContInputs, EnergyDiscreteInputs, EnergyEstimand, solve_cont, solve_discrete,
 };
+#[cfg(feature = "qp-clarabel")]
 use balancing_core::qp::clarabel::Clarabel;
 use balancing_core::qp::osqp::Osqp;
-use balancing_core::qp::{Convexity, PMat, QpBackend, QpError, QpOptions, QpSpec, objective};
+use balancing_core::qp::{Convexity, PMat, QpBackend, QpOptions, QpSpec};
+#[cfg(feature = "qp-clarabel")]
+use balancing_core::qp::{QpError, objective};
 
 /// A positive-semidefinite simplex-projection spec in `n` variables: minimize
 /// `0.5 sum x_i^2` on the unit simplex with a non-negativity box. Both backends
@@ -148,6 +151,7 @@ fn bench_backends(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("osqp_simplex", n), &n, |b, _| {
             b.iter(|| black_box(Osqp.solve(&spec, &opts, &|| false).unwrap()));
         });
+        #[cfg(feature = "qp-clarabel")]
         group.bench_with_input(BenchmarkId::new("clarabel_simplex", n), &n, |b, _| {
             b.iter(|| black_box(Clarabel.solve(&spec, &opts, &|| false).unwrap()));
         });
@@ -340,24 +344,43 @@ fn indefinite_energy_like_spec() -> QpSpec {
     }
 }
 
-/// Record the backend contract once, outside the timing loop: Clarabel rejects
-/// the indefinite energy form up front on its convexity tag, the same form left
-/// unverified confirms the rejection is not merely conservative because the
-/// interior-point solve does not reach an optimal status, and OSQP solves it.
+/// Record the backend contract once, outside the timing loop: OSQP solves the
+/// indefinite energy form, and where the Clarabel backend is compiled in, its
+/// half of the contract is recorded alongside.
 fn record_backend_contract() {
     let opts = QpOptions::default();
     let spec = indefinite_energy_like_spec();
+    let mut unverified = spec.clone();
+    unverified.convexity = Convexity::Unverified;
 
-    match Clarabel.solve(&spec, &opts, &|| false) {
+    #[cfg(feature = "qp-clarabel")]
+    record_clarabel_contract(&opts, &spec, &unverified);
+
+    let osqp_sol = Osqp
+        .solve(&unverified, &opts, &|| false)
+        .expect("osqp sets up the indefinite form");
+    eprintln!(
+        "qp_backends: osqp on the same form -> status {:?}, obj {:.6}",
+        osqp_sol.status, osqp_sol.obj
+    );
+}
+
+/// The Clarabel half of the backend contract: it rejects the indefinite energy
+/// form up front on its convexity tag, the same form left unverified confirms
+/// the rejection is not merely conservative because the interior-point solve
+/// does not reach an optimal status, and the two backends agree on the convex
+/// simplex projection their timings are compared on. That agreement is asserted
+/// so the comparison is only ever drawn between solved, agreeing results.
+#[cfg(feature = "qp-clarabel")]
+fn record_clarabel_contract(opts: &QpOptions, spec: &QpSpec, unverified: &QpSpec) {
+    match Clarabel.solve(spec, opts, &|| false) {
         Err(QpError::Indefinite) => {
             eprintln!("qp_backends: clarabel rejects the indefinite energy form (structured)");
         }
         other => panic!("expected an indefinite rejection from clarabel, got {other:?}"),
     }
 
-    let mut unverified = spec.clone();
-    unverified.convexity = Convexity::Unverified;
-    match Clarabel.solve(&unverified, &opts, &|| false) {
+    match Clarabel.solve(unverified, opts, &|| false) {
         Ok(sol) => eprintln!(
             "qp_backends: clarabel on the same form (unverified) -> status {:?}, obj {:.6}",
             sol.status, sol.obj
@@ -367,20 +390,9 @@ fn record_backend_contract() {
         }
     }
 
-    let osqp_sol = Osqp
-        .solve(&unverified, &opts, &|| false)
-        .expect("osqp sets up the indefinite form");
-    eprintln!(
-        "qp_backends: osqp on the same form -> status {:?}, obj {:.6}",
-        osqp_sol.status, osqp_sol.obj
-    );
-
-    // Objective parity of the two backends on the convex simplex projection,
-    // asserted so the timing comparison is only ever between solved, agreeing
-    // results.
     let psd = simplex_spec(200);
-    let a = Osqp.solve(&psd, &opts, &|| false).unwrap();
-    let b = Clarabel.solve(&psd, &opts, &|| false).unwrap();
+    let a = Osqp.solve(&psd, opts, &|| false).unwrap();
+    let b = Clarabel.solve(&psd, opts, &|| false).unwrap();
     let oa = objective(&psd, &a.x);
     let ob = objective(&psd, &b.x);
     assert!(

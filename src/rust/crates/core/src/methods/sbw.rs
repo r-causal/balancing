@@ -1133,9 +1133,13 @@ mod tests {
     }
 
     /// SplitMix64, replicating the benchmark generator so the ill-scaled instance
-    /// is bit-identical to the one the backend comparison certified.
+    /// is bit-identical to the one the backend comparison certified. The instance
+    /// exists to exercise the clarabel fallback, so it is compiled only where
+    /// that backend is.
+    #[cfg(feature = "qp-clarabel")]
     struct SplitMix64(u64);
 
+    #[cfg(feature = "qp-clarabel")]
     impl SplitMix64 {
         fn next_u64(&mut self) -> u64 {
             self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
@@ -1164,6 +1168,7 @@ mod tests {
     /// own spread. This is the small-n form of the same misfire the n=20000
     /// average-treatment-effect instance shows. Returns levels, covariates,
     /// targets, and tolerances.
+    #[cfg(feature = "qp-clarabel")]
     fn ill_scaled_instance(n: usize) -> (Vec<i32>, Vec<f64>, Vec<f64>, Vec<f64>) {
         let p = 4usize;
         let mut rng = SplitMix64(0x5B_15CA);
