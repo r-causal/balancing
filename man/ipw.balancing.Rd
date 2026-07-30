@@ -155,6 +155,14 @@ has any. Sampling weights compose multiplicatively onto the balancing weights
 and the stack holds them fixed, since they are a design quantity rather than
 an estimate.
 
+Of the two binomial families, \code{\link[stats:quasibinomial]{stats::quasibinomial()}} is the one to fit a
+binary outcome with here, and the examples below use it: balancing weights are
+not counts, so \code{\link[stats:binomial]{stats::binomial()}} warns about non-integer successes at every
+fit. The two solve the same estimating equation, since they share the binomial
+variance function, and the dispersion the quasi family estimates never reaches
+the sandwich, which is built from the score alone. The results are therefore
+identical rather than merely close.
+
 An offset is supported, written either as an \code{offset()} term in the outcome
 formula or passed through the model's \code{offset} argument. It is carried
 through both the outcome-model score and the fixed-exposure linear
@@ -170,7 +178,15 @@ df <- data.frame(exposure = z, x1 = x1, y = y)
 
 fit <- balance(df, exposure, x1, method = bw_entropy(), estimand = "ate")
 df$.wts <- as.numeric(weights(fit))
-outcome_mod <- glm(y ~ exposure, data = df, family = binomial(), weights = .wts)
+
+# quasibinomial() solves the same estimating equation as binomial() and does
+# not warn that weights are not counts.
+outcome_mod <- glm(
+  y ~ exposure,
+  data = df,
+  family = quasibinomial(),
+  weights = .wts
+)
 
 ipw(fit, outcome_mod)
 
@@ -179,7 +195,7 @@ ipw(fit, outcome_mod)
 adjusted_mod <- glm(
   y ~ exposure + x1,
   data = df,
-  family = binomial(),
+  family = quasibinomial(),
   weights = .wts
 )
 
@@ -210,7 +226,7 @@ df$.arm_wts <- as.numeric(weights(arm_fit))
 arm_mod <- glm(
   relapse ~ arm,
   data = df,
-  family = binomial(),
+  family = quasibinomial(),
   weights = .arm_wts
 )
 
