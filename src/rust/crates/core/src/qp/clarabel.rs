@@ -110,13 +110,7 @@ impl QpBackend for Clarabel {
             cones.push(NonnegativeConeT(n_nonneg));
         }
 
-        let settings = DefaultSettings::<f64> {
-            verbose: false,
-            max_iter: opts.max_iter.min(u32::MAX as usize) as u32,
-            tol_gap_abs: opts.eps_abs,
-            tol_feas: opts.eps_abs,
-            ..Default::default()
-        };
+        let settings = solver_settings(opts);
 
         let mut solver = DefaultSolver::new(&p_csc, &spec.q, &a_csc, &b, &cones, settings)
             .map_err(|e| QpError::Setup(format!("{e:?}")))?;
@@ -149,6 +143,31 @@ impl QpBackend for Clarabel {
             dua_res: solver.info.res_dual,
             interrupted: false,
         })
+    }
+}
+
+/// Translate the shared tuning into Clarabel settings.
+///
+/// A method's convergence tolerance is documented as setting both the absolute
+/// and the relative solver tolerance, which is what OSQP receives through its
+/// `eps_abs` and `eps_rel` pair. Clarabel splits the same idea across a duality
+/// gap measured absolutely and relatively and a feasibility check measured only
+/// absolutely, so the absolute request drives `tol_gap_abs` and `tol_feas` while
+/// the relative request drives `tol_gap_rel`. Leaving the relative gap at its own
+/// 1e-8 default would silently cap the request, because Clarabel's termination
+/// test accepts either tolerance: a request for 1e-12 would terminate as soon as
+/// the relative gap fell below 1e-8. Clarabel has no relative feasibility
+/// tolerance to map, and the infeasibility-certificate tolerances stay at their
+/// defaults, matching the OSQP backend leaving `eps_prim_inf` and `eps_dual_inf`
+/// alone.
+fn solver_settings(opts: &QpOptions) -> DefaultSettings<f64> {
+    DefaultSettings::<f64> {
+        verbose: false,
+        max_iter: opts.max_iter.min(u32::MAX as usize) as u32,
+        tol_gap_abs: opts.eps_abs,
+        tol_gap_rel: opts.eps_rel,
+        tol_feas: opts.eps_abs,
+        ..Default::default()
     }
 }
 
@@ -327,6 +346,40 @@ mod tests {
             }
         }
         grad.iter().fold(0.0_f64, |worst, g| worst.max(g.abs()))
+    }
+
+    #[test]
+    fn settings_map_both_convergence_tolerances() {
+        let opts = QpOptions {
+            eps_abs: 1e-7,
+            eps_rel: 1e-5,
+            max_iter: 137,
+            ..QpOptions::default()
+        };
+        let settings = solver_settings(&opts);
+        assert_eq!(settings.tol_gap_abs, 1e-7);
+        assert_eq!(settings.tol_feas, 1e-7);
+        assert_eq!(settings.tol_gap_rel, 1e-5);
+        assert_eq!(settings.max_iter, 137);
+        assert!(!settings.verbose);
+    }
+
+    #[test]
+    fn a_relative_tolerance_below_the_clarabel_default_is_carried_through() {
+        // The relative gap tolerance sits in an OR-condition termination test, so
+        // leaving it at its own default would let a request far below that default
+        // terminate at the default instead.
+        let opts = QpOptions {
+            eps_abs: 1e-12,
+            eps_rel: 1e-12,
+            ..QpOptions::default()
+        };
+        let settings = solver_settings(&opts);
+        assert!(
+            settings.tol_gap_rel <= 1e-12,
+            "tol_gap_rel is {}",
+            settings.tol_gap_rel
+        );
     }
 
     #[test]
