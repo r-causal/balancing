@@ -4485,6 +4485,40 @@ test_that("ipw() refuses a grouped binomial outcome model", {
   expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
 })
 
+# The other arm of the same refusal is a multivariate `lm()`, whose response is a
+# matrix because the fit carries one coefficient block per response column. It
+# has to be refused by the shape check itself, for the opposite reason the
+# grouped binomial does: the grouped form scales the weights it was given, so
+# something downstream would object to it anyway, wrongly blaming the caller's
+# weights, while a multivariate fit records exactly the weights it was given and
+# nothing downstream finds anything wrong with it at all. The message is the one
+# the grouped binomial snapshots, which is why it names both readings.
+
+test_that("ipw() refuses a multivariate lm outcome model", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  data$.wts <- w
+  mlm_mod <- stats::lm(cbind(y_cont, y) ~ exposure, data = data, weights = .wts)
+  expect_s3_class(mlm_mod, "mlm")
+
+  # The weights the model recorded are exactly the ones supplied, so the weight
+  # preflight the grouped binomial trips passes this model through.
+  expect_equal(as.numeric(stats::weights(mlm_mod)), w)
+
+  cnd <- expect_error(
+    ipw(fit, mlm_mod),
+    class = "balancing_ipw_unsupported_error"
+  )
+  expect_match(conditionMessage(cnd), "multivariate")
+})
+
 # ---- Re-evaluation hook validation ----------------------------------------
 
 # The container's psi re-evaluation hook crosses into Rust; a wrong-length
