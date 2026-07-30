@@ -360,9 +360,76 @@ test_that("a binary atc fit produces non-negative floored weights", {
   expect_balanced(fit, data, tolerance = 0.1)
 })
 
+# The kernel is built from the same covariate matrix energy balancing forms, so
+# a factor covariate reaches it as one indicator column per level. The expansion
+# is the only place the levels are read, and a fit that lost them would still
+# normalize and still balance the numeric covariates, so the factor's own
+# imbalance is measured directly: the three level proportions differ between the
+# exposure groups by up to 0.19 unweighted.
+
+test_that("kernel balancing balances a factor covariate", {
+  data <- sim_binary()
+  treated <- data$exposure == 1
+  level_gaps <- function(w) {
+    vapply(
+      levels(data$x3),
+      function(level) {
+        indicator <- as.numeric(data$x3 == level)
+        abs(
+          stats::weighted.mean(indicator[treated], w[treated]) -
+            stats::weighted.mean(indicator[!treated], w[!treated])
+        )
+      },
+      numeric(1)
+    )
+  }
+  unweighted <- level_gaps(rep(1, nrow(data)))
+  expect_gt(max(unweighted), 0.15)
+
+  for (estimand in c("ate", "att")) {
+    fit <- balance(
+      data,
+      exposure,
+      c(x1, x2, x3),
+      method = bw_cfd(),
+      estimand = estimand
+    )
+    w <- as.numeric(stats::weights(fit))
+    control_target <- if (identical(estimand, "ate")) {
+      sum(!treated)
+    } else {
+      sum(treated)
+    }
+    expect_true(fit@converged)
+    expect_equal(sum(w[treated]), sum(treated), tolerance = 1e-4)
+    expect_equal(sum(w[!treated]), control_target, tolerance = 1e-4)
+    expect_true(all(w >= 1e-8))
+
+    # Every level's gap closes by at least a factor of four and lands inside a
+    # ceiling no unweighted level clears.
+    weighted <- level_gaps(w)
+    expect_true(all(weighted < unweighted / 4))
+    expect_lt(max(weighted), 0.01)
+    expect_balanced(fit, data, tolerance = 0.1)
+  }
+})
+
 # ---- ESS ------------------------------------------------------------------
 
-test_that("the effective sample size is bounded by n within each group", {
+# Kish effective sample size, computed inline since balance assessment moved to
+# halfmoon. Bounds alone are no test of it: every strictly positive weight
+# vector sits between zero and its own group size by Cauchy-Schwarz, so the
+# specs below pin where the figure lands, what moves it, and the one case where
+# it is exact.
+kish_ess <- function(w) sum(w)^2 / sum(w^2)
+
+# The groups come from the data, which is where the level a row belongs to is
+# recorded.
+exposure_groups <- function(data) {
+  split(seq_len(nrow(data)), as.character(data$exposure))
+}
+
+test_that("a binary ate spends part of each group on balance", {
   data <- sim_binary()
   fit <- balance(
     data,
@@ -371,17 +438,68 @@ test_that("the effective sample size is bounded by n within each group", {
     method = bw_cfd(),
     estimand = "ate"
   )
-  # Kish effective sample size computed inline within each exposure group, since
-  # balance assessment moved to halfmoon; each group's figure stays positive and
-  # bounded by that group's size. The groups come from the data, which is where
-  # the level a row belongs to is recorded.
   w <- as.numeric(weights(fit))
-  groups <- split(seq_len(nrow(data)), as.character(data$exposure))
-  for (idx in groups) {
-    group_ess <- sum(w[idx])^2 / sum(w[idx]^2)
-    expect_gt(group_ess, 0)
-    expect_lte(group_ess, length(idx) + 1e-8)
+  for (idx in exposure_groups(data)) {
+    group_ess <- kish_ess(w[idx])
+    # Balancing this confounded exposure costs precision, so the figure is
+    # strictly below the group size by a wide margin rather than merely bounded
+    # by it: uniform weights, which balance nothing, would sit at the size
+    # exactly. It stays well clear of the floor a handful of dominating weights
+    # would leave, which is the other way a fit can fail while still reporting
+    # positive weights.
+    expect_lt(group_ess, 0.9 * length(idx))
+    expect_gt(group_ess, 0.1 * length(idx))
   }
+})
+
+test_that("the per-group effective sample size rises with the weight penalty", {
+  # The weight penalty is the L2 term that pulls the solution toward the base
+  # weights, so raising it buys precision back from balance. Tying the figure to
+  # the knob that moves it is what distinguishes these weights from any other
+  # positive vector: an arbitrary one has no reason to be ordered this way in
+  # both groups at once.
+  data <- sim_binary()
+  ess_at <- function(penalty) {
+    fit <- balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_cfd(weight_penalty = penalty),
+      estimand = "ate"
+    )
+    w <- as.numeric(weights(fit))
+    vapply(exposure_groups(data), function(idx) kish_ess(w[idx]), numeric(1))
+  }
+  penalties <- c(1e-4, 1e-2, 1e-1)
+  curve <- lapply(penalties, ess_at)
+
+  for (step in seq_len(length(curve) - 1L)) {
+    expect_true(all(curve[[step + 1L]] > curve[[step]]))
+  }
+})
+
+test_that("a focal group keeps its base weights, so its ESS is its size", {
+  # The focal group of a treated estimand is held at its base weights and
+  # renormalized to its own total, which leaves every one of its weights equal
+  # to one. Its effective sample size is therefore its size exactly, an equality
+  # the reweighted group cannot meet: that group carries the whole tilt and
+  # comes back at a fraction of its own size.
+  data <- sim_binary()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_cfd(),
+    estimand = "att"
+  )
+  w <- as.numeric(weights(fit))
+  groups <- exposure_groups(data)
+  focal <- groups[[fit@focal_level]]
+  reweighted <- groups[[setdiff(names(groups), fit@focal_level)]]
+
+  expect_equal(kish_ess(w[focal]), length(focal), tolerance = 1e-8)
+  expect_lt(kish_ess(w[reweighted]), 0.5 * length(reweighted))
+  expect_gt(kish_ess(w[reweighted]), 0.05 * length(reweighted))
 })
 
 # ---- Categorical ----------------------------------------------------------

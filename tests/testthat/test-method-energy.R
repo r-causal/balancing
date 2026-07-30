@@ -316,6 +316,61 @@ test_that("a binary atc fit produces non-negative weights", {
   expect_balanced(fit, data, tolerance = 0.1)
 })
 
+# A factor covariate crosses the covariate-distance boundary as one indicator
+# column per level, since each level is a coordinate of that distance. The
+# expansion is the only place the levels are read, so a regression in it would
+# leave the objective running on the wrong coordinates while the fit still
+# returned weights that normalize and balance the numeric covariates. The
+# factor's own imbalance is therefore measured directly: the three level
+# proportions differ between the exposure groups by up to 0.19 unweighted.
+
+test_that("energy balancing balances a factor covariate", {
+  data <- sim_binary()
+  treated <- data$exposure == 1
+  level_gaps <- function(w) {
+    vapply(
+      levels(data$x3),
+      function(level) {
+        indicator <- as.numeric(data$x3 == level)
+        abs(
+          stats::weighted.mean(indicator[treated], w[treated]) -
+            stats::weighted.mean(indicator[!treated], w[!treated])
+        )
+      },
+      numeric(1)
+    )
+  }
+  unweighted <- level_gaps(rep(1, nrow(data)))
+  expect_gt(max(unweighted), 0.15)
+
+  for (estimand in c("ate", "att")) {
+    fit <- balance(
+      data,
+      exposure,
+      c(x1, x2, x3),
+      method = bw_energy(),
+      estimand = estimand
+    )
+    w <- as.numeric(stats::weights(fit))
+    control_target <- if (identical(estimand, "ate")) {
+      sum(!treated)
+    } else {
+      sum(treated)
+    }
+    expect_true(fit@converged)
+    expect_equal(sum(w[treated]), sum(treated), tolerance = 1e-4)
+    expect_equal(sum(w[!treated]), control_target, tolerance = 1e-4)
+    expect_true(all(w >= 1e-8))
+
+    # Every level's gap closes by at least a factor of four and lands inside a
+    # ceiling no unweighted level clears.
+    weighted <- level_gaps(w)
+    expect_true(all(weighted < unweighted / 4))
+    expect_lt(max(weighted), 0.01)
+    expect_balanced(fit, data, tolerance = 0.1)
+  }
+})
+
 # ---- ESS ------------------------------------------------------------------
 
 test_that("the effective sample size is bounded by n within each group", {
@@ -805,6 +860,57 @@ test_that("the higher distribution moments are held on the base measure", {
     weighted_variance(w),
     weighted_variance(data$sw),
     tolerance = 1e-4
+  )
+})
+
+test_that("a third distribution moment is held on the base measure", {
+  # The distribution rows go up in order together, so a third-moment fit holds
+  # the first three central moments of the exposure and of every numeric
+  # covariate at their sampling-weighted values. The third moment is what
+  # separates this from the second-moment case, which matches the mean and the
+  # variance and leaves the skewness where the objective puts it.
+  data <- sim_continuous()
+  withr::local_seed(17)
+  data$sw <- stats::runif(nrow(data), 0.3, 3)
+  fit_of <- function(moments) {
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_energy(distribution_moments = moments),
+      estimand = "ate",
+      sampling_weights = sw
+    )
+  }
+  central_moment <- function(values, weights, order) {
+    center <- stats::weighted.mean(values, weights)
+    sum(weights * (values - center)^order) / sum(weights)
+  }
+
+  w <- as.numeric(stats::weights(fit_of(3L)))
+  for (column in c("exposure", "x1", "x2")) {
+    values <- data[[column]]
+    expect_equal(
+      stats::weighted.mean(values, w),
+      stats::weighted.mean(values, data$sw),
+      tolerance = 1e-8
+    )
+    for (order in 2:3) {
+      expect_equal(
+        central_moment(values, w, order),
+        central_moment(values, data$sw, order),
+        tolerance = 1e-8
+      )
+    }
+  }
+
+  # The third row does real work: without it the exposure's third moment is not
+  # held anywhere near the target the row pins it to.
+  w_two <- as.numeric(stats::weights(fit_of(2L)))
+  target <- central_moment(data$exposure, data$sw, 3)
+  expect_gt(
+    abs(central_moment(data$exposure, w_two, 3) - target),
+    1e-4
   )
 })
 

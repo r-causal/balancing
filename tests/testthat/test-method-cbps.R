@@ -743,6 +743,94 @@ test_that("the fit stores the link coefficients", {
   expect_true(all(is.finite(fit@coefficients)))
 })
 
+# The propensity the stored coefficients model is the second exposure level's,
+# for every estimand: the fit codes the treated indicator as the second level and
+# leaves which group keeps its base weights to the core estimand the focal level
+# resolves. A focal estimand naming the first level is where the two could come
+# apart, since the core solves the untreated problem there while the coefficients
+# have to keep their orientation, and nothing about a mirrored coefficient vector
+# would look wrong on its own: it produces a propensity in range, weights in
+# range, and the same achieved balance.
+#
+# Each estimand's weight function is read at the propensity rebuilt from the
+# stored coefficients, and each is exact up to the per-group reporting rescale,
+# so the ratio is constant within a group. Read against the first level's
+# propensity instead, the same ratios vary by tens of percent.
+
+test_that("the stored coefficients model the second level for every estimand", {
+  data <- sim_binary()
+  relative_spread <- function(x) stats::sd(x) / mean(x)
+  fit_of <- function(estimand, focal_level = NULL) {
+    if (is.null(focal_level)) {
+      balance(
+        data,
+        exposure,
+        c(x1, x2),
+        method = bw_cbps(),
+        estimand = estimand
+      )
+    } else {
+      balance(
+        data,
+        exposure,
+        c(x1, x2),
+        method = bw_cbps(),
+        estimand = estimand,
+        focal_level = focal_level
+      )
+    }
+  }
+  treated <- data$exposure == 1
+
+  cases <- list(
+    # The pooled estimand reweights both groups to the sample, so each unit
+    # carries the inverse of its own level's modeled probability.
+    list(
+      fit = fit_of("ate"),
+      treated_form = function(p) 1 / p,
+      control_form = function(p) 1 / (1 - p)
+    ),
+    # The default focal for the treated estimand is the second level, which keeps
+    # its base weights while the first level is tilted toward it.
+    list(
+      fit = fit_of("att"),
+      treated_form = function(p) rep(1, sum(treated)),
+      control_form = function(p) p / (1 - p)
+    ),
+    # The same estimand pointed at the first level solves the untreated problem
+    # in the core while the coefficients still model the second level, so the
+    # forms exchange places and the propensity does not.
+    list(
+      fit = fit_of("att", focal_level = "0"),
+      treated_form = function(p) (1 - p) / p,
+      control_form = function(p) rep(1, sum(!treated))
+    ),
+    list(
+      fit = fit_of("atu"),
+      treated_form = function(p) (1 - p) / p,
+      control_form = function(p) rep(1, sum(!treated))
+    )
+  )
+
+  for (case in cases) {
+    p <- fitted_propensity(case$fit, data)
+    w <- as.numeric(stats::weights(case$fit))
+
+    # The modeled probability runs higher among the units that took the second
+    # level; a vector modeling the first level would reverse this.
+    expect_gt(mean(p[treated]), mean(p[!treated]))
+
+    expect_lt(
+      relative_spread(w[treated] / case$treated_form(p[treated])),
+      1e-6
+    )
+    expect_lt(
+      relative_spread(w[!treated] / case$control_form(p[!treated])),
+      1e-6
+    )
+  }
+})
+
 # ---- Estimating equations from the core -----------------------------------
 
 test_that("a just-identified binary fit populates consistent estimating equations", {
