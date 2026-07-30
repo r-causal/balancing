@@ -117,6 +117,18 @@ where
         }
         x.copy_from_slice(&x_new);
 
+        // The stopping rule is relative to the loss, with a floor of one so a loss
+        // that passes near zero does not demand an absolute change of zero. The
+        // floor carries a calibration assumption: the tolerance was chosen for
+        // losses of order one, which the entropy dual satisfies at the weight
+        // scales this package normalizes to. It is not scale-free above that. A
+        // global rescaling of the sampling weights shifts the dual by the log of
+        // the factor, and a factor of a million adds about fourteen to a loss of
+        // order one, loosening the rule by roughly the same multiple. The exact
+        // path is unaffected, since Newton judges the gradient rather than the
+        // loss and the gradient carries its own scale through
+        // `EsteqProblem::residual_scale`; only the inexact path's stopping point
+        // moves, and it moves in the direction of stopping sooner.
         let denom = prev_loss.abs().max(1.0);
         if (prev_loss - loss_new).abs() <= rel_tol * denom {
             converged = true;

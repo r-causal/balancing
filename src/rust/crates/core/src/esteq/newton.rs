@@ -47,6 +47,19 @@ fn value_resolution(value: f64) -> f64 {
 
 /// A positive ridge seed scaled to the Hessian magnitude, used the first time a
 /// zero ridge fails to yield a usable direction.
+///
+/// The seed is a small fraction of the Hessian's average diagonal magnitude, so
+/// it is a relative perturbation on a well-scaled problem and grows with the
+/// Hessian rather than against it. The floor of one on that magnitude is the
+/// calibration assumption: for a Hessian whose diagonal is far below one, which a
+/// sampling-weight scale far below one would produce, the seed stops tracking the
+/// matrix and becomes the absolute `1e-10`, large enough to dominate the
+/// curvature. The floor stands because the seed is only reachable when the
+/// factorization of the unridged Hessian fails or its solution does not descend,
+/// and the positive definite Jacobians the members of this family present do not
+/// reach that branch; where they do, through an exactly singular direction, the
+/// escalation from this seed is what recovers a usable direction rather than a
+/// quantity any estimate depends on.
 fn ridge_seed(h: &[f64], p: usize) -> f64 {
     let mut trace = 0.0;
     for i in 0..p {
