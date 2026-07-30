@@ -219,3 +219,166 @@ test_that("solve_cbps_cont() refuses a non-finite exposure", {
     "non-finite"
   )
 })
+
+# The quadratic-program entry points reached their solvers without a finiteness
+# gate, so the boundary is made uniform with the estimating-equation family: every
+# numeric block a solve reads is refused when it carries a non-finite value.
+
+test_that("solve_energy() refuses non-finite covariates and sampling weights", {
+  treat <- c(0L, 0L, 1L, 1L)
+  empty <- numeric(0)
+  options <- list(threads = 1L)
+  expect_error(
+    solve_energy(
+      c(-1, -0.5, 0.5, Inf),
+      treat,
+      rep(1, 4),
+      "scaled_euclidean",
+      "ate",
+      TRUE,
+      empty,
+      empty,
+      empty,
+      0,
+      1e-4,
+      options
+    ),
+    "non-finite"
+  )
+  expect_error(
+    solve_energy(
+      c(-1, -0.5, 0.5, 1),
+      treat,
+      c(1, 1, 1, NaN),
+      "scaled_euclidean",
+      "ate",
+      TRUE,
+      empty,
+      empty,
+      empty,
+      0,
+      1e-4,
+      options
+    ),
+    "non-finite"
+  )
+})
+
+test_that("solve_energy_cont() refuses a non-finite exposure", {
+  empty <- numeric(0)
+  bal_covs <- matrix(numeric(0), nrow = 4, ncol = 0)
+  expect_error(
+    solve_energy_cont(
+      c(-1, -0.5, 0.5, 1),
+      c(-1, 0, 1, Inf),
+      rep(1, 4),
+      "scaled_euclidean",
+      TRUE,
+      0,
+      1e-4,
+      matrix(c(-1, -0.5, 0.5, 1), ncol = 1),
+      matrix(c(-1, 0, 1, 2), ncol = 1),
+      bal_covs,
+      empty,
+      list(threads = 1L)
+    ),
+    "non-finite"
+  )
+})
+
+test_that("solve_sbw() refuses non-finite sampling weights and moment columns", {
+  treat <- c(0L, 0L, 1L, 1L)
+  empty <- numeric(0)
+  options <- list(threads = 1L)
+  expect_error(
+    solve_sbw(
+      treat,
+      c(1, 1, 1, Inf),
+      "ate",
+      "l2",
+      empty,
+      empty,
+      empty,
+      0,
+      options
+    ),
+    "non-finite"
+  )
+  expect_error(
+    solve_sbw(
+      treat,
+      rep(1, 4),
+      "ate",
+      "l2",
+      c(-1, -0.5, 0.5, NaN),
+      0,
+      0.1,
+      0,
+      options
+    ),
+    "non-finite"
+  )
+})
+
+test_that("solve_sbw_cont() refuses a non-finite exposure", {
+  expect_error(
+    solve_sbw_cont(
+      c(-1, 0, 1, Inf),
+      c(-1, -0.5, 0.5, 1),
+      rep(1, 4),
+      "l2",
+      0.1,
+      0,
+      list(threads = 1L)
+    ),
+    "non-finite"
+  )
+})
+
+test_that("solve_cfd() refuses non-finite covariates and projections", {
+  treat <- c(0L, 0L, 1L, 1L)
+  empty <- numeric(0)
+  options <- list(threads = 1L, backend = "auto")
+  expect_error(
+    solve_cfd(
+      c(-1, -0.5, 0.5, Inf),
+      treat,
+      rep(1, 4),
+      "gaussian",
+      1,
+      1.5,
+      empty,
+      TRUE,
+      "ate",
+      empty,
+      empty,
+      empty,
+      0,
+      1e-4,
+      options
+    ),
+    "non-finite"
+  )
+  # The t kernel's frequency projections are drawn on the R side, which is exactly
+  # where an infinite degrees of freedom used to leave them all non-finite.
+  expect_error(
+    solve_cfd(
+      c(-1, -0.5, 0.5, 1),
+      treat,
+      rep(1, 4),
+      "t",
+      1,
+      1.5,
+      c(NaN, NaN),
+      TRUE,
+      "ate",
+      empty,
+      empty,
+      empty,
+      0,
+      1e-4,
+      options
+    ),
+    "non-finite"
+  )
+})

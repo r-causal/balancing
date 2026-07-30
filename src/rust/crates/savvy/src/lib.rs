@@ -890,7 +890,7 @@ fn eval_psi_cbps(
         max_iter: 0,
         tol: 0.0,
     };
-    let psi = cbps::eval_psi_binary_just(&inputs, coefs.as_slice());
+    let psi = cbps::eval_psi_binary_just(&inputs, coefs.as_slice()).map_err(savvy::Error::new)?;
     Ok(real_matrix(&psi, n, p)?.into())
 }
 
@@ -953,7 +953,8 @@ fn eval_weights_cbps(
         max_iter: 0,
         tol: 0.0,
     };
-    let weights = cbps::eval_weights_binary_just(&inputs, coefs.as_slice());
+    let weights =
+        cbps::eval_weights_binary_just(&inputs, coefs.as_slice()).map_err(savvy::Error::new)?;
     Ok(real_vector(&weights)?.into())
 }
 
@@ -1166,6 +1167,11 @@ fn solve_energy(
     if treat_slice.iter().any(|&t| t != 0 && t != 1) {
         return Err(savvy::Error::new("treat must hold only zero and one"));
     }
+    require_finite(covs.as_slice(), "covs")?;
+    require_finite(s_weights.as_slice(), "s_weights")?;
+    require_finite(moment_covs.as_slice(), "moment_covs")?;
+    require_finite(targets.as_slice(), "targets")?;
+    require_finite(tols.as_slice(), "tols")?;
     let opts = parse_qp_options(options)?;
     let dist = parse_distance(distance)?;
     let energy_estimand = match estimand {
@@ -1245,6 +1251,11 @@ fn solve_energy_multi(
             "focal must be a level present in treat_idx",
         ));
     }
+    require_finite(covs.as_slice(), "covs")?;
+    require_finite(s_weights.as_slice(), "s_weights")?;
+    require_finite(moment_covs.as_slice(), "moment_covs")?;
+    require_finite(targets.as_slice(), "targets")?;
+    require_finite(tols.as_slice(), "tols")?;
     let opts = parse_qp_options(options)?;
     let dist = parse_distance(distance)?;
     let energy_estimand = match estimand {
@@ -1343,6 +1354,13 @@ fn solve_energy_cont(
             "d_covs, d_treat, and bal_covs must each have n rows",
         ));
     }
+    require_finite(covs.as_slice(), "covs")?;
+    require_finite(treat.as_slice(), "treat")?;
+    require_finite(s_weights.as_slice(), "s_weights")?;
+    require_finite(d_covs.as_slice(), "d_covs")?;
+    require_finite(d_treat.as_slice(), "d_treat")?;
+    require_finite(bal_covs.as_slice(), "bal_covs")?;
+    require_finite(bal_tols.as_slice(), "bal_tols")?;
     let opts = parse_qp_options(options)?;
     let dist = parse_distance(distance)?;
 
@@ -1449,6 +1467,10 @@ fn solve_sbw(
     if treat_slice.iter().any(|&t| t != 0 && t != 1) {
         return Err(savvy::Error::new("treat must hold only zero and one"));
     }
+    require_finite(s_weights.as_slice(), "s_weights")?;
+    require_finite(moment_covs.as_slice(), "moment_covs")?;
+    require_finite(targets.as_slice(), "targets")?;
+    require_finite(tols.as_slice(), "tols")?;
     let qp = parse_sbw_options(options)?;
     let norm = parse_sbw_norm(norm)?;
     let sbw_estimand = match estimand {
@@ -1521,6 +1543,10 @@ fn solve_sbw_multi(
             "focal must be a level present in treat_idx",
         ));
     }
+    require_finite(s_weights.as_slice(), "s_weights")?;
+    require_finite(moment_covs.as_slice(), "moment_covs")?;
+    require_finite(targets.as_slice(), "targets")?;
+    require_finite(tols.as_slice(), "tols")?;
     let qp = parse_sbw_options(options)?;
     let norm = parse_sbw_norm(norm)?;
     let sbw_estimand = match estimand {
@@ -1585,6 +1611,10 @@ fn solve_sbw_cont(
     if covs.len() != n * n_covs {
         return Err(savvy::Error::new("covs must be n by length(tols)"));
     }
+    require_finite(treat.as_slice(), "treat")?;
+    require_finite(covs.as_slice(), "covs")?;
+    require_finite(s_weights.as_slice(), "s_weights")?;
+    require_finite(tols.as_slice(), "tols")?;
     let qp = parse_sbw_options(options)?;
     let norm = parse_sbw_norm(norm)?;
 
@@ -1698,6 +1728,12 @@ fn solve_cfd(
     if treat_slice.iter().any(|&t| t != 0 && t != 1) {
         return Err(savvy::Error::new("treat must hold only zero and one"));
     }
+    require_finite(covs.as_slice(), "covs")?;
+    require_finite(s_weights.as_slice(), "s_weights")?;
+    require_finite(t_proj.as_slice(), "t_proj")?;
+    require_finite(moment_covs.as_slice(), "moment_covs")?;
+    require_finite(targets.as_slice(), "targets")?;
+    require_finite(tols.as_slice(), "tols")?;
     let opts = parse_cfd_options(options)?;
     let kernel = parse_kernel(kernel)?;
     let matern_nu = parse_smoothness(smoothness)?;
@@ -1790,6 +1826,12 @@ fn solve_cfd_multi(
             "focal must be a level present in treat_idx",
         ));
     }
+    require_finite(covs.as_slice(), "covs")?;
+    require_finite(s_weights.as_slice(), "s_weights")?;
+    require_finite(t_proj.as_slice(), "t_proj")?;
+    require_finite(moment_covs.as_slice(), "moment_covs")?;
+    require_finite(targets.as_slice(), "targets")?;
+    require_finite(tols.as_slice(), "tols")?;
     let opts = parse_cfd_options(options)?;
     let kernel = parse_kernel(kernel)?;
     let matern_nu = parse_smoothness(smoothness)?;
@@ -1878,6 +1920,9 @@ fn kernel_matrix(
             "discarded must be empty or have length n",
         ));
     }
+    require_finite(covs.as_slice(), "covs")?;
+    require_finite(s_weights.as_slice(), "s_weights")?;
+    require_finite(t_proj.as_slice(), "t_proj")?;
     let threads = parse_kernel_options(options)?;
     let kernel = parse_kernel(kernel)?;
     let matern_nu = parse_smoothness(smoothness)?;

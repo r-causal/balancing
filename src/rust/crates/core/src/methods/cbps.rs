@@ -435,16 +435,41 @@ fn solve_binary_just(inputs: &CbpsInputs<'_>, interrupt: &dyn Fn() -> bool) -> C
 /// propensity into a balancing factor, the weights into the estimand's weight.
 fn model_propensities(inputs: &CbpsInputs<'_>, beta: &[f64]) -> Vec<f64> {
     let n = inputs.n;
+    let p = inputs.p_mod;
+    // The linear predictor sums over the model columns, not over whatever the
+    // caller supplied, so a short coefficient vector is a broken call rather than
+    // a model on fewer columns. Iterating the slice instead would build the
+    // predictor from a prefix of the design and return propensities that look
+    // ordinary. The public re-evaluation entrypoints refuse the mismatch before
+    // reaching here, so this asserts the invariant they establish.
+    assert!(
+        beta.len() == p,
+        "beta has length {} but the propensity model has {p} coefficient(s)",
+        beta.len()
+    );
     (0..n)
         .map(|i| {
-            let eta: f64 = beta
-                .iter()
-                .enumerate()
-                .map(|(j, b)| inputs.covs_mod[j * n + i] * b)
-                .sum();
+            let eta: f64 = (0..p).map(|j| inputs.covs_mod[j * n + i] * beta[j]).sum();
             inputs.link.linkinv(eta)
         })
         .collect()
+}
+
+/// Check that `beta` carries one coefficient per model covariate, the shared
+/// precondition of the re-evaluation entrypoints.
+///
+/// A short vector would otherwise build the linear predictor from a prefix of the
+/// design and a long one would ignore its tail, so the mismatch is returned for
+/// the boundary layer to surface rather than left to produce a plausible-looking
+/// answer from the wrong model.
+fn check_beta(p: usize, beta: &[f64]) -> Result<(), String> {
+    if p == 0 || beta.len() != p {
+        return Err(format!(
+            "beta has length {} but the propensity model has {p} coefficient(s)",
+            beta.len()
+        ));
+    }
+    Ok(())
 }
 
 /// Re-evaluate the binary just-identified estimating functions at a supplied set
@@ -455,9 +480,10 @@ fn model_propensities(inputs: &CbpsInputs<'_>, beta: &[f64]) -> Vec<f64> {
 /// parameters. This recomputes the `n` by `p` matrix from `beta` without
 /// solving, matching [`solve_binary_just`]: column `j` is
 /// `s_i c_i(beta) x_ij`, the balancing factor times the model covariate.
-pub fn eval_psi_binary_just(inputs: &CbpsInputs<'_>, beta: &[f64]) -> Vec<f64> {
+pub fn eval_psi_binary_just(inputs: &CbpsInputs<'_>, beta: &[f64]) -> Result<Vec<f64>, String> {
     let n = inputs.n;
     let p = inputs.p_mod;
+    check_beta(p, beta)?;
     let ps = model_propensities(inputs, beta);
     let mut psi = vec![0.0; n * p];
     for (i, &prob) in ps.iter().enumerate() {
@@ -467,7 +493,7 @@ pub fn eval_psi_binary_just(inputs: &CbpsInputs<'_>, beta: &[f64]) -> Vec<f64> {
             psi[j * n + i] = sc * inputs.covs_mod[j * n + i];
         }
     }
-    psi
+    Ok(psi)
 }
 
 /// Re-evaluate the binary just-identified balancing weights at a supplied set
@@ -479,12 +505,13 @@ pub fn eval_psi_binary_just(inputs: &CbpsInputs<'_>, beta: &[f64]) -> Vec<f64> {
 /// solving, at the same scale [`solve_binary_just`] reports: the estimand's
 /// weight function evaluated at the modeled propensity and the unit's treatment
 /// indicator.
-pub fn eval_weights_binary_just(inputs: &CbpsInputs<'_>, beta: &[f64]) -> Vec<f64> {
-    model_propensities(inputs, beta)
+pub fn eval_weights_binary_just(inputs: &CbpsInputs<'_>, beta: &[f64]) -> Result<Vec<f64>, String> {
+    check_beta(inputs.p_mod, beta)?;
+    Ok(model_propensities(inputs, beta)
         .into_iter()
         .enumerate()
         .map(|(i, prob)| inputs.estimand.weight(prob, f64::from(inputs.treat[i])))
-        .collect()
+        .collect())
 }
 
 // ---- Binary over-identified GMM --------------------------------------------
@@ -1461,7 +1488,8 @@ mod tests {
             let stored = result.psi.as_ref().expect("just-identified has psi");
             let jac = result.jac.as_ref().expect("just-identified has jac");
 
-            let recomputed = eval_psi_binary_just(&inputs, &result.coefs);
+            let recomputed =
+                eval_psi_binary_just(&inputs, &result.coefs).expect("beta length matches");
             for (a, b) in stored.iter().zip(&recomputed) {
                 assert!((a - b).abs() < 1e-10, "psi mismatch: {a} vs {b}");
             }
@@ -1472,8 +1500,8 @@ mod tests {
                 let mut down = result.coefs.clone();
                 up[col] += eps;
                 down[col] -= eps;
-                let psi_up = eval_psi_binary_just(&inputs, &up);
-                let psi_down = eval_psi_binary_just(&inputs, &down);
+                let psi_up = eval_psi_binary_just(&inputs, &up).expect("beta length matches");
+                let psi_down = eval_psi_binary_just(&inputs, &down).expect("beta length matches");
                 for row in 0..p {
                     let cs_up: f64 = (0..n).map(|i| psi_up[row * n + i]).sum();
                     let cs_down: f64 = (0..n).map(|i| psi_down[row * n + i]).sum();
@@ -1522,7 +1550,8 @@ mod tests {
             assert!(result.converged, "estimand {estimand:?} did not converge");
             let dw = result.dw_dbeta.as_ref().expect("just-identified has dw");
 
-            let recomputed = eval_weights_binary_just(&inputs, &result.coefs);
+            let recomputed =
+                eval_weights_binary_just(&inputs, &result.coefs).expect("beta length matches");
             assert_eq!(recomputed.len(), n);
             for (i, (a, b)) in result.weights.iter().zip(&recomputed).enumerate() {
                 assert!(
@@ -1537,8 +1566,8 @@ mod tests {
                 let mut down = result.coefs.clone();
                 up[col] += eps;
                 down[col] -= eps;
-                let w_up = eval_weights_binary_just(&inputs, &up);
-                let w_down = eval_weights_binary_just(&inputs, &down);
+                let w_up = eval_weights_binary_just(&inputs, &up).expect("beta length matches");
+                let w_down = eval_weights_binary_just(&inputs, &down).expect("beta length matches");
                 for i in 0..n {
                     let fd = (w_up[i] - w_down[i]) / (2.0 * eps);
                     let analytic = dw[col * n + i];
@@ -1589,7 +1618,8 @@ mod tests {
         assert!(result.converged, "moment norm {}", result.obj_value);
         let dw = result.dw_dbeta.as_ref().expect("just-identified has dw");
 
-        let recomputed = eval_weights_binary_just(&inputs, &result.coefs);
+        let recomputed =
+            eval_weights_binary_just(&inputs, &result.coefs).expect("beta length matches");
         for (i, (a, b)) in result.weights.iter().zip(&recomputed).enumerate() {
             assert!(
                 (a - b).abs() < 1e-12,
@@ -1603,8 +1633,8 @@ mod tests {
             let mut down = result.coefs.clone();
             up[col] += eps;
             down[col] -= eps;
-            let w_up = eval_weights_binary_just(&inputs, &up);
-            let w_down = eval_weights_binary_just(&inputs, &down);
+            let w_up = eval_weights_binary_just(&inputs, &up).expect("beta length matches");
+            let w_down = eval_weights_binary_just(&inputs, &down).expect("beta length matches");
             for i in 0..n {
                 let fd = (w_up[i] - w_down[i]) / (2.0 * eps);
                 let analytic = dw[col * n + i];
@@ -1614,6 +1644,89 @@ mod tests {
                 );
             }
         }
+    }
+
+    // A coefficient vector shorter than the model design used to build the linear
+    // predictor from however many coefficients it held, so a caller that passed
+    // the wrong length got propensities from a subset of the columns rather than a
+    // complaint. Both re-evaluation entrypoints report the mismatch, matching how
+    // inverse probability tilting guards its own.
+    #[test]
+    fn eval_psi_rejects_wrong_length_beta() {
+        let (covs, treat, n) = saturated_design();
+        let s = vec![1.0; n];
+        let inputs = CbpsInputs {
+            covs_mod: &covs,
+            covs_bal: &covs,
+            n,
+            p_mod: 2,
+            p_bal: 2,
+            treat: &treat,
+            s: &s,
+            link: Link::Logit,
+            estimand: CbpsEstimand::Ate,
+            over: false,
+            twostep: false,
+            threads: 1,
+            max_iter: 0,
+            tol: 0.0,
+        };
+        let err = eval_psi_binary_just(&inputs, &[0.0]).unwrap_err();
+        assert!(err.contains("beta has length 1"), "message was: {err}");
+        let err = eval_psi_binary_just(&inputs, &[0.0, 0.0, 0.0]).unwrap_err();
+        assert!(err.contains("beta has length 3"), "message was: {err}");
+    }
+
+    #[test]
+    fn eval_weights_rejects_wrong_length_beta() {
+        let (covs, treat, n) = saturated_design();
+        let s = vec![1.0; n];
+        let inputs = CbpsInputs {
+            covs_mod: &covs,
+            covs_bal: &covs,
+            n,
+            p_mod: 2,
+            p_bal: 2,
+            treat: &treat,
+            s: &s,
+            link: Link::Logit,
+            estimand: CbpsEstimand::Ate,
+            over: false,
+            twostep: false,
+            threads: 1,
+            max_iter: 0,
+            tol: 0.0,
+        };
+        let err = eval_weights_binary_just(&inputs, &[0.0]).unwrap_err();
+        assert!(err.contains("beta has length 1"), "message was: {err}");
+    }
+
+    // The propensity map is the shared inner step, and it used to truncate the
+    // linear predictor silently. The public entrypoints refuse a wrong length
+    // first, so this pins that the inner step fails loudly rather than returning a
+    // partial model if a future caller reaches it directly.
+    #[test]
+    #[should_panic(expected = "beta has length 1")]
+    fn model_propensities_fails_loudly_on_short_beta() {
+        let (covs, treat, n) = saturated_design();
+        let s = vec![1.0; n];
+        let inputs = CbpsInputs {
+            covs_mod: &covs,
+            covs_bal: &covs,
+            n,
+            p_mod: 2,
+            p_bal: 2,
+            treat: &treat,
+            s: &s,
+            link: Link::Logit,
+            estimand: CbpsEstimand::Ate,
+            over: false,
+            twostep: false,
+            threads: 1,
+            max_iter: 0,
+            tol: 0.0,
+        };
+        let _ = model_propensities(&inputs, &[0.0]);
     }
 
     #[test]
