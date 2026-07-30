@@ -2,7 +2,8 @@
 //!
 //! Interior-point methods require a positive-semidefinite quadratic form, so
 //! this backend refuses a spec tagged `Indefinite` up front rather than
-//! returning a meaningless iterate. It is admissible for the diagonal and
+//! returning a meaningless iterate, and it refuses a spec with no decision
+//! variables for the same reason. It is admissible for the diagonal and
 //! kernel forms of the other quadratic-program methods; energy balancing always
 //! routes to OSQP. Two-sided bounds are expressed in the conic form Clarabel
 //! consumes: an equality row becomes a zero-cone row, and a finite lower or
@@ -59,6 +60,20 @@ impl QpBackend for Clarabel {
         }
 
         let n = spec.n;
+        // A spec with no decision variables has nothing to solve for, and Clarabel's
+        // own dimension check accepts it. With constraint rows still present it
+        // returns an infeasibility certificate against rows no variable can satisfy;
+        // with no rows either, the KKT system is empty and its factorization indexes
+        // the first entry of nothing. OSQP's data validation refuses the same spec,
+        // and every method turns that refusal into a degenerate result carrying a
+        // failure status, so refusing it here keeps the two backends interchangeable
+        // and keeps the R layer raising one condition rather than two.
+        if n == 0 {
+            return Err(QpError::Setup(
+                "the problem has no decision variables".to_string(),
+            ));
+        }
+
         let (p_indptr, p_indices, p_values) = upper_triangular_csc(&spec.p, n);
         let p_csc = CscMatrix::new(n, n, p_indptr, p_indices, p_values);
 
@@ -392,6 +407,55 @@ mod tests {
             }
         }
         grad.iter().fold(0.0_f64, |worst, g| worst.max(g.abs()))
+    }
+
+    /// A spec with no decision variables and `rows` constraint rows. The
+    /// no-variable shape is what a stable-balancing solve assembles when its active
+    /// set is empty: the balance rows survive and demand a group total of one from
+    /// nothing at all.
+    fn empty_spec(rows: usize) -> QpSpec {
+        QpSpec {
+            n: 0,
+            m: rows,
+            p: PMat::Diagonal(vec![]),
+            q: vec![],
+            a_indptr: vec![0],
+            a_indices: vec![],
+            a_values: vec![],
+            l: vec![1.0; rows],
+            u: vec![1.0; rows],
+            convexity: Convexity::Psd,
+        }
+    }
+
+    #[test]
+    fn a_spec_with_no_decision_variables_is_refused_by_both_backends() {
+        // OSQP's data validation refuses a spec with no variables, and the methods
+        // turn that refusal into a degenerate result carrying a failure status.
+        // Clarabel's own dimension check accepts it, so without a guard the same
+        // spec would reach the R layer as an infeasibility certificate under one
+        // backend and a solver failure under the other.
+        let spec = empty_spec(1);
+        let theirs = Osqp
+            .solve(&spec, &QpOptions::default(), &|| false)
+            .unwrap_err();
+        assert!(matches!(theirs, QpError::Setup(_)), "osqp: {theirs:?}");
+        let mine = Clarabel
+            .solve(&spec, &QpOptions::default(), &|| false)
+            .unwrap_err();
+        assert!(matches!(mine, QpError::Setup(_)), "clarabel: {mine:?}");
+    }
+
+    #[test]
+    fn a_spec_with_no_variables_and_no_rows_is_refused_before_the_factorization() {
+        // With neither variables nor rows the KKT system Clarabel factors is empty,
+        // and its factorization indexes the first entry of that empty system. The
+        // refusal has to come before the solver is built.
+        let spec = empty_spec(0);
+        let err = Clarabel
+            .solve(&spec, &QpOptions::default(), &|| false)
+            .unwrap_err();
+        assert!(matches!(err, QpError::Setup(_)), "clarabel: {err:?}");
     }
 
     #[test]

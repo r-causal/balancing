@@ -992,6 +992,32 @@ mod tests {
 
     #[test]
     #[cfg(feature = "qp-clarabel")]
+    fn an_empty_active_set_fails_the_same_way_under_either_backend() {
+        // Every unit absent from every level leaves no weight variable to solve for
+        // while the group and moment rows survive, so there is no problem to hand a
+        // backend. Both refuse it, and the refusal becomes the same failure status
+        // whichever backend was asked, so the R layer raises one condition rather
+        // than two.
+        use crate::qp::QpBackendChoice;
+        let levels = [-1, -1, -1, -1];
+        let s = vec![1.0; 4];
+        let z = vec![0.5, -0.5, 0.5, -0.5];
+        let mut osqp = discrete_inputs(&levels, 2, &s, SbwEstimand::Ate, &z, &[0.0], &[0.1]);
+        osqp.qp.backend = QpBackendChoice::Osqp;
+        let osqp_result = solve_discrete(&osqp, &|| false).unwrap();
+        let mut clarabel = discrete_inputs(&levels, 2, &s, SbwEstimand::Ate, &z, &[0.0], &[0.1]);
+        clarabel.qp.backend = QpBackendChoice::Clarabel;
+        let clarabel_result = solve_discrete(&clarabel, &|| false).unwrap();
+        assert!(!osqp_result.converged, "osqp status {}", osqp_result.status);
+        assert_eq!(
+            clarabel_result.status, osqp_result.status,
+            "clarabel reported {} against osqp {}",
+            clarabel_result.status, osqp_result.status
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "qp-clarabel")]
     fn a_pending_interrupt_surfaces_from_the_clarabel_backend() {
         // The interior-point backend has no iteration chunking to stop at, so it
         // stops through its own termination callback. The result reads the same as
