@@ -277,7 +277,13 @@ method(causalgenerics_ipw, balancing) <- function(
       error_class = "balancing_ipw_input_error"
     )
   }
-  levels <- fit_exposure_levels(wt_mod)
+  # The exposure levels come off the fit rather than being sorted out of the
+  # frame again. The fit recorded the ordering its solve used, whose first element
+  # is the reference level every contrast below is measured against. Sorting the
+  # data's own values here would agree with that by coincidence and disagree
+  # silently whenever a factor declares its levels out of alphabetical order,
+  # which would report every contrast against the wrong level.
+  levels <- wt_mod@exposure_levels
   validate_ipw_exposure_levels(frame[[exposure_name]], levels, exposure_name)
 
   # The variance engine composes the sampling weights onto the weights the
@@ -357,18 +363,6 @@ abort_ipw_unsupported <- function(
     call = call,
     .envir = environment()
   )
-}
-
-# The exposure levels the fit weighted, in the fit's own order, whose first
-# element is the reference level every contrast is measured against. `balance()`
-# groups the data by level and records those groups alongside the weights, so
-# the weights carry the ordering the solve used: a factor's declared level order
-# for a factor exposure, and the sorted values otherwise. Sorting the data's own
-# values again here would agree with that ordering by coincidence and disagree
-# silently whenever a factor declares its levels out of alphabetical order, which
-# would report every contrast against the wrong level.
-fit_exposure_levels <- function(fit) {
-  names(attr(fit@weights, "groups"))
 }
 
 # The outcome model describes the same exposure the fit weighted only when it

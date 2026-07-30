@@ -14,6 +14,14 @@
 
 \item{exposure_type}{The resolved exposure type.}
 
+\item{exposure_levels}{The exposure levels the fit weighted, as character
+strings in the order \code{levels(factor(exposure))} gives: a factor's declared
+order for a factor exposure, and the values sorted in their own type
+otherwise, so a numeric dose of 9 and 10 orders 9 first. Levels no
+observation takes are dropped and do not appear. The first element is the
+reference level every contrast in \code{\link[=ipw.balancing]{ipw()}} is measured
+against. A continuous exposure carries no levels, so the vector is empty.}
+
 \item{covariates}{The covariate column names.}
 
 \item{focal_level}{The focal exposure level for \code{"att"} and \code{"atc"}, or

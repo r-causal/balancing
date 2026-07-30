@@ -385,15 +385,14 @@ test_that("combining or repeating a bw drops the groups attribute", {
   expect_null(attr(rep(w, 2), "groups"))
 })
 
-# `weights()` is on the other side of the same line. It is a public accessor
-# returning a derived value, so it hands back the numbers and the estimand and
-# leaves the positions on the fit. Both of its branches are pinned here because
-# the asymmetry between them is what the strip removes: the composing branch
-# would drop `groups` on its own by way of `vec_restore.bw()`, and the branch
-# that returns the balancing weights alone would otherwise pass the property
-# straight through, so the same accessor would have two return shapes depending
-# on whether the fit was given sampling weights.
-test_that("weights() drops the groups attribute the fit keeps", {
+# A fit carries no row positions on its weight vector at all: what the exposure
+# levels are is recorded as a property of the fit, and which rows take each level
+# is in the data. Both branches of `weights()` are pinned here because the
+# symmetry between them is the contract: the composing branch would drop any extra
+# attribute by way of `vec_restore.bw()`, and the branch that returns the
+# balancing weights alone hands back the fit's own vector, so the accessor has one
+# return shape whether or not the fit was given sampling weights.
+test_that("weights() carries the estimand and no fit metadata", {
   data <- sim_binary(200)
   data$sampling <- rep(c(0.8, 1.2), length.out = nrow(data))
   sampled <- balance(
@@ -412,12 +411,26 @@ test_that("weights() drops the groups attribute the fit keeps", {
     estimand = "ate"
   )
 
-  # The fit's own weight vector is where `groups` lives and the only place it is
-  # guaranteed to be, since `new_bw()` builds it there and nothing else writes
-  # it. `fit_exposure_levels()` reads the level order off exactly this.
-  expect_identical(names(attr(sampled@weights, "groups")), c("0", "1"))
-  expect_identical(names(attr(plain@weights, "groups")), c("0", "1"))
+  # The exposure levels are on the fit, not on the weights.
+  expect_identical(sampled@exposure_levels, c("0", "1"))
+  expect_identical(plain@exposure_levels, c("0", "1"))
+  expect_null(attr(sampled@weights, "groups"))
+  expect_null(attr(plain@weights, "groups"))
 
+  # The class and the estimand are the whole of what a weight vector carries, on
+  # the fit and out of the accessor alike.
+  expect_setequal(names(attributes(sampled@weights)), c("class", "estimand"))
+  expect_setequal(
+    names(attributes(stats::weights(sampled))),
+    c("class", "estimand")
+  )
+  expect_setequal(
+    names(attributes(stats::weights(
+      sampled,
+      include_sampling_weights = FALSE
+    ))),
+    c("class", "estimand")
+  )
   expect_null(attr(stats::weights(sampled), "groups"))
   expect_null(
     attr(stats::weights(sampled, include_sampling_weights = FALSE), "groups")

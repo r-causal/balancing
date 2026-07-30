@@ -373,6 +373,13 @@ balancing_estimating_equations <- new_class(
 #' @param estimand The resolved estimand string.
 #' @param exposure The exposure column name.
 #' @param exposure_type The resolved exposure type.
+#' @param exposure_levels The exposure levels the fit weighted, as character
+#'   strings in the order `levels(factor(exposure))` gives: a factor's declared
+#'   order for a factor exposure, and the values sorted in their own type
+#'   otherwise, so a numeric dose of 9 and 10 orders 9 first. Levels no
+#'   observation takes are dropped and do not appear. The first element is the
+#'   reference level every contrast in [`ipw()`][ipw.balancing] is measured
+#'   against. A continuous exposure carries no levels, so the vector is empty.
 #' @param covariates The covariate column names.
 #' @param focal_level The focal exposure level for `"att"` and `"atc"`, or
 #'   `NULL`.
@@ -401,6 +408,7 @@ balancing <- new_class(
     estimand = class_character,
     exposure = class_character,
     exposure_type = class_character,
+    exposure_levels = class_character,
     covariates = class_character,
     focal_level = NULL | class_character,
     n = class_integer,

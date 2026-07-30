@@ -2818,7 +2818,7 @@ test_that("ipw() standard errors with an offset come from the variance engine", 
     outcome_mod = outcome_mod,
     frame = data,
     exposure_name = fit@exposure,
-    levels = fit_exposure_levels(fit),
+    levels = fit@exposure_levels,
     sampling_weights = fit@sampling_weights
   )
 
@@ -3401,7 +3401,7 @@ call_deli_sandwich <- function(fit, outcome_mod, data) {
     outcome_mod = outcome_mod,
     frame = data,
     exposure_name = fit@exposure,
-    levels = fit_exposure_levels(fit),
+    levels = fit@exposure_levels,
     categorical = identical(fit@exposure_type, "categorical"),
     sampling_weights = fit@sampling_weights
   )
@@ -3706,7 +3706,7 @@ test_that("ipw_deli_sandwich() refuses a rank-deficient stack", {
       outcome_mod = outcome_mod,
       frame = data,
       exposure_name = fit@exposure,
-      levels = fit_exposure_levels(fit),
+      levels = fit@exposure_levels,
       sampling_weights = fit@sampling_weights
     ),
     regexp = "singular"
@@ -3756,7 +3756,7 @@ test_that("ipw_deli_sandwich() refuses a stack whose bread is not finite", {
       outcome_mod = outcome_mod,
       frame = data,
       exposure_name = fit@exposure,
-      levels = fit_exposure_levels(fit),
+      levels = fit@exposure_levels,
       sampling_weights = fit@sampling_weights
     )),
     class = "balancing_ipw_unsupported_error"
@@ -3827,7 +3827,7 @@ test_that("the deli sandwich evaluates each hook once per distinct weight vector
     outcome_mod = outcome_mod,
     frame = data,
     exposure_name = fit@exposure,
-    levels = fit_exposure_levels(fit),
+    levels = fit@exposure_levels,
     sampling_weights = fit@sampling_weights
   )
 

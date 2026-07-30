@@ -192,7 +192,7 @@ test_that("a binary factor with an unused level fits an estimating-equation meth
   data <- sim_binary(n = 200)
   data$exposure <- factor(data$exposure, levels = c(0, 1, 2))
   fit <- balance(data, exposure, c(x1, x2), method = bw_entropy())
-  expect_equal(names(attr(fit@weights, "groups")), c("0", "1"))
+  expect_equal(fit@exposure_levels, c("0", "1"))
   expect_true(all(is.finite(as.numeric(stats::weights(fit)))))
 })
 
@@ -207,9 +207,9 @@ test_that("a binary factor with an unused level fits a quadratic-program method"
     method = bw_sbw(),
     constraints = balance_terms(tolerance = 0.05)
   )
-  groups <- attr(fit@weights, "groups")
+  groups <- split(seq_len(nrow(data)), as.character(data$exposure))
   w <- as.numeric(weights(fit))
-  expect_equal(names(groups), c("0", "1"))
+  expect_equal(fit@exposure_levels, c("0", "1"))
   group_ess <- vapply(
     groups,
     function(idx) sum(w[idx])^2 / sum(w[idx]^2),
@@ -227,7 +227,7 @@ test_that("a categorical factor with an unused level fits an estimating-equation
     levels = c(present, "zzz")
   )
   fit <- balance(data, exposure, c(x1, x2), method = bw_ipt())
-  expect_false("zzz" %in% names(attr(fit@weights, "groups")))
+  expect_false("zzz" %in% fit@exposure_levels)
   expect_true(all(is.finite(as.numeric(stats::weights(fit)))))
 })
 
@@ -240,9 +240,9 @@ test_that("a categorical factor with an unused level keeps a finite effective sa
     levels = c(present, "zzz")
   )
   fit <- balance(data, exposure, c(x1, x2), method = bw_energy())
-  groups <- attr(fit@weights, "groups")
+  groups <- split(seq_len(nrow(data)), as.character(data$exposure))
   w <- as.numeric(weights(fit))
-  expect_false("zzz" %in% names(groups))
+  expect_false("zzz" %in% fit@exposure_levels)
   group_ess <- vapply(
     groups,
     function(idx) sum(w[idx])^2 / sum(w[idx]^2),
@@ -363,6 +363,77 @@ test_that("factor exposure levels keep the declared order", {
   expect_identical(exposure_levels(exposure, "binary"), c("lo", "hi"))
 })
 
+# ---- The fit's exposure-level property -------------------------------------
+
+# The levels a fit weighted are part of its contract: their first element is the
+# reference level every contrast in `ipw()` is measured against. They are recorded
+# as a property whose order is `levels(factor(x))`, so a consumer reads them
+# without knowing how the fit stored its groups. They used to ride as an
+# undocumented attribute on the weight vector.
+test_that("the fit records its exposure levels as a property", {
+  data <- sim_binary(n = 200)
+  fit <- balance(data, exposure, c(x1, x2), method = bw_entropy())
+  expect_identical(fit@exposure_levels, c("0", "1"))
+  expect_identical(fit@exposure_levels, levels(factor(data$exposure)))
+  expect_null(attr(fit@weights, "groups"))
+})
+
+test_that("the recorded exposure levels order numerically, not as characters", {
+  data <- sim_binary(n = 200)
+  data$exposure <- ifelse(data$exposure == 1, 10, 9)
+  fit <- balance(data, exposure, c(x1, x2), method = bw_entropy())
+  expect_identical(fit@exposure_levels, c("9", "10"))
+})
+
+test_that("the recorded exposure levels keep a factor's declared order", {
+  data <- sim_binary(n = 200)
+  data$exposure <- factor(
+    ifelse(data$exposure == 1, "hi", "lo"),
+    levels = c("hi", "lo")
+  )
+  fit <- balance(data, exposure, c(x1, x2), method = bw_entropy())
+  expect_identical(fit@exposure_levels, c("hi", "lo"))
+})
+
+test_that("the recorded exposure levels list every observed level", {
+  data <- sim_categorical(n = 300)
+  fit <- balance(data, exposure, c(x1, x2), method = bw_entropy())
+  expect_identical(fit@exposure_levels, levels(factor(data$exposure)))
+  expect_gt(length(fit@exposure_levels), 2L)
+})
+
+test_that("the recorded exposure levels omit an unused factor level", {
+  withr::local_options(balancing.quiet = TRUE)
+  data <- sim_binary(n = 200)
+  data$exposure <- factor(data$exposure, levels = c(0, 1, 2))
+  fit <- balance(data, exposure, c(x1, x2), method = bw_entropy())
+  expect_identical(fit@exposure_levels, c("0", "1"))
+})
+
+test_that("a continuous fit records no exposure levels", {
+  data <- sim_continuous(n = 150)
+  fit <- balance(data, exposure, c(x1, x2), method = bw_entropy())
+  expect_identical(fit@exposure_levels, character(0))
+})
+
+test_that("every method family records the same exposure levels", {
+  data <- sim_binary(n = 200)
+  methods <- list(bw_entropy(), bw_ipt(), bw_cbps(), bw_energy(), bw_cfd())
+  for (method in methods) {
+    fit <- balance(data, exposure, c(x1, x2), method = method)
+    expect_identical(fit@exposure_levels, c("0", "1"))
+  }
+  # Stable balancing weights need a positive tolerance, their central knob.
+  sbw <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_sbw(),
+    constraints = balance_terms(tolerance = 0.05)
+  )
+  expect_identical(sbw@exposure_levels, c("0", "1"))
+})
+
 # ---- Focal level ----------------------------------------------------------
 
 test_that("a binary att targets the numerically larger exposure level", {
@@ -385,7 +456,7 @@ test_that("a binary att targets the numerically larger exposure level", {
     estimand = "att"
   )
   expect_identical(att@focal_level, "10")
-  expect_identical(names(attr(att@weights, "groups")), c("9", "10"))
+  expect_identical(att@exposure_levels, c("9", "10"))
 
   # Entropy balancing leaves the focal group at its uniform base weights carried
   # to its own total, so a fit that held the wrong group fixed would show level

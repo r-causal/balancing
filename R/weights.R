@@ -121,24 +121,21 @@ vec_ptype_full.bw <- function(x, ...) {
   }
 }
 
-# Restoration keeps the estimand and drops `groups`. The estimand describes what
-# the weights target, which every vector derived from them still targets;
-# `groups` records which rows of the fit belong to each exposure level, a set of
-# row positions into one particular weight vector. A restored vector is a
-# different vector, so the positions no longer describe it and the fit's own
-# `@weights` remains the only place they hold. That property is what
-# `fit_exposure_levels()` reads, and it is built by `new_bw()` rather than
-# arrived at through here.
+# Restoration keeps the estimand and nothing else. The estimand describes what the
+# weights target, which every vector derived from them still targets. An extra
+# attribute a developer put on a vector through `new_bw()`'s dots does not
+# survive, and row positions are the case that shows why the rule has to be
+# unconditional: a set of positions into one weight vector says nothing about a
+# different vector.
 #
-# Dropping in every case is the only rule that is correct in every case. Keeping
-# the attribute whenever the restored size matched would cover `w * 2` and
-# `cumsum(w)`, which rewrite each element where it stands, but it would also
+# Keeping such an attribute whenever the restored size matched would cover `w * 2`
+# and `cumsum(w)`, which rewrite each element where it stands, but it would also
 # cover `rev(w)`, `sort(w)`, and `w[c(1, 1, 2, 2)]`, which come back at the same
 # size holding different rows. Nothing here can separate them: `vec_restore()`
 # receives the restored data and the object it came from, never the index that
-# produced them, so the operation that moved the rows is not among its
-# arguments. Carrying `groups` through a reordering would take a hook that is
-# handed that index.
+# produced them, so the operation that moved the rows is not among its arguments.
+# Carrying positions through a reordering would take a hook that is handed that
+# index.
 #' @export
 vec_restore.bw <- function(x, to, ...) {
   if (inherits(x, "bw")) {
@@ -319,16 +316,7 @@ method(weights, balancing) <- function(
 ) {
   rlang::check_dots_empty()
 
-  # The `groups` attribute is a set of row positions into the fit's own weight
-  # vector, so it stays on the `@weights` property, where `fit_exposure_levels()`
-  # reads it, and does not travel out through a public accessor. Stripping it as
-  # the vector leaves the fit is what gives this accessor one return shape:
-  # composing sampling weights would drop it downstream in `vec_restore.bw()`
-  # anyway, and a caller asking for the balancing weights alone would otherwise
-  # be handed positions that only the fit can interpret.
   w <- object@weights
-  attr(w, "groups") <- NULL
-
   if (include_sampling_weights && !is.null(object@sampling_weights)) {
     w <- w * object@sampling_weights
   }

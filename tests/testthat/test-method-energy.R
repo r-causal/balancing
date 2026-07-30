@@ -329,9 +329,10 @@ test_that("the effective sample size is bounded by n within each group", {
   )
   # Kish effective sample size computed inline within each exposure group, since
   # balance assessment moved to halfmoon; each group's figure stays positive and
-  # bounded by that group's size.
+  # bounded by that group's size. The groups come from the data, which is where
+  # the level a row belongs to is recorded.
   w <- as.numeric(weights(fit))
-  groups <- attr(fit@weights, "groups")
+  groups <- split(seq_len(nrow(data)), as.character(data$exposure))
   for (idx in groups) {
     group_ess <- sum(w[idx])^2 / sum(w[idx]^2)
     expect_gt(group_ess, 0)

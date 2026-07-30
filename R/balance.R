@@ -237,7 +237,7 @@ balance <- function(
 
   check_solver_status(fit, method)
 
-  weights <- new_bw(fit$weights, estimand = estimand, groups = groups)
+  weights <- new_bw(fit$weights, estimand = estimand)
 
   # The base measure the solver targets. Only entropy balancing carries base
   # weights; other methods anchor to a uniform measure. It sets the pooled target
@@ -284,6 +284,7 @@ balance <- function(
     estimand = estimand,
     exposure = exposure_name,
     exposure_type = exposure_type,
+    exposure_levels = levels,
     covariates = covariate_names,
     focal_level = focal_level,
     n = as.integer(n),
