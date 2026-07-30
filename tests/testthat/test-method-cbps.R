@@ -3,8 +3,9 @@
 # satisfy covariate balancing moment conditions. In the just-identified form the
 # number of moment conditions equals the number of parameters, so the balancing
 # conditions hold exactly and the achieved balance matches the requested
-# moments. In the over-identified form the model score equations are stacked onto
-# the balancing conditions and a GMM criterion is minimized, so balance is
+# moments. In the over-identified form the response-residual moments (t - p) x
+# are stacked onto the balancing conditions and a GMM criterion is minimized, so
+# balance is
 # approximate and the method reports the criterion value rather than estimating
 # equations.
 #
@@ -516,7 +517,7 @@ test_that("an explicit focal_level agrees with the estimand that infers it", {
 })
 
 test_that("an over-identified binary fit honors an explicit focal_level", {
-  # The over-identified criterion stacks the model score equations onto the same
+  # The over-identified criterion stacks the response-residual moments onto the same
   # balancing conditions, so it reads the focal level through the same estimand
   # the just-identified form does. Naming the first level as the focal for "att"
   # therefore reproduces the criterion the untreated estimand minimizes.
@@ -1039,8 +1040,8 @@ test_that("two_step is warned and ignored without over_identified", {
 # ---- over_identified outside a binary exposure ----------------------------
 
 test_that("over_identified is warned and ignored for a categorical exposure", {
-  # The generalized-method-of-moments criterion stacks the propensity model's
-  # score equations onto the balancing conditions, which the core minimizes for a
+  # The generalized-method-of-moments criterion stacks the response-residual
+  # moments onto the balancing conditions, which the core minimizes for a
   # binary exposure alone. A categorical fit cannot honor the request, so it
   # announces the setting as ignored on the convention two_step follows and
   # returns the just-identified solution.

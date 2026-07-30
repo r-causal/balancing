@@ -1,9 +1,11 @@
 # bw_cfd() is the method spec; balance(..., method = bw_cfd()) fits it.
 # Characteristic function distance balancing (kernel balancing) chooses weights
 # that minimize a kernel measure of the distance between the reweighted exposure
-# groups and the target sample. Each kernel is positive semidefinite by
-# construction, so the objective is a convex quadratic program with a
-# simplex-type constraint set, and the method spec carries only tuning
+# groups and the target sample. Every kernel but energy is positive semidefinite
+# by construction, so the objective is a convex quadratic program with a
+# simplex-type constraint set; the energy kernel is conditionally positive
+# semidefinite alone, so its quadratic form is indefinite and the solve routes to
+# the ADMM backend. The method spec carries only tuning
 # parameters. The improved variant adds the mean-embedding target adjustment of
 # the CFD literature. The energy kernel is the negative pairwise distance, so
 # bw_cfd(kernel = "energy") reproduces bw_energy() on the same data
@@ -838,8 +840,8 @@ test_that("ipw() rejects a kernel balancing fit", {
 # ---- Backend routing ------------------------------------------------------
 
 test_that("an explicit clarabel backend solves and records itself", {
-  # The kernels are positive semidefinite by construction, so the interior-point
-  # backend is eligible and honors the option.
+  # The default kernel, like every kernel but energy, is positive semidefinite by
+  # construction, so the interior-point backend is eligible and honors the option.
   withr::local_options(balancing.qp_backend = "clarabel")
   data <- sim_binary()
   fit <- balance(

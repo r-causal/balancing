@@ -16,7 +16,11 @@
 #' For a binary exposure the average treatment effect reweights each exposure
 #' group to the pooled covariate means, and the average treatment effect on the
 #' treated reweights the control group to the treated covariate means while the
-#' treated group keeps its base weights. When every requested tolerance is zero
+#' treated group is left unreweighted. Its reported weights are its base weights
+#' carried to the group's sampling-weighted total rather than the base weights
+#' themselves, so they are proportional to the base weights and constant base
+#' weights come back as ones whatever level they were set at. When every
+#' requested tolerance is zero
 #' the constraints hold exactly and the weights solve smooth estimating
 #' equations, which [balance()] records for the M-estimation variance in
 #' [`ipw()`][ipw.balancing]. A
@@ -33,7 +37,14 @@
 #'   smaller than the constraint moments. The base measure is the product of the
 #'   sampling weights and `base_weights`, so without either the marginals are
 #'   held equal to the unweighted sample.
-#' @param convergence_tolerance The solver convergence tolerance on the gradient.
+#' @param convergence_tolerance The solver convergence tolerance. What it
+#'   measures depends on which problem is solved. The exact problem, chosen when
+#'   every tolerance in [balance_terms()] is zero, measures the gradient sup norm
+#'   and responds to this value across its range. A positive tolerance selects
+#'   the inexact problem, solved by FISTA against the relative change in the
+#'   loss; that criterion is the weaker of the two, so the value is tightened to
+#'   at most `1e-14` to hold the achieved balance inside the requested box, and
+#'   anything above `1e-14` is inert there.
 #' @param max_iterations The maximum solver iterations, or `NULL` for the core
 #'   default.
 #' @param ... Reserved for future extensions; must be empty. Tuning parameters
@@ -564,12 +575,17 @@ fit_entropy_continuous <- function(method, prepared) {
     rep(0, n_product)
   )
 
-  # The exposure and each covariate column cross standardized and their
-  # marginals are held to unit variance, so the weighted mean of their product
-  # is the weighted exposure-covariate correlation. The tolerance is therefore
-  # applied to the product columns directly, on the correlation scale the design
-  # specifies, without the standard-deviation rescaling the discrete indicators
-  # need.
+  # The exposure crosses standardized, and so does a numeric covariate column,
+  # whose marginal is held to unit variance, so the weighted mean of their
+  # product is the weighted exposure-covariate correlation and the tolerance
+  # applies to the product column directly, on the correlation scale the design
+  # specifies. An indicator column crosses raw, since a zero/one column is not
+  # standardized, so its product carries the indicator's own standard deviation
+  # and the tolerance binds on a covariance scale instead. That scale is never
+  # the looser of the two, an indicator's standard deviation being at most a
+  # half, so such a constraint is met at least as strictly as the tolerance
+  # reads. Neither case needs the standard-deviation rescaling the discrete
+  # methods apply.
   tols <- c(rep(0, n_marginal), tolerances)
   inexact <- any(tolerances > 0)
   n_eff <- sum(s)

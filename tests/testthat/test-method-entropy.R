@@ -6,8 +6,11 @@
 #
 # Group-sum conventions follow entropy balancing's usual normalization: for the
 # ate every exposure group's weights sum to its group size (mean weight one);
-# for the att the treated group keeps its base weights and the control group is
-# reweighted to the treated total.
+# for the att the treated group is left unreweighted, its base weights carried to
+# the group's sampling-weighted total, and the control group is reweighted to the
+# treated total. The treated weights are therefore proportional to the base
+# weights rather than equal to them: constant base weights come back as ones
+# whatever level they were set at.
 
 # ---- Constructor ----------------------------------------------------------
 

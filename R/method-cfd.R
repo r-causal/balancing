@@ -1,8 +1,10 @@
 # Characteristic function distance balancing (kernel balancing): weights that
 # minimize a kernel measure of the distance between the reweighted exposure
-# groups and the target sample. Each kernel is positive semidefinite by
-# construction, so the objective is a convex quadratic program with a
-# simplex-type constraint set and the method spec carries only tuning parameters.
+# groups and the target sample. Every kernel but energy is positive semidefinite
+# by construction, so the objective is a convex quadratic program with a
+# simplex-type constraint set; the energy kernel is conditionally positive
+# semidefinite alone, so its quadratic form is indefinite and the solve routes to
+# the ADMM backend. The method spec carries only tuning parameters.
 # fit_method() assembles the covariate columns and, for the t kernel, the
 # Monte Carlo frequency projections drawn under R's random number generator,
 # calls the Rust solver, renormalizes each group to its estimand target total,
@@ -40,8 +42,10 @@ snap_smoothness <- function(smoothness) {
 #' `bw_cfd()` specifies characteristic function distance balancing, also
 #' called kernel balancing, for [balance()]. The weights minimize a kernel
 #' measure of the distance between the reweighted exposure groups and a target
-#' sample, following Wong and Chan. Each supported kernel is positive
-#' semidefinite, so the objective is a convex quadratic program, and the
+#' sample, following Wong and Chan. Every kernel but `"energy"` is positive
+#' semidefinite, so the objective is a convex quadratic program; the energy
+#' kernel is conditionally positive semidefinite alone, so its quadratic form is
+#' indefinite and the solve routes to the ADMM backend. Either way the
 #' reweighting improves multivariate covariate balance without positing a
 #' propensity model. Characteristic function distance balancing supports binary
 #' and categorical exposures.

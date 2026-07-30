@@ -17,8 +17,8 @@ bw_cbps(
 \item{...}{Reserved for future extensions; must be empty. Tuning parameters
 must be passed by name.}
 
-\item{over_identified}{Whether to add the propensity model's score equations
-and minimize the generalized-method-of-moments criterion. \code{FALSE} fits the
+\item{over_identified}{Whether to add the response-residual moments and
+minimize the generalized-method-of-moments criterion. \code{FALSE} fits the
 just-identified form, whose balance is exact. Binary exposures only;
 ignored, with a warning, for a categorical or continuous exposure.}
 
@@ -59,14 +59,26 @@ effect-on-the-treated fit solves the same treated-target moment conditions as
 entropy balancing and inverse probability tilting, so the three methods
 produce the same weights.
 
-Setting \code{over_identified = TRUE} stacks the propensity model's own score
-equations onto the balancing conditions and minimizes a generalized-method-of-
-moments criterion. Balance is then approximate, the fit records the criterion
+Setting \code{over_identified = TRUE} stacks the response-residual moments
+\code{sum(s * (t - p) * x)} onto the balancing conditions and minimizes a
+generalized-method-of-moments criterion. Those moments are the propensity
+model's own score only under the canonical logit link. Under a probit or
+complementary log-log link they stay a valid moment condition, since the
+response residual has mean zero at the true parameters whatever the link, but
+they are not that model's score and the fit is not a likelihood-augmented one.
+Balance is then approximate, the fit records the criterion
 value on its objective, and it supplies no estimating equations. The recorded
 criterion carries no units from the sampling weights: the mean moment and the
 moment covariance the weighting matrix inverts are each divided by the average
 sampling weight, so the same design expressed in survey-expansion units reports
-the same criterion and meets \code{convergence_tolerance} at the same fit. That
+the same criterion and meets \code{convergence_tolerance} at the same fit. A
+converged verdict on that criterion does not always mean the gradient reached
+\code{convergence_tolerance}: the solver also certifies convergence when a full
+Newton step's predicted decrease falls at or below the objective's own
+floating-point resolution, which is the numerical minimum whatever the
+gradient reads. A squared criterion reaches that floor with a gradient near
+the square root of the arithmetic's precision, so this is the ordinary
+outcome rather than an exception. That
 criterion is defined for a binary exposure alone: a categorical or continuous
 exposure has no over-identified form, so the request is warned and ignored and
 the fit balances its moment conditions exactly. \code{two_step} selects the

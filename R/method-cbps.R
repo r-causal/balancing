@@ -2,9 +2,10 @@
 # chosen to satisfy covariate balancing moment conditions. In the just-identified
 # form the number of moment conditions equals the number of parameters, so the
 # balancing conditions hold exactly and the achieved balance matches the
-# requested moments. In the over-identified form the model score equations are
-# stacked onto the balancing conditions and a generalized-method-of-moments
-# criterion is minimized, so balance is approximate and the fit reports the
+# requested moments. In the over-identified form the response-residual moments
+# (t - p) x are stacked onto the balancing conditions and a
+# generalized-method-of-moments criterion is minimized, so balance is approximate
+# and the fit reports the
 # criterion value rather than estimating equations. The method specification
 # carries only tuning parameters; fit_method() prepares the design, calls the
 # Rust solver, applies the estimand's group-sum normalization, and passes the raw
@@ -31,14 +32,26 @@
 #' entropy balancing and inverse probability tilting, so the three methods
 #' produce the same weights.
 #'
-#' Setting `over_identified = TRUE` stacks the propensity model's own score
-#' equations onto the balancing conditions and minimizes a generalized-method-of-
-#' moments criterion. Balance is then approximate, the fit records the criterion
+#' Setting `over_identified = TRUE` stacks the response-residual moments
+#' `sum(s * (t - p) * x)` onto the balancing conditions and minimizes a
+#' generalized-method-of-moments criterion. Those moments are the propensity
+#' model's own score only under the canonical logit link. Under a probit or
+#' complementary log-log link they stay a valid moment condition, since the
+#' response residual has mean zero at the true parameters whatever the link, but
+#' they are not that model's score and the fit is not a likelihood-augmented one.
+#' Balance is then approximate, the fit records the criterion
 #' value on its objective, and it supplies no estimating equations. The recorded
 #' criterion carries no units from the sampling weights: the mean moment and the
 #' moment covariance the weighting matrix inverts are each divided by the average
 #' sampling weight, so the same design expressed in survey-expansion units reports
-#' the same criterion and meets `convergence_tolerance` at the same fit. That
+#' the same criterion and meets `convergence_tolerance` at the same fit. A
+#' converged verdict on that criterion does not always mean the gradient reached
+#' `convergence_tolerance`: the solver also certifies convergence when a full
+#' Newton step's predicted decrease falls at or below the objective's own
+#' floating-point resolution, which is the numerical minimum whatever the
+#' gradient reads. A squared criterion reaches that floor with a gradient near
+#' the square root of the arithmetic's precision, so this is the ordinary
+#' outcome rather than an exception. That
 #' criterion is defined for a binary exposure alone: a categorical or continuous
 #' exposure has no over-identified form, so the request is warned and ignored and
 #' the fit balances its moment conditions exactly. `two_step` selects the
@@ -58,8 +71,8 @@
 #' density ratio and can be unstable; the two share the balancing conditions but
 #' not the weight family.
 #'
-#' @param over_identified Whether to add the propensity model's score equations
-#'   and minimize the generalized-method-of-moments criterion. `FALSE` fits the
+#' @param over_identified Whether to add the response-residual moments and
+#'   minimize the generalized-method-of-moments criterion. `FALSE` fits the
 #'   just-identified form, whose balance is exact. Binary exposures only;
 #'   ignored, with a warning, for a categorical or continuous exposure.
 #' @param two_step Whether to use the two-step weighting matrix for the
@@ -209,7 +222,7 @@ cbps_options <- function(method) {
 }
 
 method(fit_method, bw_cbps) <- function(method, prepared) {
-  # The over-identified criterion stacks the propensity model's score equations
+  # The over-identified criterion stacks the response-residual moments
   # onto the balancing conditions, a form the core minimizes for a binary
   # exposure alone. The categorical and continuous solvers have no such
   # criterion, so the request cannot be honored there and the fit is the

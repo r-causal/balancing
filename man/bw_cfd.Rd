@@ -58,8 +58,10 @@ A \code{bw_cfd} specification, a \link{balance_method}.
 \code{bw_cfd()} specifies characteristic function distance balancing, also
 called kernel balancing, for \code{\link[=balance]{balance()}}. The weights minimize a kernel
 measure of the distance between the reweighted exposure groups and a target
-sample, following Wong and Chan. Each supported kernel is positive
-semidefinite, so the objective is a convex quadratic program, and the
+sample, following Wong and Chan. Every kernel but \code{"energy"} is positive
+semidefinite, so the objective is a convex quadratic program; the energy
+kernel is conditionally positive semidefinite alone, so its quadratic form is
+indefinite and the solve routes to the ADMM backend. Either way the
 reweighting improves multivariate covariate balance without positing a
 propensity model. Characteristic function distance balancing supports binary
 and categorical exposures.
