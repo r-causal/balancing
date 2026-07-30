@@ -31,7 +31,7 @@ use rayon::ThreadPool;
 use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 use rayon::slice::ParallelSliceMut;
 
-use crate::esteq::{self, EsteqProblem, SolveOptions, Solver};
+use crate::esteq::{self, EsteqProblem, SolveOptions, Solver, sampling_weight_scale};
 use crate::glm;
 use crate::links::Link;
 use crate::threads::{deterministic_map_reduce, get_pool};
@@ -283,32 +283,6 @@ fn plan(inputs: &IptInputs<'_>) -> (Vec<(usize, WeightForm)>, Vec<f64>) {
                 .collect();
             (blocks, tau)
         }
-    }
-}
-
-/// The scale the tilting residual carries: one average sampling weight.
-///
-/// Both sides of the moment, the target total and the achieved weighted total,
-/// are sums of `s_i` times a bounded quantity, so expressing the same design in
-/// survey-expansion units multiplies the residual by the expansion factor and
-/// leaves the solution where it was. Dividing the tolerance into that factor,
-/// which the average sampling weight measures, makes the convergence verdict a
-/// statement about the fit rather than about the units. The average, rather than
-/// the accumulated mass, is what keeps the criterion exactly where it has always
-/// been for the unit sampling weights the default tolerance was calibrated on: a
-/// per-mass criterion would loosen it by a factor of the sample size. A
-/// degenerate set of sampling weights falls back to one, the criterion applied
-/// before any scale was read.
-fn sampling_weight_scale(s: &[f64]) -> f64 {
-    if s.is_empty() {
-        return 1.0;
-    }
-    let mass: f64 = s.iter().sum();
-    let scale = mass / s.len() as f64;
-    if scale.is_finite() && scale > 0.0 {
-        scale
-    } else {
-        1.0
     }
 }
 

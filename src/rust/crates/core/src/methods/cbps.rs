@@ -47,7 +47,7 @@ use rayon::ThreadPool;
 use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 use rayon::slice::ParallelSliceMut;
 
-use crate::esteq::{self, EsteqProblem, SolveOptions, Solver};
+use crate::esteq::{self, EsteqProblem, SolveOptions, Solver, sampling_weight_scale};
 use crate::glm;
 use crate::linalg::pseudo_inverse_symmetric;
 use crate::links::Link;
@@ -204,6 +204,7 @@ struct JustBlock<'a> {
     s: &'a [f64],
     link: Link,
     estimand: CbpsEstimand,
+    residual_scale: f64,
     pool: Arc<ThreadPool>,
 }
 
@@ -297,6 +298,10 @@ impl EsteqProblem for JustBlock<'_> {
         None
     }
 
+    fn residual_scale(&self) -> f64 {
+        self.residual_scale
+    }
+
     fn gradient(&self, beta: &[f64], g: &mut [f64]) {
         let acc = self.accumulate(beta, false);
         g.copy_from_slice(&acc.g);
@@ -364,6 +369,7 @@ fn solve_binary_just(inputs: &CbpsInputs<'_>, interrupt: &dyn Fn() -> bool) -> C
         s: inputs.s,
         link: inputs.link,
         estimand: inputs.estimand,
+        residual_scale: sampling_weight_scale(inputs.s),
         pool: Arc::clone(&pool),
     };
 
@@ -1778,6 +1784,53 @@ mod tests {
         }
     }
 
+    // The balancing moment is a sampling-weighted total, so expressing the same
+    // design in survey-expansion units multiplies the residual by the expansion
+    // factor while leaving the solution untouched. The verdict must follow the
+    // solution rather than the units.
+    #[test]
+    fn convergence_verdict_is_invariant_to_the_sampling_weight_scale() {
+        let (covs, treat, n) = saturated_design();
+        let solve_at = |scale: f64| {
+            let s = vec![scale; n];
+            let inputs = CbpsInputs {
+                covs_mod: &covs,
+                covs_bal: &covs,
+                n,
+                p_mod: 2,
+                p_bal: 2,
+                treat: &treat,
+                s: &s,
+                link: Link::Logit,
+                estimand: CbpsEstimand::Ate,
+                over: false,
+                twostep: true,
+                threads: 1,
+                max_iter: 200,
+                tol: 1e-10,
+            };
+            solve(&inputs, &no_interrupt())
+        };
+        let base = solve_at(1.0);
+        let expanded = solve_at(1e6);
+
+        for i in 0..n {
+            assert!(
+                (base.weights[i] - expanded.weights[i]).abs() < 1e-9,
+                "weight[{i}]: unscaled {} versus expanded {}",
+                base.weights[i],
+                expanded.weights[i]
+            );
+        }
+        assert!(base.converged, "the unscaled fit must converge");
+        assert!(
+            expanded.converged,
+            "the expanded fit solved to the same weights but reported \
+             a moment sup norm of {} against tolerance 1e-10",
+            expanded.obj_value
+        );
+    }
+
     #[test]
     fn interrupt_is_surfaced() {
         let (covs, treat, n) = saturated_design();
@@ -2169,6 +2222,7 @@ mod tests {
     /// gradient is the plain moment-Jacobian contraction; the continuously-updated
     /// criterion differentiates the weighting too, and a sampling-weight
     /// double-count in that correction shows up here but not under unit weights.
+
     #[test]
     fn gmm_gradient_matches_finite_differences() {
         let covs = vec![

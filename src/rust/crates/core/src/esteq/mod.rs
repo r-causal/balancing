@@ -77,6 +77,37 @@ pub trait EsteqProblem {
     }
 }
 
+/// The scale an estimating function that is an unnormalized sampling-weight total
+/// carries: one average sampling weight.
+///
+/// A moment of the form `sum_i s_i f_i(beta)`, with `f_i` bounded independently of
+/// the sampling weights, is multiplied by the expansion factor when the same
+/// design is expressed in survey-expansion units, while its root stays exactly
+/// where it was. Dividing the tolerance into that factor, which the average
+/// sampling weight measures, makes the convergence verdict a statement about the
+/// fit rather than about the units. The average, rather than the accumulated mass,
+/// is what keeps the criterion exactly where it has always been for the unit
+/// sampling weights the default tolerance was calibrated on: a per-mass criterion
+/// would loosen it by a factor of the sample size. A degenerate set of sampling
+/// weights falls back to one, the criterion applied before any scale was read.
+///
+/// This is the value such a problem returns from
+/// [`EsteqProblem::residual_scale`]. A problem whose gradient is already degree
+/// zero in the sampling weights, a weighted average rather than a total, needs
+/// none of this and keeps the default of one.
+pub fn sampling_weight_scale(s: &[f64]) -> f64 {
+    if s.is_empty() {
+        return 1.0;
+    }
+    let mass: f64 = s.iter().sum();
+    let scale = mass / s.len() as f64;
+    if scale.is_finite() && scale > 0.0 {
+        scale
+    } else {
+        1.0
+    }
+}
+
 /// Which solver drives the estimating-equation iteration.
 ///
 /// The choice is a runtime option so quasi-Newton and Newton can be compared
@@ -207,4 +238,26 @@ fn lbfgs_solve<P: EsteqProblem>(
     interrupt: &dyn Fn() -> bool,
 ) -> SolveReport {
     newton::solve(problem, beta, opts, interrupt)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_sampling_weight_scale_is_the_average_weight() {
+        assert!((sampling_weight_scale(&[1.0, 1.0, 1.0]) - 1.0).abs() < 1e-12);
+        assert!((sampling_weight_scale(&[1e6; 4]) - 1e6).abs() < 1e-6);
+        // The average, not the mass: a longer vector of the same weights reads the
+        // same scale, so the tolerance does not loosen with the sample size.
+        assert!((sampling_weight_scale(&[0.5, 1.5, 0.5, 1.5]) - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn a_degenerate_sampling_weight_set_falls_back_to_one() {
+        assert_eq!(sampling_weight_scale(&[]), 1.0);
+        assert_eq!(sampling_weight_scale(&[0.0, 0.0]), 1.0);
+        assert_eq!(sampling_weight_scale(&[f64::INFINITY, 1.0]), 1.0);
+        assert_eq!(sampling_weight_scale(&[f64::NAN, 1.0]), 1.0);
+    }
 }
