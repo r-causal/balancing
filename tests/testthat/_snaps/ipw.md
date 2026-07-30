@@ -31,6 +31,17 @@
       x The exposure "exposure" appears in none of its terms.
       i The model may adjust for covariates alongside the exposure, and may carry the exposure inside a transformation such as `factor()`.
 
+# ipw() refuses a continuous outcome model with an unnamed link
+
+    Code
+      stop(cnd)
+    Condition <balancing_ipw_input_error>
+      Error in `ipw()`:
+      ! `outcome_mod` must use a link the continuous effect can be named for.
+      x Its link is "probit".
+      i The supported links are "identity", "logit", and "log", whose exposure coefficients are a slope, a log odds ratio, and a log risk ratio.
+      i See the inference vignette for a bootstrap workflow with other links.
+
 # ipw() rejects an estimand that contradicts the fit
 
     Code

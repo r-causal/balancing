@@ -129,13 +129,16 @@
 #' exposure term is caught however it is written.
 #'
 #' An offset reaches the linear predictor without being a term, so it is checked
-#' on its own. An offset expression naming the exposure, written either into the
-#' formula or passed through the model's `offset` argument, raises
-#' `balancing_ipw_input_error`, since it moves with the exposure and leaves the
-#' coefficient something other than the effect of a one-unit change. An
-#' exposure-free offset stays supported. That check is static, so an offset
-#' supplied as a precomputed vector whose name says nothing about the exposure
-#' is accepted, and keeping the exposure out of it is the caller's to honor.
+#' on its own, and for every exposure type. An offset expression naming the
+#' exposure, written either into the formula or passed through the model's
+#' `offset` argument, raises `balancing_ipw_input_error`. An offset is held at
+#' its observed value while the exposure is fixed to each level, so a discrete
+#' exposure's marginal means would read one exposure in the design and another in
+#' the offset, and a continuous exposure's coefficient would be something other
+#' than the effect of a one-unit change. An exposure-free offset stays supported.
+#' That check is static, so an offset supplied as a precomputed vector whose name
+#' says nothing about the exposure is accepted, and keeping the exposure out of
+#' it is the caller's to honor.
 #'
 #' The exposure may be a factor, a character column, or an integer code, and a
 #' term that transforms it counts as carrying it. A character column becomes a
@@ -185,12 +188,13 @@
 #' identical rather than merely close.
 #'
 #' An offset is supported, written either as an `offset()` term in the outcome
-#' formula or passed through the model's `offset` argument. It is carried
-#' through both the outcome-model score and the fixed-exposure linear
-#' predictors, so the marginal means are the g-computation means with each
-#' unit's offset held at its observed value. A continuous exposure takes an
-#' offset on the narrower terms stated above, since what it reports is a
-#' coefficient of the model rather than a contrast of predictions from it.
+#' formula or passed through the model's `offset` argument, so long as it does
+#' not read the exposure. It is carried through both the outcome-model score and
+#' the fixed-exposure linear predictors, so the marginal means are the
+#' g-computation means with each unit's offset held at its observed value. That
+#' is the right treatment of a quantity the exposure does not move and the wrong
+#' treatment of one it does, which is why the exposure-reading case is refused
+#' above.
 #'
 #' @references
 #' Kostouraki A, Hajage D, Rachet B, et al. On variance estimation of the
@@ -657,9 +661,11 @@ validate_ipw_outcome_model <- function(
     )
   }
   validate_ipw_outcome_family(outcome_mod, call = call)
+  # An offset carrying the exposure spoils both exposure types, so the check runs
+  # before the branch rather than inside it.
+  validate_ipw_exposure_offset(outcome_mod, exposure_name, call = call)
   if (continuous_exposure) {
     validate_ipw_exposure_slope(outcome_mod, exposure_name, call = call)
-    validate_ipw_exposure_offset(outcome_mod, exposure_name, call = call)
     # The link names the reported effect, so a link no effect name describes is
     # refused here, where the frame the message describes is still the ipw()
     # call the caller made rather than the variance engine they never named.
@@ -799,10 +805,20 @@ validate_ipw_exposure_slope <- function(
 # An offset is the second way the exposure can reach the linear predictor, and
 # it reaches it past the term labels the check above reads: an offset is not a
 # term, so a model whose offset is the exposure carries exactly one exposure
-# term and is accepted by that check while its coefficient is no longer the
-# effect of a one-unit change. `y ~ a + offset(a)` estimates a coefficient one
-# below the slope it would report, and a table naming that number the slope
-# would be wrong in a way nothing about it shows.
+# term and is accepted by that check while what it reports is no longer the
+# effect of the exposure. `y ~ a + offset(a)` estimates a coefficient one below
+# the slope it would report, and a table naming that number the slope would be
+# wrong in a way nothing about it shows.
+#
+# A discrete exposure is spoiled the same way through a different route. Its
+# marginal means come from predictions with the exposure fixed to each level,
+# and an offset is held at its observed value across them, since an offset is a
+# known per-unit quantity the counterfactual does not move. An offset computed
+# from the exposure is not known that way, so each prediction reads one exposure
+# in the design and another in the offset, and the means are neither factual nor
+# counterfactual. On the package's own binary fixture the contrast of those
+# means comes back with the opposite sign to the g-computation the same model
+# implies, which is why the check runs for every exposure type.
 #
 # Both places an offset can enter are inspected, since neither records the
 # other. A formula offset lives in the terms object, whose `offset` attribute
@@ -839,7 +855,8 @@ validate_ipw_exposure_offset <- function(
     c(
       "{.arg outcome_mod} must not carry an offset that reads the exposure.",
       x = "{cli::qty(offending)}The offset{?s} {.val {offending}} {?reads/read} the exposure {.val {exposure_name}}.",
-      i = "An offset in the exposure moves with it, so the exposure coefficient is no longer the effect of a one-unit change.",
+      i = "An offset is held at its observed value while the exposure is fixed to each level, so the marginal means would read one exposure in the design and another in the offset.",
+      i = "For a continuous exposure the same offset leaves the exposure coefficient something other than the effect of a one-unit change.",
       i = "An offset that does not read the exposure, such as the person-time offset of a rate model, is supported."
     ),
     error_class = "balancing_ipw_input_error",

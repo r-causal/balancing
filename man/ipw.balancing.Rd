@@ -166,13 +166,16 @@ terms rather than the text of its formula, so a transformed or interacted
 exposure term is caught however it is written.
 
 An offset reaches the linear predictor without being a term, so it is checked
-on its own. An offset expression naming the exposure, written either into the
-formula or passed through the model's \code{offset} argument, raises
-\code{balancing_ipw_input_error}, since it moves with the exposure and leaves the
-coefficient something other than the effect of a one-unit change. An
-exposure-free offset stays supported. That check is static, so an offset
-supplied as a precomputed vector whose name says nothing about the exposure
-is accepted, and keeping the exposure out of it is the caller's to honor.
+on its own, and for every exposure type. An offset expression naming the
+exposure, written either into the formula or passed through the model's
+\code{offset} argument, raises \code{balancing_ipw_input_error}. An offset is held at
+its observed value while the exposure is fixed to each level, so a discrete
+exposure's marginal means would read one exposure in the design and another in
+the offset, and a continuous exposure's coefficient would be something other
+than the effect of a one-unit change. An exposure-free offset stays supported.
+That check is static, so an offset supplied as a precomputed vector whose name
+says nothing about the exposure is accepted, and keeping the exposure out of
+it is the caller's to honor.
 
 The exposure may be a factor, a character column, or an integer code, and a
 term that transforms it counts as carrying it. A character column becomes a
@@ -222,12 +225,13 @@ the sandwich, which is built from the score alone. The results are therefore
 identical rather than merely close.
 
 An offset is supported, written either as an \code{offset()} term in the outcome
-formula or passed through the model's \code{offset} argument. It is carried
-through both the outcome-model score and the fixed-exposure linear
-predictors, so the marginal means are the g-computation means with each
-unit's offset held at its observed value. A continuous exposure takes an
-offset on the narrower terms stated above, since what it reports is a
-coefficient of the model rather than a contrast of predictions from it.
+formula or passed through the model's \code{offset} argument, so long as it does
+not read the exposure. It is carried through both the outcome-model score and
+the fixed-exposure linear predictors, so the marginal means are the
+g-computation means with each unit's offset held at its observed value. That
+is the right treatment of a quantity the exposure does not move and the wrong
+treatment of one it does, which is why the exposure-reading case is refused
+above.
 }
 \examples{
 n <- 200

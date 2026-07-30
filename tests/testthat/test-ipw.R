@@ -2873,6 +2873,49 @@ test_that("ipw() accepts a continuous outcome model with an exposure-free offset
   expect_gt(shifted$std.err, 0)
 })
 
+# The single effect row is named for the outcome model's link, and only three
+# links have a name the coefficient answers to: the identity's slope, the
+# logit's log odds ratio, and the log link's log risk ratio. A probit fit runs
+# and returns a coefficient like any other, and nothing about that number says
+# it is none of the three, so a table naming it would be wrong in a way its
+# reader could not see. The refusal is what keeps it out, and the message has to
+# name the links that are supported, since the caller's next move is to refit
+# under one of them.
+
+test_that("ipw() refuses a continuous outcome model with an unnamed link", {
+  data <- ipw_continuous_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  outcome_mod <- fit_msm(
+    y ~ exposure,
+    data,
+    as.numeric(stats::weights(fit)),
+    stats::binomial(link = "probit")
+  )
+  # The refusal is about the link alone, so the model it comes from has to be
+  # one every other check accepts.
+  expect_identical(
+    stats::family(outcome_mod)$link,
+    "probit"
+  )
+
+  expect_error(
+    ipw(fit, outcome_mod),
+    class = "balancing_ipw_input_error"
+  )
+
+  cnd <- rlang::catch_cnd(
+    ipw(fit, outcome_mod),
+    classes = "balancing_ipw_input_error"
+  )
+  expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
+})
+
 # A column name R cannot parse as a symbol is written back-quoted in a formula,
 # and the term label and the coefficient name carry those back-quotes while the
 # fit records the bare name. The exposure-term check compares the two, so it has
@@ -3855,6 +3898,91 @@ test_that("ipw() standard errors with an offset come from the variance engine", 
     estimates$std.err,
     unname(sqrt(diag(engine$vcov))[estimates$effect]),
     tolerance = 1e-12
+  )
+})
+
+# An offset that reads the exposure is a different object from the offsets above
+# and is refused. The fixed-exposure designs move the exposure to each level
+# while the offset is held at its observed value, which is what an offset is: a
+# known per-unit quantity the counterfactual does not move. An offset computed
+# from the exposure is not known that way, and the predictions such a model
+# yields are neither factual nor counterfactual, since each one reads one level
+# in the design and another in the offset. The contrast of those means is what
+# the table would report, and on this fixture it comes back with the opposite
+# sign to the g-computation the same model implies.
+#
+# Both entry points are pinned, since the terms object records only the first,
+# and the categorical path beside them, whose per-level designs are assembled
+# the same way.
+
+test_that("ipw() refuses a discrete outcome model whose offset reads the exposure", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  data$.wts <- w
+  refused <- list(
+    formula_term = fit_outcome(
+      y ~ exposure + offset(exposure),
+      data,
+      w,
+      stats::quasibinomial()
+    ),
+    formula_transformed = fit_outcome(
+      y ~ exposure + offset(2 * exposure),
+      data,
+      w,
+      stats::quasibinomial()
+    ),
+    # The `offset` argument is written into the call here rather than passed
+    # through `fit_outcome()`, because a model function records `..1` for an
+    # argument that arrived through another function's dots, and it is the
+    # argument's own expression the check reads.
+    offset_argument = suppressWarnings(stats::glm(
+      y ~ exposure,
+      data = data,
+      family = stats::quasibinomial(),
+      weights = .wts,
+      offset = exposure
+    ))
+  )
+
+  for (outcome_mod in refused) {
+    expect_error(
+      ipw(fit, outcome_mod),
+      class = "balancing_ipw_input_error"
+    )
+  }
+})
+
+test_that("ipw() refuses a categorical outcome model whose offset reads the exposure", {
+  data <- sim_categorical(n = 300)
+  data$y <- withr::with_seed(
+    5,
+    stats::rbinom(nrow(data), 1L, 0.4 + 0.1 * (data$exposure == "b"))
+  )
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate"
+  )
+  outcome_mod <- fit_outcome(
+    y ~ exposure + offset(as.numeric(exposure == "b")),
+    data,
+    as.numeric(stats::weights(fit)),
+    stats::quasibinomial()
+  )
+
+  expect_error(
+    ipw(fit, outcome_mod),
+    class = "balancing_ipw_input_error"
   )
 })
 
