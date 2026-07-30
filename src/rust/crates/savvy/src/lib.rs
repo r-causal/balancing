@@ -1919,7 +1919,7 @@ fn solve_cfd(
 ///
 /// `treat_idx` holds the zero-based level of each unit; `focal` is the focal level
 /// index used by `att` and ignored by `ate`; `estimand` is `ate` or `att`. The
-/// kernel arguments match [`solve_cfd`].
+/// kernel arguments match `solve_cfd`.
 ///
 /// Internal solver entry point, called from the R layer rather than by users, so
 /// it is not exported. `@noRd` keeps it out of the reference and out of
