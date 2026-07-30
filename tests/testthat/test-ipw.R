@@ -2598,6 +2598,44 @@ test_that("ipw() rejects an estimand that contradicts the fit", {
   expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
 })
 
+test_that("ipw() rejects an estimand outside the vocabulary", {
+  # A name no estimand carries is a vocabulary error rather than a disagreement
+  # with the fit, and the two failures need different messages: a misspelling
+  # reported as a mismatch names the fit's estimand and leaves the caller to
+  # notice that theirs is not an estimand at all. The vocabulary is the one
+  # `balance()` matches against, so a spelling that creates a fit is a spelling
+  # that names it here.
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  expect_error(
+    ipw(fit, outcome_mod, estimand = "bogus"),
+    regexp = "must be one of"
+  )
+  expect_error(
+    ipw(fit, outcome_mod, estimand = "ATE"),
+    regexp = "must be one of"
+  )
+
+  # A name the vocabulary carries but the fit does not target is still the
+  # mismatch it always was.
+  expect_error(
+    ipw(fit, outcome_mod, estimand = "ato"),
+    class = "balancing_estimand_error"
+  )
+
+  cnd <- rlang::catch_cnd(ipw(fit, outcome_mod, estimand = "bogus"))
+  expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
+})
+
 # The fit stores the untreated target as "atu" however it was spelled, so a
 # request spelled "atc" names the same estimand the fit already targets and is
 # not a contradiction. The three spellings of that one request, the synonym, the

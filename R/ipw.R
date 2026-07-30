@@ -414,6 +414,12 @@ validate_ipw_exposure_levels <- function(
 # Agreement is judged on the canonical spelling, since the fit stores one name
 # for the untreated target and accepts two, and the request is echoed back as the
 # caller spelled it.
+#
+# The vocabulary is matched first, against the same choices `balance()` matches
+# against. A name no estimand carries is a different failure from one the fit
+# does not target, and reporting a misspelling as a disagreement with the fit
+# names the fit's estimand while leaving the caller to notice that theirs is not
+# an estimand at all.
 resolve_ipw_estimand <- function(
   estimand,
   fit_estimand,
@@ -422,6 +428,12 @@ resolve_ipw_estimand <- function(
   if (is.null(estimand)) {
     return(fit_estimand)
   }
+  estimand <- rlang::arg_match0(
+    estimand,
+    estimand_choices(),
+    arg_nm = "estimand",
+    error_call = call
+  )
   requested <- canonical_estimand(estimand)
   if (!identical(requested, fit_estimand)) {
     abort(

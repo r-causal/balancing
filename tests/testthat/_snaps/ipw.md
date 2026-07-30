@@ -41,6 +41,14 @@
       x The fit targets "ate".
       x You requested "att".
 
+# ipw() rejects an estimand outside the vocabulary
+
+    Code
+      stop(cnd)
+    Condition <rlang_error>
+      Error in `ipw()`:
+      ! `estimand` must be one of "ate", "att", "atc", "atu", or "ato", not "bogus".
+
 # ipw() rejects an outcome model that is not a glm or lm
 
     Code

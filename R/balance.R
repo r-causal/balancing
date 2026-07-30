@@ -139,7 +139,7 @@ balance <- function(
 
   estimand <- rlang::arg_match0(
     estimand[[1]],
-    c("ate", "att", "atc", "atu", "ato"),
+    estimand_choices(),
     arg_nm = "estimand"
   )
   estimand <- canonical_estimand(estimand)
@@ -517,10 +517,18 @@ exposure_levels <- function(exposure_vec, exposure_type) {
   }
 }
 
-# The estimand vocabulary accepts "atc" for the untreated target, matching
-# propensity, and a fit stores the single canonical spelling "atu". Anything that
-# compares a caller's estimand against a stored one canonicalizes first, so the
-# spelling that created a fit is also a spelling that names it afterwards.
+# The estimand vocabulary, in one place because two entry points match against
+# it: the estimand that creates a fit and the estimand that names one afterwards
+# in `ipw()`. A spelling either accepts has to be a spelling the other accepts,
+# which a second literal list would drift away from.
+estimand_choices <- function() {
+  c("ate", "att", "atc", "atu", "ato")
+}
+
+# The vocabulary accepts "atc" for the untreated target, matching propensity, and
+# a fit stores the single canonical spelling "atu". Anything that compares a
+# caller's estimand against a stored one canonicalizes first, so the spelling
+# that created a fit is also a spelling that names it afterwards.
 canonical_estimand <- function(estimand) {
   if (identical(estimand, "atc")) "atu" else estimand
 }
