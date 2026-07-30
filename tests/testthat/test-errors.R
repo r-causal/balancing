@@ -44,6 +44,13 @@ test_that("balancing_empty_error: a zero-row data frame", {
   )
 })
 
+test_that("balancing_empty_error: a one-row data frame", {
+  data <- sim_binary(n = 100)[1, ]
+  expect_balancing_error(
+    balance(data, exposure, c(x1, x2), method = bw_entropy())
+  )
+})
+
 test_that("balancing_estimand_error: an unsupported estimand", {
   data <- sim_binary(n = 100)
   expect_balancing_error(

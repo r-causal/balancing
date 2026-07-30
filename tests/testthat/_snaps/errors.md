@@ -50,9 +50,19 @@
       balance(data, exposure, c(x1, x2), method = bw_entropy())
     Condition <balancing_empty_error>
       Error in `balance()`:
-      ! `.data` must have at least one row.
+      ! `.data` must have at least two rows.
       x It has no rows.
-      i Balancing weights require observations to reweight.
+      i Balancing weights reweight a sample toward a target measured on the sample's own spread, which needs more than one observation.
+
+# balancing_empty_error: a one-row data frame
+
+    Code
+      balance(data, exposure, c(x1, x2), method = bw_entropy())
+    Condition <balancing_empty_error>
+      Error in `balance()`:
+      ! `.data` must have at least two rows.
+      x It has 1 row.
+      i Balancing weights reweight a sample toward a target measured on the sample's own spread, which needs more than one observation.
 
 # balancing_estimand_error: an unsupported estimand
 

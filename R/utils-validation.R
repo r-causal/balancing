@@ -27,32 +27,53 @@ validate_data_frame <- function(
   invisible(.data)
 }
 
-#' Validate that a data frame has at least one row
+#' Validate that a data frame has enough rows to balance
+#'
+#' Two observations are the smallest sample a fit can take, so an absent sample
+#' and a sample of one are one refusal rather than two. Every numeric constraint
+#' column crosses its boundary standardized by its own spread, and the standard
+#' deviation of a single value is a missing value, so the rescue for a column
+#' with no spread would steer on that missing value and the fit would die with
+#' an unclassed comparison error. Nothing earlier turns a one-row sample away: a
+#' lone exposure value is one unique value among one observation, which the
+#' unique-value heuristic reads as continuous, so the rule requiring two
+#' exposure levels never measures it.
+#'
+#' Stating the true minimum once matters to the caller who acts on it. Refusing
+#' no rows for want of one, then refusing the row they add for want of two,
+#' reports a single rule as two, so both counts are measured against the same
+#' stated requirement and the bullet names the size that arrived.
+#'
+#' The requirement belongs to the data rather than to a method, so it is checked
+#' ahead of the exposure and constraint machinery. A one-row sample therefore
+#' reports its size whatever its columns hold, rather than reporting through the
+#' constant-column refusal a factor-only selection would otherwise reach.
 #'
 #' @param .data The data frame to validate.
 #' @param arg_name The argument name used in error messages.
 #' @param call The calling environment, used to build the error's call.
 #'
-#' @return `.data`, invisibly, when it has at least one row.
+#' @return `.data`, invisibly, when it has at least two rows.
 #' @keywords internal
 #' @noRd
-validate_nonempty <- function(
+validate_row_count <- function(
   .data,
   arg_name = ".data",
   call = rlang::caller_env()
 ) {
-  if (nrow(.data) == 0L) {
-    abort(
-      c(
-        "{.arg {arg_name}} must have at least one row.",
-        x = "It has no rows.",
-        i = "Balancing weights require observations to reweight."
-      ),
-      error_class = "balancing_empty_error",
-      call = call
-    )
+  n <- nrow(.data)
+  if (n >= 2L) {
+    return(invisible(.data))
   }
-  invisible(.data)
+  abort(
+    c(
+      "{.arg {arg_name}} must have at least two rows.",
+      x = if (n == 0L) "It has no rows." else "It has {n} row{?s}.",
+      i = "Balancing weights reweight a sample toward a target measured on the sample's own spread, which needs more than one observation."
+    ),
+    error_class = "balancing_empty_error",
+    call = call
+  )
 }
 
 #' Validate a resolved column selection

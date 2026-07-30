@@ -76,7 +76,7 @@ balance <- function(
   rlang::check_dots_empty()
 
   validate_data_frame(.data)
-  validate_nonempty(.data)
+  validate_row_count(.data)
 
   if (!S7::S7_inherits(method, balance_method)) {
     abort(

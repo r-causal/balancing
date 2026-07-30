@@ -1299,3 +1299,41 @@ test_that("balance() requires a data frame", {
     class = "balancing_type_error"
   )
 })
+
+# ---- Sample size ----------------------------------------------------------
+
+# A single observation is not enough to balance. A numeric covariate crosses the
+# boundary standardized by its own spread, and the standard deviation of one
+# value is a missing value, so the branch that rescues a column with no spread
+# used to steer on that missing value and the fit died with the base error
+# "missing value where TRUE/FALSE needed". Nothing earlier turns the sample away:
+# a lone exposure value is one unique value among one observation, which the
+# unique-value heuristic reads as continuous, so the rule requiring two exposure
+# levels never measures it. The requirement belongs to the data rather than to a
+# method, so it is refused once, before any column is standardized, and every
+# method reports the same defect.
+test_that("a one-row data frame is a classed error", {
+  data <- sim_binary(n = 200)[1, ]
+
+  energy <- expect_error(
+    balance(data, exposure, c(x1, x2), method = bw_energy(), estimand = "ate"),
+    class = "balancing_empty_error"
+  )
+  sbw <- expect_error(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_sbw(),
+      estimand = "ate",
+      constraints = balance_terms(tolerance = 0.05)
+    ),
+    class = "balancing_empty_error"
+  )
+
+  # The wording is free to change, but the refusal has to name a size: either the
+  # observations that arrived or the minimum they fell short of.
+  for (cnd in list(energy, sbw)) {
+    expect_match(conditionMessage(cnd), "\\b(1|one|2|two)\\b")
+  }
+})
