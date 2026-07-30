@@ -28,9 +28,12 @@
 //! matrix `W` is the pseudo-inverse of the moment covariance, held fixed at a
 //! preliminary estimate for the two-step variant or recomputed at each iterate
 //! for the continuously-updated variant. The criterion is minimized by the
-//! limited-memory BFGS solver, which needs only the objective and its gradient;
-//! where that backend is not compiled in, the damped Newton method minimizes the
-//! same criterion against the Gauss-Newton Hessian `2 G' W G`.
+//! limited-memory BFGS solver followed by a damped Newton polish: the quasi-Newton
+//! pass needs only the objective and its gradient and does the work of arriving,
+//! and the polish reads the stationarity certificate that recognizes a criterion
+//! flat to the resolution of its own arithmetic. Both stages run against the
+//! Gauss-Newton Hessian `2 G' W G`, and where the quasi-Newton backend is not
+//! compiled in the Newton method takes over the first stage too.
 //!
 //! A continuous exposure balances the weighted exposure-covariate covariance.
 //! The covariate balancing conditions ask the weighted exposure mean to match
@@ -727,6 +730,15 @@ impl EsteqProblem for GmmProblem<'_> {
     // there by `accumulate`, so it keeps the trait's default residual scale of
     // one and the tolerance is read exactly as written.
 
+    fn hessian_is_exact(&self) -> bool {
+        // The Gauss-Newton surrogate below drops the moment curvature, so the
+        // steps it generates descend at a linear rate rather than a superlinear
+        // one. What the criterion can still be reduced by is therefore bounded by
+        // what it can resolve, which is what lets the solver read an unresolvable
+        // predicted decrease as the optimum.
+        false
+    }
+
     fn gradient(&self, beta: &[f64], grad: &mut [f64]) {
         let p = self.inputs.p_mod;
         let m_total = self.m_total;
@@ -974,7 +986,19 @@ fn solve_binary_over(inputs: &CbpsInputs<'_>, interrupt: &dyn Fn() -> bool) -> C
         grad_tol: inputs.tol,
         fista_rel_tol: inputs.tol,
     };
-    let report = esteq::solve(&problem, &mut beta, Solver::Lbfgs, &opts, interrupt);
+    // The hybrid rather than the quasi-Newton solver alone. The criterion is a
+    // squared quantity, so its gradient reaches the square root of the arithmetic's
+    // precision and no further; a run judged on the gradient alone spends its whole
+    // budget inside that flat region. The Newton polish carries the stationarity
+    // certificate that recognizes the region for what it is, and the L-BFGS warm
+    // start still does the work of getting there without the Hessian.
+    let report = esteq::solve(
+        &problem,
+        &mut beta,
+        Solver::LbfgsThenNewton,
+        &opts,
+        interrupt,
+    );
 
     let (weights, ps) = binary_weights_ps(inputs, &beta);
     let criterion = problem.value(&beta).unwrap_or(f64::NAN);
@@ -1977,11 +2001,12 @@ mod tests {
 
     #[test]
     fn the_gmm_criterion_minimizes_under_the_newton_solver() {
-        // The over-identified criterion is minimized by L-BFGS when the basin
-        // backend is compiled in and by Newton when it is not, so the problem has
-        // to supply a Hessian the Newton step can use. Driving Newton directly
-        // exercises that path in either build: on the saturated design every
-        // moment can be driven to zero, so the criterion reaches its floor.
+        // Every build reaches the Newton method on this criterion: it polishes the
+        // quasi-Newton pass where the basin backend is compiled in and drives both
+        // stages where it is not, so the problem has to supply a Hessian the Newton
+        // step can use. Driving Newton directly exercises that path in either
+        // build: on the saturated design every moment can be driven to zero, so the
+        // criterion reaches its floor.
         let (covs, treat, n) = saturated_design();
         let s = vec![1.0; n];
         let inputs = CbpsInputs {
@@ -2334,6 +2359,97 @@ mod tests {
         let result = solve(&inputs, &|| true);
         assert!(result.interrupted);
         assert!(!result.converged);
+    }
+
+    /// A confounded binary design of `n` units in the shape the R suite's
+    /// `sim_binary` produces: two standard normal covariates, an exposure drawn
+    /// from a logit model on them, and sampling weights spread over the interval
+    /// from a half to three halves. A small linear congruential generator with a
+    /// Box-Muller transform supplies the draws, so the design is byte identical on
+    /// every run and needs no dependency.
+    ///
+    /// Size is the point. At a few hundred units the over-identified criterion
+    /// stops being resolvable well before its gradient reaches the default
+    /// tolerance: the smallest parameter displacement the criterion can tell apart
+    /// from no displacement already leaves a gradient near a billionth, so a solve
+    /// that has arrived at the numerical minimizer still reads a gradient far above
+    /// the tolerance. The sixteen-unit fixtures above are too small to show it.
+    fn confounded_binary_design(n: usize) -> (Vec<f64>, Vec<i32>, Vec<f64>) {
+        let mut state: u64 = 0x2545F4914F6CDD1D;
+        let mut next = || {
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            // Shifted off zero so the logarithm in the Box-Muller transform stays
+            // finite.
+            ((state >> 11) as f64 + 0.5) / ((1u64 << 53) as f64)
+        };
+        let mut normal = || {
+            let u1: f64 = next();
+            let u2: f64 = next();
+            (-2.0 * u1.ln()).sqrt() * (std::f64::consts::TAU * u2).cos()
+        };
+        let x1: Vec<f64> = (0..n).map(|_| normal()).collect();
+        let x2: Vec<f64> = (0..n).map(|_| normal()).collect();
+        let mut covs = vec![1.0; n];
+        covs.extend_from_slice(&x1);
+        covs.extend_from_slice(&x2);
+        let mut treat = vec![0_i32; n];
+        let mut s = vec![0.0; n];
+        for i in 0..n {
+            let eta = 0.8 * x1[i] - 0.6 * x2[i];
+            treat[i] = i32::from(next() < 1.0 / (1.0 + (-eta).exp()));
+            s[i] = 0.5 + next();
+        }
+        (covs, treat, s)
+    }
+
+    // A solve that has reached the criterion's numerical minimizer has converged,
+    // whatever the gradient sup norm there happens to read. The over-identified
+    // criterion is a squared quantity, so the smallest parameter displacement its
+    // own arithmetic resolves leaves a gradient near the square root of machine
+    // epsilon times the criterion's scale, orders of magnitude above the default
+    // tolerance. Without a stationarity certificate the verdict on this design
+    // records how far the backend happened to crawl before its budget ran out
+    // rather than where it arrived, and the two weighting policies disagree about
+    // a fit they both reach to nine digits.
+    //
+    // The tolerance is the default, not loosened: the certificate is what makes
+    // the verdict readable, and it is asserted for both policies.
+    #[test]
+    fn the_over_identified_verdict_certifies_the_numerical_minimizer() {
+        let n = 500;
+        let (covs, treat, s) = confounded_binary_design(n);
+        for twostep in [true, false] {
+            let inputs = CbpsInputs {
+                covs_mod: &covs,
+                covs_bal: &covs,
+                n,
+                p_mod: 3,
+                p_bal: 3,
+                treat: &treat,
+                s: &s,
+                link: Link::Logit,
+                estimand: CbpsEstimand::Ate,
+                over: true,
+                twostep,
+                threads: 1,
+                max_iter: 200,
+                tol: 1e-10,
+            };
+            let result = solve(&inputs, &no_interrupt());
+            assert!(
+                result.converged,
+                "two_step = {twostep} stopped short of a verdict after {} \
+                 iterations at a criterion of {}",
+                result.iterations,
+                result.gmm_obj.unwrap_or(f64::NAN)
+            );
+            assert!(
+                result.iterations < 200,
+                "two_step = {twostep} burnt its cap"
+            );
+        }
     }
 
     // ---- Categorical --------------------------------------------------------

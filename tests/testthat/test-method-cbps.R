@@ -329,20 +329,18 @@ test_that("the over-identified verdict does not move with the sampling-weight sc
   # the same million-fold expansion the just-identified case uses leaves the
   # verdict and the balancing factors where they were.
   #
-  # The tolerance is loosened from the default here. The criterion is invariant to
-  # twelve significant digits across expansions spanning a factor of a billion on
-  # this design, but the last stretch of the gradient below about 1e-9 is not: the
-  # quasi-Newton backend can settle into a non-progressing cycle at the minimizer
-  # from which any rounding perturbation escapes, so at the default 1e-10 the
-  # verdict records which trajectory the run happened to take rather than where it
-  # arrived. A tolerance the criterion's arithmetic reaches on both arms is what
-  # makes the invariance the assertion is about the thing being read.
+  # The tolerance is the default. A squared criterion cannot have its gradient
+  # driven to the default tolerance on a design of this size, because the smallest
+  # parameter displacement the criterion's own arithmetic resolves already leaves a
+  # gradient near a billionth; the solver certifies the numerical minimizer instead,
+  # which is what makes the verdict a statement about where the fit arrived rather
+  # than about how far a backend happened to crawl.
   data <- sim_binary()
   withr::local_seed(9)
   data$sw <- stats::runif(nrow(data), 0.5, 1.5)
   data$sw_expanded <- data$sw * 1e6
 
-  method <- bw_cbps(over_identified = TRUE, convergence_tolerance = 1e-8)
+  method <- bw_cbps(over_identified = TRUE)
   fit <- balance(
     data,
     exposure,
