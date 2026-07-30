@@ -10,6 +10,31 @@
 # the negative pairwise distance, so it reproduces energy balancing on the same
 # data and constraints. The quadratic-program family has no estimating equations.
 
+# The Matern smoothness orders with a closed form in the kernel.
+matern_orders <- c(0.5, 1.5, 2.5)
+
+# Move a smoothness request onto the canonical order it names. The kernel resolves
+# a value within 1e-9 of an order and refuses everything else, while the validator
+# used to compare with `all.equal()`, whose relative tolerance is wider; a value
+# between the two therefore passed construction and stopped the fit at the
+# boundary with an unclassed error. Snapping at construction and then admitting
+# only the exact orders makes the two rules one rule: whatever the validator
+# accepts, the kernel accepts. The snapping neighborhood is `all.equal()`'s, so
+# every value construction used to take is still taken, and now it reaches the
+# kernel as the order it names. A value the snap leaves alone is refused by the
+# validator, which is where the caller hears about it.
+snap_smoothness <- function(smoothness) {
+  if (length(smoothness) != 1 || is.na(smoothness)) {
+    return(smoothness)
+  }
+  for (order in matern_orders) {
+    if (isTRUE(all.equal(smoothness, order))) {
+      return(order)
+    }
+  }
+  smoothness
+}
+
 #' Characteristic function distance balancing
 #'
 #' `bw_cfd()` specifies characteristic function distance balancing, also
@@ -124,6 +149,7 @@ bw_cfd <- new_class(
     check_method_dots(...)
     kernel <- rlang::arg_match(kernel)
     smoothness <- vctrs::vec_cast(smoothness, double(), x_arg = "smoothness")
+    smoothness <- snap_smoothness(smoothness)
     degrees_of_freedom <- vctrs::vec_cast(
       degrees_of_freedom,
       double(),
@@ -180,11 +206,7 @@ bw_cfd <- new_class(
     if (
       length(self@smoothness) != 1 ||
         is.na(self@smoothness) ||
-        !any(vapply(
-          c(0.5, 1.5, 2.5),
-          function(v) isTRUE(all.equal(self@smoothness, v)),
-          logical(1)
-        ))
+        !any(self@smoothness == matern_orders)
     ) {
       return("@smoothness must be one of 0.5, 1.5, or 2.5")
     }

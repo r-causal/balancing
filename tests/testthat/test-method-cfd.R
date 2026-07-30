@@ -132,6 +132,39 @@ test_that("cfd_projection() draws finite projections", {
   expect_true(all(is.finite(projection)))
 })
 
+# The validator and the kernel's own boundary have to admit exactly the same set.
+# The validator compared with `all.equal()`, whose relative tolerance is wider
+# than the kernel's absolute 1e-9, so a value in between passed construction and
+# stopped the fit at the boundary with an unclassed error. The constructor now
+# snaps a request inside the validator's neighborhood onto the order it names, so
+# whatever construction accepts the kernel accepts.
+test_that("bw_cfd() snaps a near-canonical smoothness onto the exact order", {
+  expect_identical(bw_cfd(smoothness = 1.5 + 1e-8)@smoothness, 1.5)
+  expect_identical(bw_cfd(smoothness = 0.5 - 1e-9)@smoothness, 0.5)
+  expect_identical(bw_cfd(smoothness = 2.5 + 1e-9)@smoothness, 2.5)
+  expect_identical(bw_cfd(smoothness = 3 / 2)@smoothness, 1.5)
+})
+
+test_that("bw_cfd() refuses a smoothness outside every order's neighborhood", {
+  expect_error(bw_cfd(smoothness = 1.5 + 1e-6), "0.5, 1.5, or 2.5")
+  expect_error(bw_cfd(smoothness = 2), "0.5, 1.5, or 2.5")
+  expect_error(bw_cfd(smoothness = NA_real_), "0.5, 1.5, or 2.5")
+  expect_error(bw_cfd(smoothness = c(0.5, 1.5)), "0.5, 1.5, or 2.5")
+})
+
+test_that("a smoothness the constructor accepts always reaches the kernel", {
+  data <- sim_binary(n = 150)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_cfd(kernel = "matern", smoothness = 1.5 + 1e-8),
+    estimand = "ate"
+  )
+  expect_identical(fit@method@smoothness, 1.5)
+  expect_true(all(is.finite(as.numeric(stats::weights(fit)))))
+})
+
 test_that("bw_cfd() rejects a negative weight penalty", {
   expect_identical(bw_cfd(weight_penalty = 1e-3)@weight_penalty, 1e-3)
   expect_error(bw_cfd(weight_penalty = -1e-4))

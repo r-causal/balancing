@@ -378,11 +378,17 @@ pub fn parse_kernel(kernel: &str) -> savvy::Result<Kernel> {
 /// Resolve the Matern smoothness passed by the R layer to a supported
 /// half-integer.
 ///
-/// The S7 validator restricts the value to the closed forms this version carries,
-/// so an unsupported value cannot arrive through the public API. Resolving it here
-/// keeps the boundary from silently substituting a default, matching how
-/// `parse_kernel` treats an unrecognized name. The value is ignored for the
-/// non-Matern kernels, which pass their default smoothness.
+/// This resolver admits a value within 1e-9 of a closed form and refuses every
+/// other one, and the R constructor is written to that rule: it snaps a
+/// near-canonical request onto the exact order and its validator then admits only
+/// 0.5, 1.5, and 2.5, so an unsupported value cannot arrive through the public
+/// API. The two rules have to be kept in step. An R-side tolerance wider than the
+/// one here, which is what comparing with `all.equal()` alone gave, passes
+/// construction and fails at this boundary instead. A direct core caller is bound
+/// by neither rule, which is why resolving reports the value rather than silently
+/// substituting a default, matching how `parse_kernel` treats an unrecognized
+/// name. The value is ignored for the non-Matern kernels, which pass their default
+/// smoothness.
 pub fn parse_smoothness(smoothness: f64) -> savvy::Result<MaternNu> {
     MaternNu::from_smoothness(smoothness).ok_or_else(|| {
         savvy::Error::new(format!(
