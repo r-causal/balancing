@@ -97,6 +97,12 @@ pub enum QpStatus {
     Interrupted,
     /// A wall-clock limit stopped the solve.
     TimeLimit,
+    /// The backend broke down numerically before reaching a verdict.
+    NumericalError,
+    /// The backend stopped because its iterates stopped making progress.
+    InsufficientProgress,
+    /// The backend returned without having run a solve at all.
+    NotSolved,
 }
 
 impl QpStatus {
@@ -111,6 +117,9 @@ impl QpStatus {
             QpStatus::NonConvex => "non_convex",
             QpStatus::Interrupted => "interrupted",
             QpStatus::TimeLimit => "time_limit",
+            QpStatus::NumericalError => "numerical_error",
+            QpStatus::InsufficientProgress => "insufficient_progress",
+            QpStatus::NotSolved => "not_solved",
         }
     }
 

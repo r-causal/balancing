@@ -343,6 +343,12 @@ warn_balance_exceeded <- function(worst, call = rlang::caller_env()) {
 # `balancing_convergence_error`, each naming the knob to turn; a reached iteration
 # cap with a usable iterate still warns. The estimating-equation family carries no
 # status and warns when it did not meet its convergence tolerance.
+#
+# Which knob a failure names is chosen by the status, so every status a backend
+# can assign is routed here. Only a status that genuinely means the solve ran out
+# of iterations falls through to the closing warning, whose advice is to raise the
+# cap; a solve that broke down numerically or stalled would not be helped by more
+# iterations, so it reports the conditioning of the problem instead.
 check_solver_status <- function(fit, method, call = rlang::caller_env()) {
   if (!is.null(fit$status)) {
     if (isTRUE(fit$converged)) {
@@ -365,6 +371,20 @@ check_solver_status <- function(fit, method, call = rlang::caller_env()) {
           "The solver failed to produce a valid solution.",
           x = "It terminated with status {.val {fit$status}}.",
           i = "Check the covariates for collinearity, or raise {.arg weight_penalty} in {.fn {class(method)[1]}}."
+        ),
+        error_class = "balancing_convergence_error",
+        call = call
+      )
+    }
+    if (
+      fit$status %in%
+        c("numerical_error", "insufficient_progress", "not_solved")
+    ) {
+      abort(
+        c(
+          "The solver stopped without a solution.",
+          x = "It terminated with status {.val {fit$status}}.",
+          i = "Rescale the covariates, loosen {.arg convergence_tolerance}, or raise {.arg weight_penalty} in {.fn {class(method)[1]}}."
         ),
         error_class = "balancing_convergence_error",
         call = call

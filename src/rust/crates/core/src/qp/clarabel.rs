@@ -211,6 +211,13 @@ fn rows_to_csc(rows: &[ConicRow], m: usize, n: usize) -> CscMatrix<f64> {
 }
 
 /// Translate a Clarabel status into the backend-agnostic [`QpStatus`].
+///
+/// The match is exhaustive on purpose. The R layer chooses its advice from the
+/// status, so a status folded into a neighbour sends the caller after the wrong
+/// knob: a numerical breakdown or a stalled iterate reported as the iteration cap
+/// invites raising `max_iterations`, which cannot help either. Listing every
+/// variant also turns a new Clarabel status into a compile error rather than a
+/// silent misclassification.
 fn map_status(status: SolverStatus) -> QpStatus {
     match status {
         SolverStatus::Solved => QpStatus::Solved,
@@ -221,8 +228,12 @@ fn map_status(status: SolverStatus) -> QpStatus {
         SolverStatus::DualInfeasible | SolverStatus::AlmostDualInfeasible => {
             QpStatus::DualInfeasible
         }
+        SolverStatus::MaxIterations => QpStatus::MaxIter,
         SolverStatus::MaxTime => QpStatus::TimeLimit,
-        _ => QpStatus::MaxIter,
+        SolverStatus::NumericalError => QpStatus::NumericalError,
+        SolverStatus::InsufficientProgress => QpStatus::InsufficientProgress,
+        SolverStatus::Unsolved => QpStatus::NotSolved,
+        SolverStatus::CallbackTerminated => QpStatus::Interrupted,
     }
 }
 
@@ -346,6 +357,53 @@ mod tests {
             }
         }
         grad.iter().fold(0.0_f64, |worst, g| worst.max(g.abs()))
+    }
+
+    #[test]
+    fn a_numerical_failure_is_not_reported_as_the_iteration_cap() {
+        // Advice to raise the iteration cap cannot help a solve that broke down
+        // numerically or stalled, so neither may arrive at the R layer wearing the
+        // status that produces that advice.
+        assert_eq!(
+            map_status(SolverStatus::NumericalError),
+            QpStatus::NumericalError
+        );
+        assert_eq!(
+            map_status(SolverStatus::InsufficientProgress),
+            QpStatus::InsufficientProgress
+        );
+        assert_eq!(map_status(SolverStatus::Unsolved), QpStatus::NotSolved);
+    }
+
+    #[test]
+    fn map_status_translates_every_clarabel_status() {
+        assert_eq!(map_status(SolverStatus::Solved), QpStatus::Solved);
+        assert_eq!(
+            map_status(SolverStatus::AlmostSolved),
+            QpStatus::SolvedInaccurate
+        );
+        assert_eq!(
+            map_status(SolverStatus::PrimalInfeasible),
+            QpStatus::PrimalInfeasible
+        );
+        assert_eq!(
+            map_status(SolverStatus::AlmostPrimalInfeasible),
+            QpStatus::PrimalInfeasible
+        );
+        assert_eq!(
+            map_status(SolverStatus::DualInfeasible),
+            QpStatus::DualInfeasible
+        );
+        assert_eq!(
+            map_status(SolverStatus::AlmostDualInfeasible),
+            QpStatus::DualInfeasible
+        );
+        assert_eq!(map_status(SolverStatus::MaxIterations), QpStatus::MaxIter);
+        assert_eq!(map_status(SolverStatus::MaxTime), QpStatus::TimeLimit);
+        assert_eq!(
+            map_status(SolverStatus::CallbackTerminated),
+            QpStatus::Interrupted
+        );
     }
 
     #[test]

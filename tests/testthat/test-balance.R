@@ -1223,6 +1223,38 @@ test_that("an unresolved tolerance verdict warns rather than aborting", {
   )
 })
 
+# ---- Solver status routing --------------------------------------------------
+
+# A quadratic-program backend can stop for reasons no iteration cap explains: it
+# can break down numerically, stall, or return without having solved at all.
+# Advice to raise `max_iterations` is useless in every one of those cases, so each
+# raises the convergence error naming the conditioning of the problem instead.
+# The statuses come from the compiled backend, so they are exercised through the
+# routing directly rather than by provoking a numerical breakdown.
+test_that("a solver breakdown reports conditioning rather than the iteration cap", {
+  for (status in c("numerical_error", "insufficient_progress", "not_solved")) {
+    expect_error(
+      check_solver_status(
+        list(status = status, converged = FALSE),
+        bw_sbw()
+      ),
+      "stopped without a solution",
+      class = "balancing_convergence_error"
+    )
+  }
+})
+
+test_that("a reached iteration cap still advises raising it", {
+  expect_warning(
+    check_solver_status(
+      list(status = "max_iter", converged = FALSE),
+      bw_sbw()
+    ),
+    "max_iterations",
+    class = "balancing_convergence_warning"
+  )
+})
+
 # ---- Method argument ------------------------------------------------------
 
 test_that("a bare-string method errors", {
