@@ -3859,6 +3859,75 @@ test_that("ipw() honors an offset argument in the outcome model", {
   )
 })
 
+test_that("ipw() honors an offset in a categorical outcome model", {
+  # The categorical path assembles one fixed-exposure design per level, so the
+  # offset has to survive K designs rather than two. Both spellings are run
+  # against the same g-computation oracle, since they reach the fitted model by
+  # different routes.
+  data <- ipw_categorical_fixture()
+  data$log_time <- withr::with_seed(11, stats::rnorm(nrow(data), 0, 0.3))
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  data$.wts <- w
+  models <- list(
+    formula_term = fit_outcome(
+      y ~ exposure + offset(log_time),
+      data,
+      w,
+      stats::binomial()
+    ),
+    offset_argument = suppressWarnings(stats::glm(
+      y ~ exposure,
+      data = data,
+      family = stats::binomial(),
+      weights = .wts,
+      offset = log_time
+    ))
+  )
+
+  # An offset leaves the model unsaturated in the exposure, so the marginal
+  # means stop being the weighted group means and start depending on the offset
+  # each unit carries. A fixed-exposure design that dropped the offset would
+  # report the offset-free means instead, and the gap between the two readings
+  # is far larger than the tolerance the equalities below are held to.
+  offset_free <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+  expect_gt(
+    max(abs(
+      categorical_marginal_means(models$formula_term, data) -
+        categorical_marginal_means(offset_free, data)
+    )),
+    0.005
+  )
+
+  for (outcome_mod in models) {
+    means <- categorical_marginal_means(outcome_mod, data)
+    result <- ipw(fit, outcome_mod)
+    estimates <- as.data.frame(result)
+
+    expect_equal(
+      unname(result$fit$theta[c("mu_a", "mu_b", "mu_c")]),
+      unname(means),
+      tolerance = 1e-10
+    )
+    for (level in c("b", "c")) {
+      expect_equal(
+        estimates$estimate[
+          estimates$effect == "rd" &
+            estimates$comparison == paste0(level, " vs a")
+        ],
+        means[[level]] - means[["a"]],
+        tolerance = 1e-10
+      )
+    }
+  }
+})
+
 # The standard errors an offset model reports are the variance engine's own, so
 # they are pinned against the engine rather than re-derived. The engine is
 # already bootstrap-pinned for an offset model, which is what makes the identity
@@ -3911,9 +3980,9 @@ test_that("ipw() standard errors with an offset come from the variance engine", 
 # the table would report, and on this fixture it comes back with the opposite
 # sign to the g-computation the same model implies.
 #
-# Both entry points are pinned, since the terms object records only the first,
-# and the categorical path beside them, whose per-level designs are assembled
-# the same way.
+# Both entry points are pinned on each path, since the terms object records only
+# the first, and the categorical path is covered beside the discrete one because
+# its per-level designs are assembled the same way.
 
 test_that("ipw() refuses a discrete outcome model whose offset reads the exposure", {
   data <- ipw_fixture()
@@ -3973,17 +4042,34 @@ test_that("ipw() refuses a categorical outcome model whose offset reads the expo
     method = bw_ipt(),
     estimand = "ate"
   )
-  outcome_mod <- fit_outcome(
-    y ~ exposure + offset(as.numeric(exposure == "b")),
-    data,
-    as.numeric(stats::weights(fit)),
-    stats::quasibinomial()
+  w <- as.numeric(stats::weights(fit))
+  data$.wts <- w
+  refused <- list(
+    formula_term = fit_outcome(
+      y ~ exposure + offset(as.numeric(exposure == "b")),
+      data,
+      w,
+      stats::quasibinomial()
+    ),
+    # As in the discrete case above, the `offset` argument is written into the
+    # call here rather than passed through `fit_outcome()`, because a model
+    # function records `..1` for an argument that arrived through another
+    # function's dots, and it is the argument's own expression the check reads.
+    offset_argument = suppressWarnings(stats::glm(
+      y ~ exposure,
+      data = data,
+      family = stats::quasibinomial(),
+      weights = .wts,
+      offset = as.numeric(exposure == "b")
+    ))
   )
 
-  expect_error(
-    ipw(fit, outcome_mod),
-    class = "balancing_ipw_input_error"
-  )
+  for (outcome_mod in refused) {
+    expect_error(
+      ipw(fit, outcome_mod),
+      class = "balancing_ipw_input_error"
+    )
+  }
 })
 
 # ---- Outcome model family -------------------------------------------------

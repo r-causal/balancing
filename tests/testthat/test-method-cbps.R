@@ -12,10 +12,10 @@
 # methods (including the overlap estimand that only the covariate balancing
 # propensity score supports), and the statistical promises: achieved balance
 # through expect_balanced(), non-negative weights, estimand-correct group sums,
-# ESS bounded by n, the overlap-weight form of the ato estimand, the
-# estimating-equations container for the just-identified form, and the design's
-# tier-one promise that entropy balancing, inverse probability tilting, and
-# just-identified covariate balancing all produce the same
+# where the effective sample size lands, the overlap-weight form of the ato
+# estimand, the estimating-equations container for the just-identified form, and
+# the design's tier-one promise that entropy balancing, inverse probability
+# tilting, and just-identified covariate balancing all produce the same
 # average-treatment-effect-on-the-treated weights for a binary exposure.
 
 # Normalize weights to mean one within each exposure group so comparisons test
@@ -651,7 +651,21 @@ test_that("a binary att keeps treated base weights and matches the control sum",
 
 # ---- ESS ------------------------------------------------------------------
 
-test_that("the effective sample size is bounded by n within each group", {
+# Kish effective sample size, computed inline from the reported weights since
+# balance assessment moved to halfmoon. Bounds alone are no test of it: every
+# strictly positive weight vector sits between zero and its own group size by
+# Cauchy-Schwarz, so the specs below pin where the figure lands and the one case
+# where it is exact. The method carries no penalty knob to trade balance against
+# precision, so there is no third spec of the kind the penalized methods get.
+kish_ess <- function(w) sum(w)^2 / sum(w^2)
+
+# The groups come from the data, which is where the level a row belongs to is
+# recorded.
+exposure_groups <- function(data) {
+  split(seq_len(nrow(data)), as.character(data$exposure))
+}
+
+test_that("a binary ate spends part of each group on balance", {
   data <- sim_binary()
   fit <- balance(
     data,
@@ -660,17 +674,46 @@ test_that("the effective sample size is bounded by n within each group", {
     method = bw_cbps(),
     estimand = "ate"
   )
-  # Kish effective sample size computed inline within each exposure group, since
-  # balance assessment moved to halfmoon; each group's figure stays positive and
-  # bounded by that group's size. The groups come from the data, which is where
-  # the level a row belongs to is recorded.
   w <- as.numeric(weights(fit))
-  groups <- split(seq_len(nrow(data)), as.character(data$exposure))
-  for (idx in groups) {
-    group_ess <- sum(w[idx])^2 / sum(w[idx]^2)
-    expect_gt(group_ess, 0)
-    expect_lte(group_ess, length(idx) + 1e-8)
+  for (idx in exposure_groups(data)) {
+    group_ess <- kish_ess(w[idx])
+    # Meeting the balancing conditions on this confounded exposure costs
+    # precision, so the figure is strictly below the group size by a real margin
+    # rather than merely bounded by it: uniform weights, which balance nothing,
+    # would sit at the size exactly. It stays well clear of the floor a handful
+    # of dominating weights would leave, which is the other way a fit can fail
+    # while still reporting positive weights. The exponential tilt this method
+    # solves for is mild on this fixture, so the ceiling sits closer to the
+    # group size than a kernel or energy fit would need.
+    expect_lt(group_ess, 0.9 * length(idx))
+    expect_gt(group_ess, 0.5 * length(idx))
   }
+})
+
+test_that("a focal group keeps its base weights, so its ESS is its size", {
+  # The tilt of a treated estimand holds the focal group at its base weights,
+  # and renormalizing that group to its own total leaves every one of its
+  # weights equal to one, which the estimand specs above pin directly. Its
+  # effective sample size is therefore its size exactly, and since that equality
+  # holds only for a constant weight vector it is the whole contract restated as
+  # a single number. The reweighted group cannot meet it: that group carries the
+  # whole tilt and comes back at a fraction of its own size.
+  data <- sim_binary()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_cbps(),
+    estimand = "att"
+  )
+  w <- as.numeric(weights(fit))
+  groups <- exposure_groups(data)
+  focal <- groups[[fit@focal_level]]
+  reweighted <- groups[[setdiff(names(groups), fit@focal_level)]]
+
+  expect_equal(kish_ess(w[focal]), length(focal), tolerance = 1e-6)
+  expect_lt(kish_ess(w[reweighted]), 0.75 * length(reweighted))
+  expect_gt(kish_ess(w[reweighted]), 0.3 * length(reweighted))
 })
 
 # ---- Overlap (ato) weights ------------------------------------------------
