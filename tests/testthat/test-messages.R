@@ -116,6 +116,23 @@ test_that("balancing_ignored_argument_warning: a clarabel pin the energy kernel 
   )
 })
 
+test_that("balancing_ignored_argument_warning: focal_level with a pooled estimand", {
+  # The average treatment effect reweights every exposure group rather than
+  # holding one fixed, so it has no focal level to resolve and a supplied one is
+  # never validated against the data. The fit names the estimand that ignores it.
+  data <- sim_binary()
+  expect_balancing_warning(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(),
+      estimand = "ate",
+      focal_level = 1
+    )
+  )
+})
+
 # ---- Class-downgrade warning ----------------------------------------------
 
 test_that("balancing_class_downgrade_warning: mismatched estimands", {

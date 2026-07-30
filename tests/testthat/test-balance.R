@@ -539,6 +539,83 @@ test_that("a categorical att honors a supplied focal_level", {
   expect_identical(fit@focal_level, "b")
 })
 
+# ---- A focal level the estimand ignores ------------------------------------
+
+# The average treatment effect and the overlap estimand reweight every exposure
+# group rather than holding one fixed, so they resolve no focal level and never
+# reach the check that the supplied one is an exposure level at all. A level that
+# does not exist used to be accepted in silence, which reads as a fit that
+# targeted it.
+test_that("focal_level with the average treatment effect warns and is ignored", {
+  data <- sim_binary(n = 200)
+  expect_warning(
+    fit <- balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(),
+      estimand = "ate",
+      focal_level = 1
+    ),
+    class = "balancing_ignored_argument_warning"
+  )
+  expect_null(fit@focal_level)
+})
+
+test_that("a focal_level that is not an exposure level still warns", {
+  data <- sim_binary(n = 200)
+  expect_warning(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(),
+      estimand = "ate",
+      focal_level = "nonesuch"
+    ),
+    class = "balancing_ignored_argument_warning"
+  )
+})
+
+test_that("focal_level with the overlap estimand warns and is ignored", {
+  data <- sim_binary(n = 200)
+  expect_warning(
+    fit <- balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_cbps(),
+      estimand = "ato",
+      focal_level = 0
+    ),
+    class = "balancing_ignored_argument_warning"
+  )
+  expect_null(fit@focal_level)
+})
+
+test_that("a pooled estimand without focal_level is silent", {
+  data <- sim_binary(n = 200)
+  expect_no_warning(
+    balance(data, exposure, c(x1, x2), method = bw_entropy(), estimand = "ate")
+  )
+  expect_no_warning(
+    balance(data, exposure, c(x1, x2), method = bw_cbps(), estimand = "ato")
+  )
+})
+
+test_that("a focal estimand with focal_level does not warn", {
+  data <- sim_categorical(n = 200)
+  expect_no_warning(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(),
+      estimand = "att",
+      focal_level = "b"
+    )
+  )
+})
 # ---- Sampling weights -----------------------------------------------------
 
 test_that("balance() evaluates sampling_weights given as a bare column", {

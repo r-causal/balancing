@@ -136,6 +136,25 @@
       Constraints: 2 terms (tolerance 0)
       Largest imbalance: 0.0118 (standardized mean difference)
 
+# balancing_ignored_argument_warning: focal_level with a pooled estimand
+
+    Code
+      balance(data, exposure, c(x1, x2), method = bw_entropy(), estimand = "ate",
+      focal_level = 1)
+    Condition <balancing_ignored_argument_warning>
+      Warning in `balance()`:
+      `focal_level` applies to the "att" and "atc" estimands and is ignored.
+      i The "ate" estimand reweights every exposure group rather than holding one fixed.
+    Output
+      
+      -- Entropy balancing -----------------------------------------------------------
+      Exposure: "exposure" (binary)
+      Estimand: "ate"
+      Observations: 500
+      Solver: converged in 6 iterations
+      Constraints: 2 terms (tolerance 0)
+      Largest imbalance: 0.0000 (standardized mean difference)
+
 # balancing_class_downgrade_warning: mismatched estimands
 
     Code

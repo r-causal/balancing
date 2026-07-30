@@ -516,7 +516,23 @@ resolve_focal_level <- function(
   focal_level,
   call = rlang::caller_env()
 ) {
+  # A pooled estimand resolves no focal level, so a supplied one never reaches
+  # the check that it names an exposure level and never reaches the fit either. A
+  # level that does not exist used to be accepted in silence, which reads as a
+  # fit that targeted it, so the request is announced as ignored instead. The
+  # convention is the one bw_cbps() uses for a tuning argument its exposure type
+  # cannot act on.
   if (estimand %in% c("ate", "ato")) {
+    if (!is.null(focal_level)) {
+      warn(
+        c(
+          "{.arg focal_level} applies to the {.val att} and {.val atc} estimands and is ignored.",
+          i = "The {.val {estimand}} estimand reweights every exposure group rather than holding one fixed."
+        ),
+        warning_class = "balancing_ignored_argument_warning",
+        call = call
+      )
+    }
     return(NULL)
   }
 
