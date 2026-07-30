@@ -223,6 +223,20 @@ is_binary_numeric <- function(v) {
   length(values) <= 2 && all(values %in% c(0, 1))
 }
 
+# Which measure the numeric columns are standardized under is the caller's to
+# choose, and the two method families choose differently on purpose. The
+# estimating-equation methods standardize on the unweighted sample: their targets
+# are computed from these same columns, so a per-column scaling cancels between a
+# constraint and its target and the fit is invariant to it, while the unweighted
+# scale conditions the Newton step better. Where the choice does bite, the
+# continuous entropy path, that path centers its own targets on the base measure
+# rather than asking for a different column scale here. The quadratic-program
+# family standardizes under the sampling weights, because its constraint rows are
+# pinned at zero and nothing downstream re-centers them: such a row says the
+# weighted mean matches the sample only if the column was centered under the same
+# measure the fit reports on, so the sampling weights have to sit in the column
+# scale itself.
+
 #' Build the constraint matrix and recipe
 #'
 #' @param .data The data frame.

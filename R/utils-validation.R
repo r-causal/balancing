@@ -141,7 +141,9 @@ abort_infinite <- function(
 #' unclassed comparison error a poisoned mean or standard deviation eventually
 #' produces. A missing value keeps the `balancing_missing_error` class the
 #' exposure and covariate gates use; an infinity reports through
-#' `abort_infinite()`. A non-numeric vector holds neither, so it passes through.
+#' `abort_infinite()`. A non-numeric vector still meets the missing-value check,
+#' since `anyNA()` reads a missing value of any type; it is the infinity half
+#' alone that has nothing to find there.
 #'
 #' @param x The input to validate.
 #' @param arg_name The argument name used in error messages.

@@ -765,9 +765,9 @@ test_that("infinite sampling weights error", {
     ),
     class = "balancing_range_error"
   )
-  # The covariate balancing propensity score carries the weights across the
-  # solver boundary unstandardized, so it reaches a different failure than the
-  # entropy path and is pinned separately.
+  # Both arms are refused by `validate_sampling_weights()`, before any method
+  # sees the weights, so the second arm pins that the refusal is the fit's own
+  # rather than something a particular solver happens to catch.
   expect_error(
     balance(
       data,

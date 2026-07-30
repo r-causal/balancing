@@ -256,6 +256,16 @@ enforce_positive_tolerance <- function(prepared, call = rlang::caller_env()) {
   }
 }
 
+# OSQP's C core writes its setup-validation errors, such as a non-positive
+# variable count, straight to stderr, past the verbosity setting the backend
+# turns off. Nothing on the R side can capture that, so the guarantee has to be
+# that such a spec is never assembled. It is not: `balance()` refuses an empty
+# data frame, a single-level exposure, sampling weights that are zero throughout,
+# and any exposure level with no base-measure mass, all before a method is
+# dispatched at all. Every quadratic program therefore reaches the backend with
+# at least one unit and at least one constraint row, which is the whole of what
+# the setup validation asks for. The same holds for energy and characteristic
+# function distance balancing, which share those refusals and the same assembler.
 method(fit_method, bw_sbw) <- function(method, prepared) {
   enforce_positive_tolerance(prepared)
 
