@@ -159,7 +159,7 @@ test_that("alert: the detected exposure type is announced", {
 
 test_that("alert: the exposure is excluded from a covariate selection", {
   withr::local_options(balancing.quiet = FALSE)
-  data <- sim_binary(n = 200)
+  data <- sim_binary()
   expect_snapshot(
     invisible(balance(
       data,

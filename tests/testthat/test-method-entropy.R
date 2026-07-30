@@ -156,32 +156,40 @@ test_that("entropy balancing balances a factor covariate for a binary ate", {
   # zero a standardized numeric column carries. Every exposure group's weighted
   # level proportions must therefore land on the pooled proportions.
   #
-  # The level indicators of a factor sum to a constant column, so the entropy
-  # dual is exactly flat along that direction and its Hessian is singular. The
-  # damped Newton solve reaches the dual's numerical optimum without reaching a
-  # 1e-10 gradient, so the gradient tolerance is set to the scale this constraint
-  # set can reach; the achieved balance below is exact well inside the assertion.
-  data <- sim_binary()
-  fit <- balance(
-    data,
-    exposure,
-    c(x1, x2, x3),
-    method = bw_entropy(convergence_tolerance = 1e-8),
-    estimand = "ate"
-  )
-  expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  # The level indicators of a factor sum to the constant function, along which
+  # the entropy dual is exactly flat, so its Hessian is singular and the gradient
+  # the solve can reach is set by the rounding of the weighted means rather than
+  # by the tolerance. The solve still reaches the dual's numerical optimum, and
+  # that has to read as convergence at the default tolerance: the sizes below
+  # bracket the point where the reachable gradient crosses 1e-10, and the
+  # achieved balance is exact well inside the assertion at every one of them.
+  for (n in c(200L, 300L, 500L)) {
+    data <- sim_binary(n = n)
+    fit <- expect_no_warning(
+      balance(
+        data,
+        exposure,
+        c(x1, x2, x3),
+        method = bw_entropy(),
+        estimand = "ate"
+      ),
+      class = "balancing_convergence_warning"
+    )
+    expect_true(fit@converged)
+    expect_balanced(fit, data)
+    expect_true(all(stats::weights(fit) >= 0))
 
-  w <- as.numeric(stats::weights(fit))
-  for (level in levels(data$x3)) {
-    indicator <- as.numeric(data$x3 == level)
-    for (group in unique(data$exposure)) {
-      idx <- data$exposure == group
-      expect_equal(
-        stats::weighted.mean(indicator[idx], w[idx]),
-        mean(indicator),
-        tolerance = 1e-6
-      )
+    w <- as.numeric(stats::weights(fit))
+    for (level in levels(data$x3)) {
+      indicator <- as.numeric(data$x3 == level)
+      for (group in unique(data$exposure)) {
+        idx <- data$exposure == group
+        expect_equal(
+          stats::weighted.mean(indicator[idx], w[idx]),
+          mean(indicator),
+          tolerance = 1e-6
+        )
+      }
     }
   }
 })

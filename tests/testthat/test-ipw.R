@@ -801,6 +801,74 @@ test_that("a shift-related covariate leaves the ipw() chain identified", {
   expect_equal(estimates$std.err, reduced_estimates$std.err)
 })
 
+test_that("a factor covariate leaves the ipw() sandwich finite", {
+  # A factor's level indicators sum to the constant function. Nothing in the raw
+  # column rank marks that redundancy, so every level keeps its own constraint
+  # column and the entropy estimating equations are rank deficient: the Jacobian
+  # block of each solved group has the level-sum direction in its null space. The
+  # redundancy is harmless because the weight map is flat along the same
+  # direction, so the fit and its influence function are the fit and influence
+  # function of the parameterization that drops one level column, and the stacked
+  # variance must agree with that reduced fit rather than dissolve into the
+  # singularity.
+  data <- sim_binary()
+  withr::with_seed(11, {
+    data$y <- stats::rbinom(
+      nrow(data),
+      1L,
+      stats::plogis(-0.3 + 0.5 * data$exposure + 0.4 * data$x1)
+    )
+  })
+  data$x3_b <- as.numeric(data$x3 == "b")
+  data$x3_c <- as.numeric(data$x3 == "c")
+
+  fit <- expect_no_warning(
+    balance(
+      data,
+      exposure,
+      c(x1, x2, x3),
+      method = bw_entropy(),
+      estimand = "ate"
+    ),
+    class = "balancing_convergence_warning"
+  )
+  reduced <- balance(
+    data,
+    exposure,
+    c(x1, x2, x3_b, x3_c),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+
+  jacobian <- estimating_equations(fit)@jacobian
+  expect_lt(qr(jacobian)$rank, ncol(jacobian))
+  expect_equal(
+    as.numeric(stats::weights(fit)),
+    as.numeric(stats::weights(reduced)),
+    tolerance = 1e-8
+  )
+
+  outcome_mod <- fit_outcome(
+    y ~ exposure,
+    data,
+    as.numeric(stats::weights(fit)),
+    stats::binomial()
+  )
+  reduced_mod <- fit_outcome(
+    y ~ exposure,
+    data,
+    as.numeric(stats::weights(reduced)),
+    stats::binomial()
+  )
+  estimates <- as.data.frame(ipw(fit, outcome_mod))
+  reduced_estimates <- as.data.frame(ipw(reduced, reduced_mod))
+
+  expect_true(all(is.finite(estimates$std.err)))
+  expect_true(all(estimates$std.err > 0))
+  expect_equal(estimates$estimate, reduced_estimates$estimate, tolerance = 1e-6)
+  expect_equal(estimates$std.err, reduced_estimates$std.err, tolerance = 1e-6)
+})
+
 test_that("ipw() standard errors differ from the naive weights-fixed sandwich", {
   data <- ipw_fixture()
   fit <- balance(

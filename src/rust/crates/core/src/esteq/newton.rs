@@ -31,6 +31,20 @@ fn sym_matvec(h: &[f64], p: usize, x: &[f64], out: &mut [f64]) {
     }
 }
 
+/// The smallest change in an objective of magnitude `value` that floating-point
+/// arithmetic resolves: a predicted decrease at or below it cannot be
+/// distinguished from no decrease at all.
+///
+/// Objectives smaller than one in magnitude share the resolution of one, the
+/// same floor the FISTA relative-loss rule applies, so an objective that happens
+/// to pass near zero does not report a resolution of zero. The floor also makes
+/// this a lower bound on the true resolution of an accumulated objective, whose
+/// rounding grows with the number of terms summed, which is the conservative
+/// direction for anything that reads it as a stationarity certificate.
+fn value_resolution(value: f64) -> f64 {
+    f64::EPSILON * value.abs().max(1.0)
+}
+
 /// A positive ridge seed scaled to the Hessian magnitude, used the first time a
 /// zero ridge fails to yield a usable direction.
 fn ridge_seed(h: &[f64], p: usize) -> f64 {
@@ -176,7 +190,30 @@ fn solve_with_min_iter<P: EsteqProblem>(
         // predicted decrease has fallen below the objective's floating-point
         // resolution: the iterate is at the numerical optimum, so stop rather
         // than crawl in ever-smaller steps.
+        //
+        // Whether that numerical optimum also satisfies the gradient tolerance is
+        // a separate question, and on a singular Hessian the answer can be no
+        // however well the problem is solved. A dual with an exactly flat
+        // direction, which the level indicators of a factor create by summing to
+        // the constant function, loses the curvature that drives the gradient to
+        // zero, and the gradient the solve can then reach is set by the
+        // accumulated rounding of the weighted means rather than by the tolerance.
+        // The decrease the full Newton step predicts, `-g . dir`, is the measure
+        // of how far the objective still has to fall, and it is invariant to
+        // reparameterization where the gradient sup norm is not. A predicted
+        // decrease at or below the objective's own resolution therefore certifies
+        // that the iterate minimizes the objective to the precision the
+        // arithmetic carries, and convergence is claimed on that certificate
+        // rather than on the stall alone: a solve that stalls with real progress
+        // still available reports the non-convergence it should, as does one that
+        // exhausts its iteration cap. A root-finding problem has no objective of
+        // its own, only the merit built from the gradient it is trying to zero, so
+        // there is no independent resolution to certify against and its stall
+        // keeps the plain verdict.
         if !accepted {
+            if smooth && -dderiv <= value_resolution(base) {
+                converged = true;
+            }
             break;
         }
         for k in 0..p {
@@ -255,6 +292,40 @@ mod tests {
         fn psi(&self, _beta: &[f64], _out: MatMut<'_, f64>) {}
     }
 
+    /// `0.5 beta^2` accumulated against a large offset, so the objective's
+    /// floating-point resolution near the minimizer is `eps * offset` rather than
+    /// `eps * value`: the decrease a Newton step predicts vanishes into the
+    /// rounding of the sum while the gradient is still far above a tight
+    /// tolerance. The gradient and Hessian are exact.
+    ///
+    /// This is the shape of the entropy dual at a singular Hessian. Its value is
+    /// a log-sum over the sample, and once the exactly flat direction a factor's
+    /// level indicators create has removed the curvature that would drive the
+    /// gradient to zero, the remaining decrease sits orders of magnitude below
+    /// that sum's rounding.
+    struct OffsetQuadratic {
+        offset: f64,
+    }
+
+    impl EsteqProblem for OffsetQuadratic {
+        fn n_params(&self) -> usize {
+            1
+        }
+        fn n_units(&self) -> usize {
+            1
+        }
+        fn value(&self, beta: &[f64]) -> Option<f64> {
+            Some((self.offset + 0.5 * beta[0] * beta[0]) - self.offset)
+        }
+        fn gradient(&self, beta: &[f64], g: &mut [f64]) {
+            g[0] = beta[0];
+        }
+        fn hessian(&self, _beta: &[f64], mut h: MatMut<'_, f64>) {
+            *h.rb_mut().get_mut(0, 0) = 1.0;
+        }
+        fn psi(&self, _beta: &[f64], _out: MatMut<'_, f64>) {}
+    }
+
     /// `0.25 beta^4`, whose Newton step is `beta -> (2/3) beta`. The iteration
     /// converges only linearly, so a small cap is always exhausted.
     struct Quartic;
@@ -319,6 +390,47 @@ mod tests {
         let report = solve(&problem, &mut beta, &opts(50), &|| false);
         assert!(report.converged);
         assert_eq!(report.iterations, 1);
+    }
+
+    #[test]
+    fn a_stall_at_the_objectives_resolution_reports_converged() {
+        // The start point sits where the predicted decrease, 1e-18, is below the
+        // objective's floating-point resolution of one machine epsilon: every
+        // trial step returns the same value, so the line search cannot accept
+        // one. The iterate is at the numerical optimum, which is convergence,
+        // even though the gradient of 1e-9 never reaches the 1e-12 tolerance.
+        let problem = OffsetQuadratic { offset: 1.0 };
+        let mut beta = vec![1e-9];
+        let report = solve(&problem, &mut beta, &opts(50), &|| false);
+        assert!(
+            report.grad_norm > opts(50).grad_tol,
+            "the scenario needs a gradient above the tolerance, got {}",
+            report.grad_norm
+        );
+        assert_eq!(report.iterations, 0, "no step can be accepted");
+        assert!(
+            report.converged,
+            "a stall with the predicted decrease below the objective's \
+             resolution is the numerical optimum"
+        );
+    }
+
+    #[test]
+    fn a_stall_with_progress_still_available_does_not_claim_convergence() {
+        // A far larger offset coarsens the objective's resolution to 1e-4, so the
+        // line search stalls at a gradient of 1e-3 with a predicted decrease of
+        // 1e-6. The certificate reads the resolution at the value's own
+        // magnitude, so it does not fire, and the solve reports the
+        // non-convergence it should: the stall alone is not evidence of an
+        // optimum.
+        let problem = OffsetQuadratic { offset: 1e12 };
+        let mut beta = vec![1e-3];
+        let report = solve(&problem, &mut beta, &opts(50), &|| false);
+        assert_eq!(report.iterations, 0, "no step can be accepted");
+        assert!(
+            !report.converged,
+            "a stall short of the resolution must not claim convergence"
+        );
     }
 
     #[test]
