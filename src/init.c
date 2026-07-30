@@ -49,6 +49,11 @@ SEXP savvy_eval_psi_entropy__impl(SEXP c_arg__coefs, SEXP c_arg__covs, SEXP c_ar
     return handle_result(res);
 }
 
+SEXP savvy_eval_psi_entropy_cont__impl(SEXP c_arg__coefs, SEXP c_arg__covs, SEXP c_arg__targets, SEXP c_arg__base_weights, SEXP c_arg__s_weights, SEXP c_arg__n_eff, SEXP c_arg__esteq_scale) {
+    SEXP res = savvy_eval_psi_entropy_cont__ffi(c_arg__coefs, c_arg__covs, c_arg__targets, c_arg__base_weights, c_arg__s_weights, c_arg__n_eff, c_arg__esteq_scale);
+    return handle_result(res);
+}
+
 SEXP savvy_eval_psi_ipt__impl(SEXP c_arg__coefs, SEXP c_arg__covs, SEXP c_arg__treat_idx, SEXP c_arg__focal, SEXP c_arg__s_weights, SEXP c_arg__estimand, SEXP c_arg__link) {
     SEXP res = savvy_eval_psi_ipt__ffi(c_arg__coefs, c_arg__covs, c_arg__treat_idx, c_arg__focal, c_arg__s_weights, c_arg__estimand, c_arg__link);
     return handle_result(res);
@@ -61,6 +66,11 @@ SEXP savvy_eval_weights_cbps__impl(SEXP c_arg__coefs, SEXP c_arg__covs, SEXP c_a
 
 SEXP savvy_eval_weights_entropy__impl(SEXP c_arg__coefs, SEXP c_arg__covs, SEXP c_arg__group_idx, SEXP c_arg__targets, SEXP c_arg__base_weights, SEXP c_arg__s_weights, SEXP c_arg__n_eff, SEXP c_arg__esteq_scale) {
     SEXP res = savvy_eval_weights_entropy__ffi(c_arg__coefs, c_arg__covs, c_arg__group_idx, c_arg__targets, c_arg__base_weights, c_arg__s_weights, c_arg__n_eff, c_arg__esteq_scale);
+    return handle_result(res);
+}
+
+SEXP savvy_eval_weights_entropy_cont__impl(SEXP c_arg__coefs, SEXP c_arg__covs, SEXP c_arg__targets, SEXP c_arg__base_weights, SEXP c_arg__s_weights, SEXP c_arg__n_eff, SEXP c_arg__esteq_scale) {
+    SEXP res = savvy_eval_weights_entropy_cont__ffi(c_arg__coefs, c_arg__covs, c_arg__targets, c_arg__base_weights, c_arg__s_weights, c_arg__n_eff, c_arg__esteq_scale);
     return handle_result(res);
 }
 
@@ -158,9 +168,11 @@ SEXP savvy_thread_info__impl(void) {
 static const R_CallMethodDef CallEntries[] = {
     {"savvy_eval_psi_cbps__impl", (DL_FUNC) &savvy_eval_psi_cbps__impl, 6},
     {"savvy_eval_psi_entropy__impl", (DL_FUNC) &savvy_eval_psi_entropy__impl, 8},
+    {"savvy_eval_psi_entropy_cont__impl", (DL_FUNC) &savvy_eval_psi_entropy_cont__impl, 7},
     {"savvy_eval_psi_ipt__impl", (DL_FUNC) &savvy_eval_psi_ipt__impl, 7},
     {"savvy_eval_weights_cbps__impl", (DL_FUNC) &savvy_eval_weights_cbps__impl, 6},
     {"savvy_eval_weights_entropy__impl", (DL_FUNC) &savvy_eval_weights_entropy__impl, 8},
+    {"savvy_eval_weights_entropy_cont__impl", (DL_FUNC) &savvy_eval_weights_entropy_cont__impl, 7},
     {"savvy_eval_weights_ipt__impl", (DL_FUNC) &savvy_eval_weights_ipt__impl, 7},
     {"savvy_kernel_matrix__impl", (DL_FUNC) &savvy_kernel_matrix__impl, 8},
     {"savvy_solve_cbps__impl", (DL_FUNC) &savvy_solve_cbps__impl, 9},

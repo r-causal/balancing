@@ -72,6 +72,26 @@ NULL
   .Call(savvy_eval_psi_entropy__impl, `coefs`, `covs`, `group_idx`, `targets`, `base_weights`, `s_weights`, `n_eff`, `esteq_scale`)
 }
 
+#' Re-evaluate the continuous entropy estimating functions at a set of duals.
+#'
+#' A continuous exposure is the single-group case of the same tilt, so `coefs`
+#' is the one dual block of length `p` the solve returned and `esteq_scale` the
+#' single renormalization the reported weights carry. Given those and the
+#' original solve inputs, returns the `n` by `p` per-unit estimating functions at
+#' those parameters, at the scale `solve_entropy_cont` reports. It supports a
+#' finite-difference check of the stored Jacobian without reimplementing the
+#' tilt math in R. The tolerances and the marginal-column indicator shape only
+#' the penalty the solve minimizes, so the re-evaluation does not take them.
+#'
+#' Internal solver entry point, called from the R layer rather than by users, so
+#' it is not exported. `@noRd` keeps it out of the reference and out of
+#' NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+#' lines into the generated wrapper.
+#' @noRd
+`eval_psi_entropy_cont` <- function(`coefs`, `covs`, `targets`, `base_weights`, `s_weights`, `n_eff`, `esteq_scale`) {
+  .Call(savvy_eval_psi_entropy_cont__impl, `coefs`, `covs`, `targets`, `base_weights`, `s_weights`, `n_eff`, `esteq_scale`)
+}
+
 #' Re-evaluate the inverse probability tilting estimating functions at a set of
 #' coefficients.
 #'
@@ -126,6 +146,25 @@ NULL
 #' @noRd
 `eval_weights_entropy` <- function(`coefs`, `covs`, `group_idx`, `targets`, `base_weights`, `s_weights`, `n_eff`, `esteq_scale`) {
   .Call(savvy_eval_weights_entropy__impl, `coefs`, `covs`, `group_idx`, `targets`, `base_weights`, `s_weights`, `n_eff`, `esteq_scale`)
+}
+
+#' Re-evaluate the continuous entropy balancing weights at a set of duals.
+#'
+#' A continuous exposure is the single-group case of the same tilt, so `coefs`
+#' is the one dual block of length `p` the solve returned and `esteq_scale` the
+#' single renormalization the reported weights carry. Given those and the
+#' original solve inputs, returns the length-`n` weight vector at those
+#' parameters, at the scale `solve_entropy_cont` reports. It supports a sandwich
+#' variance that treats the weights as a function of the duals without
+#' reimplementing the tilt math in R.
+#'
+#' Internal solver entry point, called from the R layer rather than by users, so
+#' it is not exported. `@noRd` keeps it out of the reference and out of
+#' NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+#' lines into the generated wrapper.
+#' @noRd
+`eval_weights_entropy_cont` <- function(`coefs`, `covs`, `targets`, `base_weights`, `s_weights`, `n_eff`, `esteq_scale`) {
+  .Call(savvy_eval_weights_entropy_cont__impl, `coefs`, `covs`, `targets`, `base_weights`, `s_weights`, `n_eff`, `esteq_scale`)
 }
 
 #' Re-evaluate the inverse probability tilting weights at a set of

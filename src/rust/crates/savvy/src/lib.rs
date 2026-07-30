@@ -418,6 +418,143 @@ fn solve_entropy_cont(
     Ok(out.into())
 }
 
+/// Re-evaluate the continuous entropy estimating functions at a set of duals.
+///
+/// A continuous exposure is the single-group case of the same tilt, so `coefs`
+/// is the one dual block of length `p` the solve returned and `esteq_scale` the
+/// single renormalization the reported weights carry. Given those and the
+/// original solve inputs, returns the `n` by `p` per-unit estimating functions at
+/// those parameters, at the scale `solve_entropy_cont` reports. It supports a
+/// finite-difference check of the stored Jacobian without reimplementing the
+/// tilt math in R. The tolerances and the marginal-column indicator shape only
+/// the penalty the solve minimizes, so the re-evaluation does not take them.
+///
+/// Internal solver entry point, called from the R layer rather than by users, so
+/// it is not exported. `@noRd` keeps it out of the reference and out of
+/// NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+/// lines into the generated wrapper.
+/// @noRd
+#[savvy]
+fn eval_psi_entropy_cont(
+    coefs: RealSexp,
+    covs: RealSexp,
+    targets: RealSexp,
+    base_weights: RealSexp,
+    s_weights: RealSexp,
+    n_eff: f64,
+    esteq_scale: f64,
+) -> savvy::Result<savvy::Sexp> {
+    let n = s_weights.len();
+    let p = targets.len();
+
+    if covs.len() != n * p {
+        return Err(savvy::Error::new(format!(
+            "covs has {} elements but n * p = {n} * {p} = {}",
+            covs.len(),
+            n * p
+        )));
+    }
+    if base_weights.len() != n {
+        return Err(savvy::Error::new("base_weights must have length n"));
+    }
+    if p == 0 || coefs.len() != p {
+        return Err(savvy::Error::new("coefs must have length p"));
+    }
+    require_finite(covs.as_slice(), "covs")?;
+    require_finite(base_weights.as_slice(), "base_weights")?;
+    require_finite(s_weights.as_slice(), "s_weights")?;
+
+    let inputs = EntropyInputs {
+        covs: covs.as_slice(),
+        n,
+        p,
+        targets: targets.as_slice(),
+        tols: &vec![0.0; p],
+        base: base_weights.as_slice(),
+        s: s_weights.as_slice(),
+        n_eff,
+        threads: 1,
+        max_iter: 0,
+        tol: 0.0,
+        solver: balancing_core::methods::entropy::EntropySolver::Newton,
+    };
+    let psi = balancing_core::methods::entropy::eval_psi_continuous(
+        &inputs,
+        coefs.as_slice(),
+        esteq_scale,
+    )
+    .map_err(savvy::Error::new)?;
+    Ok(real_matrix(&psi, n, p)?.into())
+}
+
+/// Re-evaluate the continuous entropy balancing weights at a set of duals.
+///
+/// A continuous exposure is the single-group case of the same tilt, so `coefs`
+/// is the one dual block of length `p` the solve returned and `esteq_scale` the
+/// single renormalization the reported weights carry. Given those and the
+/// original solve inputs, returns the length-`n` weight vector at those
+/// parameters, at the scale `solve_entropy_cont` reports. It supports a sandwich
+/// variance that treats the weights as a function of the duals without
+/// reimplementing the tilt math in R.
+///
+/// Internal solver entry point, called from the R layer rather than by users, so
+/// it is not exported. `@noRd` keeps it out of the reference and out of
+/// NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+/// lines into the generated wrapper.
+/// @noRd
+#[savvy]
+fn eval_weights_entropy_cont(
+    coefs: RealSexp,
+    covs: RealSexp,
+    targets: RealSexp,
+    base_weights: RealSexp,
+    s_weights: RealSexp,
+    n_eff: f64,
+    esteq_scale: f64,
+) -> savvy::Result<savvy::Sexp> {
+    let n = s_weights.len();
+    let p = targets.len();
+
+    if covs.len() != n * p {
+        return Err(savvy::Error::new(format!(
+            "covs has {} elements but n * p = {n} * {p} = {}",
+            covs.len(),
+            n * p
+        )));
+    }
+    if base_weights.len() != n {
+        return Err(savvy::Error::new("base_weights must have length n"));
+    }
+    if p == 0 || coefs.len() != p {
+        return Err(savvy::Error::new("coefs must have length p"));
+    }
+    require_finite(covs.as_slice(), "covs")?;
+    require_finite(base_weights.as_slice(), "base_weights")?;
+    require_finite(s_weights.as_slice(), "s_weights")?;
+
+    let inputs = EntropyInputs {
+        covs: covs.as_slice(),
+        n,
+        p,
+        targets: targets.as_slice(),
+        tols: &vec![0.0; p],
+        base: base_weights.as_slice(),
+        s: s_weights.as_slice(),
+        n_eff,
+        threads: 1,
+        max_iter: 0,
+        tol: 0.0,
+        solver: balancing_core::methods::entropy::EntropySolver::Newton,
+    };
+    let weights = balancing_core::methods::entropy::eval_weights_continuous(
+        &inputs,
+        coefs.as_slice(),
+        esteq_scale,
+    )
+    .map_err(savvy::Error::new)?;
+    Ok(real_vector(&weights)?.into())
+}
+
 /// Pack an inverse probability tilting result into its R list.
 ///
 /// The list is `weights`, `ps`, `coefs`, `converged`, `iterations`,

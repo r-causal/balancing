@@ -336,14 +336,13 @@ pub fn solve_continuous(
     dist_ind: &[i32],
     interrupt: &dyn Fn() -> bool,
 ) -> EntropyResult {
-    let all: Vec<usize> = (0..inputs.n).collect();
     let l1: Vec<f64> = inputs
         .tols
         .iter()
         .zip(dist_ind)
         .map(|(&t, &d)| if d != 0 { 0.0 } else { t })
         .collect();
-    solve_groups(inputs, std::slice::from_ref(&all), &l1, interrupt)
+    solve_groups(inputs, &single_group(inputs.n), &l1, interrupt)
 }
 
 fn solve_groups(
@@ -626,6 +625,39 @@ pub fn scale_estimating_output(
     Ok(())
 }
 
+/// Check that the inputs the re-evaluation entrypoints read are as long as the
+/// dimensions they are read at. Every entrypoint indexes the constraint matrix
+/// at `n` by `p` and the weight vectors at `n`, so a short input would read past
+/// the end of a slice. It is returned for the boundary layer to surface rather
+/// than left to panic.
+fn check_eval_dimensions(inputs: &EntropyInputs<'_>) -> Result<(), String> {
+    let (n, p) = (inputs.n, inputs.p);
+    if p == 0 {
+        return Err("a re-evaluation needs at least one constraint".to_string());
+    }
+    if inputs.covs.len() != n * p {
+        return Err(format!(
+            "covs has {} elements but n * p = {n} * {p} = {}",
+            inputs.covs.len(),
+            n * p
+        ));
+    }
+    if inputs.targets.len() != p {
+        return Err(format!(
+            "targets has {} element(s) but the constraint matrix has {p} column(s)",
+            inputs.targets.len()
+        ));
+    }
+    if inputs.base.len() != n || inputs.s.len() != n {
+        return Err(format!(
+            "the base and sampling weight vectors must both have length {n} (got {} and {})",
+            inputs.base.len(),
+            inputs.s.len()
+        ));
+    }
+    Ok(())
+}
+
 /// Check that `coefs` carries one `p`-vector per group and `scales` one value
 /// per group, the shared precondition of the re-evaluation entrypoints. A
 /// mismatch would slice past the end of the dual vector, so it is returned for
@@ -653,8 +685,10 @@ fn check_discrete_args(
 /// is `n_eff`, then multiplied by that group's entry of `scales`, the same
 /// per-group renormalization [`scale_estimating_output`] applies to the
 /// estimating-equation blocks. A unit in no group keeps zero, the value
-/// [`solve_groups`] leaves for the focal level a focal estimand omits.
-fn discrete_weights(
+/// [`solve_groups`] leaves for the focal level a focal estimand omits. A
+/// continuous problem is the single-group case, so it reads this through one
+/// group holding every unit.
+fn tilt_weights(
     inputs: &EntropyInputs<'_>,
     groups: &[Vec<usize>],
     coefs: &[f64],
@@ -688,6 +722,38 @@ fn discrete_weights(
     weights
 }
 
+/// The per-unit estimating functions a set of duals implies, at the scale
+/// [`fill_estimating_output`] and [`scale_estimating_output`] leave in the
+/// solve's own output: `psi_ij = s_i w_i (C_ij - target_j)`, with `w` the tilt
+/// this group's entry of `scales` has already been applied to. The block for
+/// group `g` occupies columns `g * p .. g * p + p`, and a unit in no group
+/// contributes a zero row.
+fn tilt_psi(
+    inputs: &EntropyInputs<'_>,
+    groups: &[Vec<usize>],
+    coefs: &[f64],
+    scales: &[f64],
+) -> Vec<f64> {
+    let n = inputs.n;
+    let p = inputs.p;
+
+    // The weights already carry the sampling weight's partner scale, so each
+    // unit's row is its sampling weight times its scaled weight times the
+    // centered constraint row.
+    let weights = tilt_weights(inputs, groups, coefs, scales);
+    let mut psi = vec![0.0; n * groups.len() * p];
+    for (g, idx) in groups.iter().enumerate() {
+        let offset = g * p;
+        for &gi in idx {
+            let sw = inputs.s[gi] * weights[gi];
+            for j in 0..p {
+                psi[(offset + j) * n + gi] = sw * (inputs.covs[j * n + gi] - inputs.targets[j]);
+            }
+        }
+    }
+    psi
+}
+
 /// Re-evaluate the discrete estimating functions at a supplied set of duals.
 ///
 /// The estimating-equations container stores `psi` at the solution; a sandwich
@@ -705,27 +771,11 @@ pub fn eval_psi_discrete(
     coefs: &[f64],
     scales: &[f64],
 ) -> Result<Vec<f64>, String> {
-    let n = inputs.n;
-    let p = inputs.p;
     let n_groups = group_count(group_idx);
-    check_discrete_args(p, n_groups, coefs, scales)?;
+    check_eval_dimensions(inputs)?;
+    check_discrete_args(inputs.p, n_groups, coefs, scales)?;
     let groups = partition_groups(group_idx, n_groups);
-
-    // The weights already carry the sampling weight's partner scale, so each
-    // unit's row is its sampling weight times its scaled weight times the
-    // centered constraint row.
-    let weights = discrete_weights(inputs, &groups, coefs, scales);
-    let mut psi = vec![0.0; n * n_groups * p];
-    for (g, idx) in groups.iter().enumerate() {
-        let offset = g * p;
-        for &gi in idx {
-            let sw = inputs.s[gi] * weights[gi];
-            for j in 0..p {
-                psi[(offset + j) * n + gi] = sw * (inputs.covs[j * n + gi] - inputs.targets[j]);
-            }
-        }
-    }
-    Ok(psi)
+    Ok(tilt_psi(inputs, &groups, coefs, scales))
 }
 
 /// Re-evaluate the discrete balancing weights at a supplied set of duals.
@@ -747,9 +797,87 @@ pub fn eval_weights_discrete(
     scales: &[f64],
 ) -> Result<Vec<f64>, String> {
     let n_groups = group_count(group_idx);
+    check_eval_dimensions(inputs)?;
     check_discrete_args(inputs.p, n_groups, coefs, scales)?;
     let groups = partition_groups(group_idx, n_groups);
-    Ok(discrete_weights(inputs, &groups, coefs, scales))
+    Ok(tilt_weights(inputs, &groups, coefs, scales))
+}
+
+/// Check the precondition of the continuous re-evaluation entrypoints: the
+/// inputs are as long as their dimensions, and `coefs` carries the single dual
+/// block the continuous problem solves, one value per constraint. A mismatch
+/// would read past the end of a slice, so it is returned for the boundary layer
+/// to surface rather than left to panic.
+fn check_continuous_args(inputs: &EntropyInputs<'_>, coefs: &[f64]) -> Result<(), String> {
+    check_eval_dimensions(inputs)?;
+    if coefs.len() != inputs.p {
+        return Err(format!(
+            "a continuous solve carries one dual per constraint, so coefs must have length {} (got {})",
+            inputs.p,
+            coefs.len()
+        ));
+    }
+    Ok(())
+}
+
+/// The whole sample as a single group, the partition a continuous problem
+/// solves over.
+fn single_group(n: usize) -> Vec<Vec<usize>> {
+    vec![(0..n).collect()]
+}
+
+/// Re-evaluate the continuous estimating functions at a supplied set of duals.
+///
+/// A continuous exposure is the single-group case of the same tilt: one dual
+/// block of length `p` over the constraint matrix [`solve_continuous`] is given,
+/// whose marginal and product columns and whose targets the R layer builds. The
+/// re-evaluation solves nothing; it recomputes the `n` by `p` matrix at `coefs`
+/// so a sandwich variance can finite-difference the stored Jacobian without the
+/// tilt math being reimplemented in R.
+///
+/// Scale convention, the one the solve's own container reports: `psi` is at the
+/// raw M-estimator scale, `psi_ij = s_i w_i (C_ij - target_j)`, where `s` holds
+/// the sampling weights and `w` is the exponential tilt normalized so
+/// `sum_i s_i w_i = n_eff`, anchored to the base measure `s_i q_i` the discrete
+/// path composes as well. `scale` is then the single group's renormalization,
+/// the ratio between the weights the fit reports and that normalization, applied
+/// exactly as [`scale_estimating_output`] applies it to the stored blocks. A
+/// continuous fit reports its weights at `n_eff`, so the R layer passes one; the
+/// argument keeps the returned `psi` on the container's scale should that
+/// reporting rule ever change.
+///
+/// The tolerances and the marginal-column indicator play no part: they shape the
+/// penalty the solve minimizes, and the inexact problem carries no estimating
+/// equations at all.
+pub fn eval_psi_continuous(
+    inputs: &EntropyInputs<'_>,
+    coefs: &[f64],
+    scale: f64,
+) -> Result<Vec<f64>, String> {
+    check_continuous_args(inputs, coefs)?;
+    Ok(tilt_psi(inputs, &single_group(inputs.n), coefs, &[scale]))
+}
+
+/// Re-evaluate the continuous balancing weights at a supplied set of duals.
+///
+/// The weight map itself, not only its derivative at the solution, is what a
+/// sandwich variance treating the weights as a function of the duals needs. This
+/// recomputes the length-`n` vector at `coefs` without solving, at the scale
+/// [`solve_continuous`] reports: the single group's exponential tilt normalized
+/// so its sampling-weighted total is `n_eff`, multiplied by `scale`, the same
+/// renormalization [`eval_psi_continuous`] applies to the estimating functions.
+pub fn eval_weights_continuous(
+    inputs: &EntropyInputs<'_>,
+    coefs: &[f64],
+    scale: f64,
+) -> Result<Vec<f64>, String> {
+    check_continuous_args(inputs, coefs)?;
+    Ok(tilt_weights(
+        inputs,
+        &single_group(inputs.n),
+        coefs,
+        &[scale],
+    ))
 }
 
 #[cfg(test)]
@@ -1182,5 +1310,266 @@ mod tests {
         let scales = vec![1.0];
         let err = eval_weights_discrete(&inputs, &group_idx, &coefs, &scales).unwrap_err();
         assert!(err.contains("group(s)"), "message was: {err}");
+    }
+
+    /// Center and scale to the sample standard deviation, the standardization
+    /// the R layer applies to a continuous exposure before it crosses the
+    /// boundary.
+    fn standardized(x: &[f64]) -> Vec<f64> {
+        let n = x.len() as f64;
+        let mean = x.iter().sum::<f64>() / n;
+        let var = x.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n - 1.0);
+        let sd = var.sqrt();
+        x.iter().map(|v| (v - mean) / sd).collect()
+    }
+
+    // A continuous design in the shape the R layer builds: a standardized
+    // exposure and two covariates as marginal columns, then the
+    // exposure-covariate products. Each marginal column is held at its sample
+    // mean and each product column at zero, the association the method removes.
+    // The targets sit inside the hull of the constraint rows, so the single
+    // group's tilt converges to exact balance.
+    fn continuous_design() -> (Vec<f64>, Vec<f64>, Vec<i32>, usize, usize) {
+        let n = 14;
+        let p = 5;
+        let x1 = [
+            -1.0, -0.3, 0.3, -1.2, 0.2, 0.0, 0.1, 1.1, -1.2, 1.3, -0.7, -1.1, -0.7, 0.3,
+        ];
+        let x2 = [
+            0.2, -0.3, -1.0, -0.6, 1.2, 0.2, -0.6, -0.9, -0.2, -1.7, -0.5, -0.7, 1.2, 1.0,
+        ];
+        let exposure = [
+            -0.1, -1.1, 0.9, 0.9, 0.7, 0.7, -0.4, 0.7, 1.3, 0.0, -1.0, 0.8, 0.8, -0.3,
+        ];
+        let e = standardized(&exposure);
+
+        let mut covs = Vec::with_capacity(n * p);
+        covs.extend_from_slice(&e);
+        covs.extend_from_slice(&x1);
+        covs.extend_from_slice(&x2);
+        covs.extend(x1.iter().zip(&e).map(|(x, ei)| x * ei));
+        covs.extend(x2.iter().zip(&e).map(|(x, ei)| x * ei));
+
+        let column_mean = |j: usize| covs[j * n..(j + 1) * n].iter().sum::<f64>() / n as f64;
+        let targets = vec![column_mean(0), column_mean(1), column_mean(2), 0.0, 0.0];
+        // The three marginal columns carry the reference distribution; the two
+        // product columns are the relaxable association constraints.
+        let dist_ind = vec![1, 1, 1, 0, 0];
+        (covs, targets, dist_ind, n, p)
+    }
+
+    // The continuous fit normalizes its single group to the sampling-weight
+    // total and reports it there, so the inputs carry that `n_eff`.
+    fn continuous_inputs<'a>(
+        covs: &'a [f64],
+        targets: &'a [f64],
+        base: &'a [f64],
+        s: &'a [f64],
+        n: usize,
+        p: usize,
+        tols: &'a [f64],
+    ) -> EntropyInputs<'a> {
+        let mut inputs = eval_inputs(covs, targets, base, s, n, p, tols);
+        inputs.n_eff = s.iter().sum();
+        inputs
+    }
+
+    // Non-unit sampling and base weights for the fourteen-unit continuous
+    // design. Their product is the base measure the tilt anchors to, so both
+    // move the solved duals and the weight map.
+    fn continuous_sampling_weights() -> Vec<f64> {
+        vec![
+            0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8,
+        ]
+    }
+
+    fn continuous_base_weights() -> Vec<f64> {
+        vec![
+            1.3, 1.2, 1.2, 1.1, 1.1, 1.0, 1.0, 0.9, 0.9, 0.8, 0.8, 0.7, 0.7, 0.6,
+        ]
+    }
+
+    // Re-evaluating psi at the solved duals reproduces the solve's own psi to
+    // floating-point tolerance, its column sums vanish because the duals solve
+    // the estimating equations, and a central finite difference of those column
+    // sums reproduces the analytic Jacobian.
+    #[test]
+    fn eval_psi_continuous_matches_solve_and_jacobian() {
+        let (covs, targets, dist_ind, n, p) = continuous_design();
+        let tols = vec![0.0; p];
+        for (s, base) in [
+            (vec![1.0; n], vec![1.0; n]),
+            (continuous_sampling_weights(), continuous_base_weights()),
+        ] {
+            let inputs = continuous_inputs(&covs, &targets, &base, &s, n, p, &tols);
+            let result = solve_continuous(&inputs, &dist_ind, &no_interrupt());
+            assert!(result.converged);
+            assert_eq!(result.duals.len(), p);
+
+            let duals = &result.duals;
+            let stored = result.psi.as_ref().expect("exact problem has psi");
+            let recomputed = eval_psi_continuous(&inputs, duals, 1.0).unwrap();
+            assert_eq!(recomputed.len(), n * p);
+            for (a, b) in stored.iter().zip(&recomputed) {
+                assert!((a - b).abs() < 1e-10, "psi mismatch: {a} vs {b}");
+            }
+
+            // The solved duals satisfy the estimating equations, so each
+            // column of psi sums to zero over the units.
+            for j in 0..p {
+                let colsum: f64 = (0..n).map(|i| recomputed[j * n + i]).sum();
+                assert!(colsum.abs() < 1e-9, "psi column {j} sums to {colsum}");
+            }
+
+            let jac = result.jac.as_ref().expect("exact problem has jac");
+            let eps = 1e-6;
+            for col in 0..p {
+                let mut up = duals.clone();
+                let mut down = duals.clone();
+                up[col] += eps;
+                down[col] -= eps;
+                let psi_up = eval_psi_continuous(&inputs, &up, 1.0).unwrap();
+                let psi_down = eval_psi_continuous(&inputs, &down, 1.0).unwrap();
+                for row in 0..p {
+                    let colsum_up: f64 = (0..n).map(|i| psi_up[row * n + i]).sum();
+                    let colsum_down: f64 = (0..n).map(|i| psi_down[row * n + i]).sum();
+                    let fd = (colsum_up - colsum_down) / (2.0 * eps);
+                    let analytic = jac[col * p + row];
+                    // The Jacobian entries are of order the sampling-weight
+                    // total, so the bound sits well below the derivative scale
+                    // while staying orders above central-difference noise.
+                    assert!(
+                        (fd - analytic).abs() < 1e-6,
+                        "jac[{row},{col}]: fd {fd} analytic {analytic}"
+                    );
+                }
+            }
+        }
+    }
+
+    // Re-evaluating the weights at the solved duals reproduces the solve's own
+    // weight vector, and a central finite difference of that vector reproduces
+    // the analytic weight derivative, under unit and non-unit measures.
+    #[test]
+    fn eval_weights_continuous_matches_solve_and_weight_jacobian() {
+        let (covs, targets, dist_ind, n, p) = continuous_design();
+        let tols = vec![0.0; p];
+        for (s, base) in [
+            (vec![1.0; n], vec![1.0; n]),
+            (continuous_sampling_weights(), continuous_base_weights()),
+        ] {
+            let inputs = continuous_inputs(&covs, &targets, &base, &s, n, p, &tols);
+            let result = solve_continuous(&inputs, &dist_ind, &no_interrupt());
+            assert!(result.converged);
+
+            let duals = &result.duals;
+            let dw = result.dw_dbeta.as_ref().expect("exact problem has dw");
+            let recomputed = eval_weights_continuous(&inputs, duals, 1.0).unwrap();
+            assert_eq!(recomputed.len(), n);
+            for (i, (a, b)) in result.weights.iter().zip(&recomputed).enumerate() {
+                assert!(
+                    (a - b).abs() < 1e-12,
+                    "weight[{i}]: solve {a} versus eval {b}"
+                );
+            }
+
+            let eps = 1e-6;
+            for col in 0..p {
+                let mut up = duals.clone();
+                let mut down = duals.clone();
+                up[col] += eps;
+                down[col] -= eps;
+                let w_up = eval_weights_continuous(&inputs, &up, 1.0).unwrap();
+                let w_down = eval_weights_continuous(&inputs, &down, 1.0).unwrap();
+                for i in 0..n {
+                    let fd = (w_up[i] - w_down[i]) / (2.0 * eps);
+                    let analytic = dw[col * n + i];
+                    assert!(
+                        (fd - analytic).abs() < 1e-6,
+                        "dw[{i},{col}]: fd {fd} analytic {analytic}"
+                    );
+                }
+            }
+        }
+    }
+
+    // The reporting scale is the single group's renormalization, free of the
+    // duals, so it multiplies every returned weight and every psi entry, the
+    // same factor scale_estimating_output applies to the stored blocks.
+    #[test]
+    fn eval_continuous_applies_the_reporting_scale() {
+        let (covs, targets, dist_ind, n, p) = continuous_design();
+        let base = vec![1.0; n];
+        let s = vec![1.0; n];
+        let tols = vec![0.0; p];
+        let inputs = continuous_inputs(&covs, &targets, &base, &s, n, p, &tols);
+        let result = solve_continuous(&inputs, &dist_ind, &no_interrupt());
+        assert!(result.converged);
+
+        let duals = &result.duals;
+        let scale = 2.5;
+        let unit_weights = eval_weights_continuous(&inputs, duals, 1.0).unwrap();
+        let scaled_weights = eval_weights_continuous(&inputs, duals, scale).unwrap();
+        for i in 0..n {
+            let want = unit_weights[i] * scale;
+            assert!(
+                (scaled_weights[i] - want).abs() < 1e-12,
+                "weight[{i}]: scaled {} expected {want}",
+                scaled_weights[i]
+            );
+        }
+
+        let unit_psi = eval_psi_continuous(&inputs, duals, 1.0).unwrap();
+        let scaled_psi = eval_psi_continuous(&inputs, duals, scale).unwrap();
+        for (k, (a, b)) in unit_psi.iter().zip(&scaled_psi).enumerate() {
+            assert!(
+                (b - a * scale).abs() < 1e-12,
+                "psi[{k}]: scaled {b} expected {}",
+                a * scale
+            );
+        }
+    }
+
+    // A continuous solve carries one dual per constraint. A vector of any other
+    // length is reported rather than left to read past the end of the tilt's
+    // parameter block.
+    #[test]
+    fn eval_continuous_rejects_a_mismatched_dual_vector() {
+        let (covs, targets, _dist_ind, n, p) = continuous_design();
+        let base = vec![1.0; n];
+        let s = vec![1.0; n];
+        let tols = vec![0.0; p];
+        let inputs = continuous_inputs(&covs, &targets, &base, &s, n, p, &tols);
+        let coefs = vec![0.0; p - 1];
+
+        let err = eval_psi_continuous(&inputs, &coefs, 1.0).unwrap_err();
+        assert!(err.contains("length"), "message was: {err}");
+        let err = eval_weights_continuous(&inputs, &coefs, 1.0).unwrap_err();
+        assert!(err.contains("length"), "message was: {err}");
+    }
+
+    // A constraint matrix or a weight vector shorter than the dimensions it is
+    // read at is reported rather than indexed past its end.
+    #[test]
+    fn eval_continuous_rejects_inputs_shorter_than_their_dimensions() {
+        let (covs, targets, _dist_ind, n, p) = continuous_design();
+        let base = vec![1.0; n];
+        let s = vec![1.0; n];
+        let tols = vec![0.0; p];
+        let coefs = vec![0.0; p];
+
+        let short_covs = continuous_inputs(&covs[..n * p - 1], &targets, &base, &s, n, p, &tols);
+        let err = eval_psi_continuous(&short_covs, &coefs, 1.0).unwrap_err();
+        assert!(err.contains("covs"), "message was: {err}");
+        let err = eval_weights_continuous(&short_covs, &coefs, 1.0).unwrap_err();
+        assert!(err.contains("covs"), "message was: {err}");
+
+        let short_base = continuous_inputs(&covs, &targets, &base[..n - 1], &s, n, p, &tols);
+        let err = eval_weights_continuous(&short_base, &coefs, 1.0).unwrap_err();
+        assert!(err.contains("weight"), "message was: {err}");
+
+        let short_s = continuous_inputs(&covs, &targets, &base, &s[..n - 1], n, p, &tols);
+        let err = eval_psi_continuous(&short_s, &coefs, 1.0).unwrap_err();
+        assert!(err.contains("weight"), "message was: {err}");
     }
 }
