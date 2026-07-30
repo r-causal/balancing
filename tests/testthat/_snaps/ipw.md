@@ -145,3 +145,14 @@
       i Estimating equations come from the estimating-equation family (entropy balancing, inverse probability tilting, just-identified covariate balancing propensity score) with exact balance.
       i See the inference vignette for a bootstrap workflow.
 
+# the stacked variance refuses a deficiency that moves the weights
+
+    Code
+      stop(cnd)
+    Condition <balancing_ipw_unsupported_error>
+      Error in `ipw_deli_sandwich()`:
+      ! `ipw()` cannot compute a stacked variance for this balancing fit.
+      x Its estimating equations have rank 4 of 5, so the stacked bread is singular.
+      x The reported weights move along 1 unidentified direction, which carries the deficiency into the effect standard errors.
+      i Refit the weights on covariates whose constraint columns are independent, or see the inference vignette for a bootstrap workflow.
+

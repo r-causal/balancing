@@ -194,15 +194,22 @@ ipw_deli_sandwich <- function(
   # recent perturbation, which a sweep asks for twice in succession. The keys
   # are short numeric vectors, so comparing them outright is cheaper than
   # hashing them.
+  #
+  # The reported weight map is named on its own because the rank check below
+  # differences the same map the closure carries, and reads it at parameters the
+  # closure never asks for.
+  weights_at <- function(weight_theta) {
+    renormalize_group_weights(
+      as.numeric(container@weights_fn(weight_theta)),
+      sampling,
+      groups,
+      targets
+    )
+  }
   evaluate_hooks <- function(weight_theta) {
     list(
       key = weight_theta,
-      weights = renormalize_group_weights(
-        as.numeric(container@weights_fn(weight_theta)),
-        sampling,
-        groups,
-        targets
-      ),
+      weights = weights_at(weight_theta),
       psi = t(container@psi_fn(weight_theta))
     )
   }
@@ -264,6 +271,12 @@ ipw_deli_sandwich <- function(
     rbind(hooks$psi, score, mean_rows, contrast_rows)
   }
 
+  validate_stacked_bread(
+    container@jacobian,
+    weights_at,
+    as.numeric(weight_parameters)
+  )
+
   # A central difference trades truncation error, of order the step squared,
   # against cancellation error, of order the double epsilon over the step; deli's
   # 1e-9 default sits far into the cancellation regime, where agreement with the
@@ -294,6 +307,90 @@ ipw_deli_sandwich <- function(
   dimnames(covariance) <- list(names(theta), names(theta))
 
   list(theta = theta, vcov = covariance)
+}
+
+# Refuse a stacked system whose weight parameters are not identified in a
+# direction the reported effects can see.
+#
+# The stacked bread is block lower triangular: the weight-parameter equations
+# depend on the weight parameters alone, so the system's determinant is that
+# block's times the rest, and the stack is singular exactly when the fit's own
+# Jacobian is. Asking the finite difference to report that is asking too much of
+# it. A deficiency that is a second-order cancellation comes back as a pivot of
+# rounding size rather than as a zero, and `solve()` accepts it, so
+# `allow_pinv = FALSE` refuses only the deficiencies that survive to the last bit
+# and answers the rest with standard errors resting on rounding error. The check
+# is therefore made on the analytic Jacobian the container carries, which is the
+# matrix the difference is approximating.
+#
+# A deficiency is not automatically fatal, and the distinction is not a judgment
+# call. Everything downstream of the weight block reads the weight parameters
+# only through the reported weight map, so a direction the map is flat along
+# cannot reach the outcome-model score, the marginal means, or the contrasts: it
+# contaminates the weight block of the covariance, which nothing reported is read
+# from. That is the factor-covariate case, where a factor's level indicators sum
+# to the constant function and the level-sum direction rescales each group's
+# weights by a constant the renormalization divides out again. A direction the
+# map is not flat along is the opposite case: the effects inherit the inverse of
+# a pivot that is rounding error, and their standard errors come back finite and
+# wrong by whatever factor that pivot happened to take.
+#
+# So flatness is measured rather than assumed. Each deficient direction is
+# differenced through the same reported weight map the stack carries, at the step
+# the bread is differenced at, and the movement is read against the scale of the
+# weights themselves. The two populations are far apart: on the package's own
+# fixtures a flat direction moves the weights by around 1e-10 relative and a live
+# direction by order one, so no threshold between them is delicate.
+validate_stacked_bread <- function(
+  jacobian,
+  weights_at,
+  parameters,
+  call = rlang::caller_env()
+) {
+  decomposition <- svd(jacobian)
+  deficient <- decomposition$d <= decomposition$d[[1]] * 1e-8
+  if (!any(deficient)) {
+    return(invisible(NULL))
+  }
+
+  step <- 1e-6
+  magnitude <- max(1, max(abs(weights_at(parameters))))
+  directions <- decomposition$v[, deficient, drop = FALSE]
+  movement <- vapply(
+    seq_len(ncol(directions)),
+    function(j) {
+      shift <- step * directions[, j]
+      derivative <- (weights_at(parameters + shift) -
+        weights_at(parameters - shift)) /
+        (2 * step)
+      max(abs(derivative)) / magnitude
+    },
+    numeric(1)
+  )
+  # A movement that is not a number counts as movement. The weight map then has
+  # no derivative along that direction at all, which is not the flatness the
+  # tolerance measures, and a comparison against a missing value must not be left
+  # to decide the branch below: it would stop the check with a base error naming
+  # neither the fit nor the deficiency, and one such direction would carry the
+  # classification of every other direction with it.
+  moving <- sum(is.na(movement) | movement > 1e-6)
+  if (moving == 0L) {
+    return(invisible(NULL))
+  }
+
+  rank <- sum(!deficient)
+  parameter_count <- ncol(jacobian)
+  abort(
+    c(
+      "{.fun ipw} cannot compute a stacked variance for this balancing fit.",
+      x = "Its estimating equations have rank {rank} of {parameter_count}, so the stacked bread is singular.",
+      x = "The reported weights move along {moving} unidentified direction{?s}, which carries the deficiency into the effect standard errors.",
+      i = "Refit the weights on covariates whose constraint columns are independent, or see the inference vignette for a bootstrap workflow."
+    ),
+    error_class = "balancing_ipw_unsupported_error",
+    call = call,
+    .envir = environment()
+  )
 }
 
 # The effect contrasts of the marginal means, and the labels the estimates table

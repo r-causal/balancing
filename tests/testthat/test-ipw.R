@@ -860,7 +860,9 @@ test_that("a factor covariate leaves the ipw() sandwich finite", {
     as.numeric(stats::weights(reduced)),
     stats::binomial()
   )
-  estimates <- as.data.frame(ipw(fit, outcome_mod))
+  # The deficiency is tolerated rather than refused, and tolerated silently: the
+  # weight map is flat along it, so it never reaches the reported effects.
+  estimates <- as.data.frame(expect_no_warning(ipw(fit, outcome_mod)))
   reduced_estimates <- as.data.frame(ipw(reduced, reduced_mod))
 
   expect_true(all(is.finite(estimates$std.err)))
@@ -3991,6 +3993,161 @@ test_that("ipw_deli_sandwich() refuses a rank-deficient stack", {
     ),
     regexp = "singular"
   )
+})
+
+# A container carrying one extra weight parameter whose own estimating equation
+# has slope `epsilon`. Analytically the Jacobian is rank deficient at any rank
+# tolerance worth the name, while a central difference of the same system returns
+# a pivot of that size rather than a zero, and `solve()` accepts it: this is the
+# shape that walks past `allow_pinv = FALSE` and answers with finite standard
+# errors. A deficiency whose bread row is an exact zero, which the container
+# above builds, is the easy case deli already refuses.
+#
+# `extra` is the extra equation's per-unit value at the fitted parameters. It
+# sums to zero there, so the equation is solved, and it gives the meat a row of
+# its own, which is what a wrong answer needs: the inverse of an `epsilon` pivot
+# multiplied by an exactly zero meat row is still zero. `shift` decides whether
+# the extra parameter moves the reported weights, and that is the whole
+# difference between a deficiency the reported effects cannot see and one they
+# inherit. Measured on this fixture, the moving version returns risk-difference
+# standard errors a factor of 1e12 above the truth, finite and confident.
+near_singular_container <- function(
+  ee,
+  epsilon = 1e-12,
+  shift = NULL,
+  extra = 0
+) {
+  p <- length(ee@parameters)
+  jacobian <- matrix(0, p + 1L, p + 1L)
+  jacobian[seq_len(p), seq_len(p)] <- ee@jacobian
+  jacobian[p + 1L, p + 1L] <- epsilon
+  balancing_estimating_equations(
+    parameters = c(ee@parameters, 0),
+    psi = cbind(ee@psi, extra),
+    jacobian = jacobian,
+    weight_jacobian = cbind(
+      ee@weight_jacobian,
+      ee@weights_raw * (shift %||% 0)
+    ),
+    weights_raw = ee@weights_raw,
+    psi_fn = function(theta) {
+      cbind(ee@psi_fn(theta[seq_len(p)]), extra + epsilon * theta[[p + 1L]])
+    },
+    weights_fn = if (is.null(shift)) {
+      function(theta) ee@weights_fn(theta[seq_len(p)])
+    } else {
+      function(theta) {
+        ee@weights_fn(theta[seq_len(p)]) * (1 + theta[[p + 1L]] * shift)
+      }
+    }
+  )
+}
+
+test_that("the stacked variance tolerates a deficiency the weights are flat along", {
+  # Everything downstream of the weight block reads the weight parameters only
+  # through the reported weight map, so a direction the map is flat along cannot
+  # reach the score, the means, or the contrasts. It contaminates the weight
+  # block of the covariance, which nothing reported is read from, and the effects
+  # are the effects of the undoctored stack down to the last bit.
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+  keys <- c("rd", "log(rr)", "log(or)")
+
+  plain <- call_deli_sandwich(fit, outcome_mod, data)
+  tolerated <- ipw_deli_sandwich(
+    container = near_singular_container(
+      estimating_equations(fit),
+      extra = data$x1 - mean(data$x1)
+    ),
+    outcome_mod = outcome_mod,
+    frame = data,
+    exposure_name = fit@exposure,
+    levels = fit@exposure_levels,
+    sampling_weights = fit@sampling_weights
+  )
+
+  expect_true(all(is.finite(sqrt(diag(tolerated$vcov)[keys]))))
+  expect_equal(
+    unname(sqrt(diag(tolerated$vcov)[keys])),
+    unname(sqrt(diag(plain$vcov)[keys]))
+  )
+})
+
+test_that("the stacked variance refuses a deficiency that moves the weights", {
+  # The same deficiency, with a weight map that is not flat along it. The
+  # effects then inherit the inverse of a pivot that is rounding error, so the
+  # standard errors come back finite and wrong by whatever factor that pivot
+  # happens to take, which is the failure the check exists to refuse.
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+  moving <- near_singular_container(
+    estimating_equations(fit),
+    shift = 0.1 * as.numeric(scale(data$x1)),
+    extra = data$x1 - mean(data$x1)
+  )
+  refuse <- function() {
+    ipw_deli_sandwich(
+      container = moving,
+      outcome_mod = outcome_mod,
+      frame = data,
+      exposure_name = fit@exposure,
+      levels = fit@exposure_levels,
+      sampling_weights = fit@sampling_weights
+    )
+  }
+
+  expect_error(refuse(), class = "balancing_ipw_unsupported_error")
+
+  cnd <- rlang::catch_cnd(
+    refuse(),
+    classes = "balancing_ipw_unsupported_error"
+  )
+  expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
+})
+
+test_that("a movement that is not a number counts as movement", {
+  # The rank check reads the weight map through a function it is handed, so a
+  # map with no derivative along a deficient direction leaves that direction's
+  # movement missing rather than large. Missing is not flat, and a missing
+  # comparison must not be left to decide the branch: `if (NA)` stops with base
+  # R's own message, which names neither the fit nor the deficiency, and one
+  # missing direction would take the classification of every other direction
+  # with it.
+  jacobian <- diag(c(1, 0.5, 0))
+  parameters <- c(0, 0, 0)
+  flat <- function(theta) rep(1, 5)
+  undefined <- function(theta) {
+    if (identical(as.numeric(theta), parameters)) {
+      return(flat(theta))
+    }
+    c(NaN, rep(1, 4))
+  }
+
+  expect_error(
+    validate_stacked_bread(jacobian, undefined, parameters),
+    class = "balancing_ipw_unsupported_error"
+  )
+
+  # The same deficiency with a map that is flat along it is still tolerated, so
+  # counting the missing movement has not turned every deficiency into a
+  # refusal.
+  expect_null(validate_stacked_bread(jacobian, flat, parameters))
 })
 
 # A container whose estimating functions go missing away from the solution
