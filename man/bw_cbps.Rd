@@ -60,7 +60,11 @@ produce the same weights.
 Setting \code{over_identified = TRUE} stacks the propensity model's own score
 equations onto the balancing conditions and minimizes a generalized-method-of-
 moments criterion. Balance is then approximate, the fit records the criterion
-value on its objective, and it supplies no estimating equations. That
+value on its objective, and it supplies no estimating equations. The recorded
+criterion carries no units from the sampling weights: the mean moment and the
+moment covariance the weighting matrix inverts are each divided by the average
+sampling weight, so the same design expressed in survey-expansion units reports
+the same criterion and meets \code{convergence_tolerance} at the same fit. That
 criterion is defined for a binary exposure alone: a categorical or continuous
 exposure has no over-identified form, so the request is warned and ignored and
 the fit balances its moment conditions exactly. \code{two_step} selects the

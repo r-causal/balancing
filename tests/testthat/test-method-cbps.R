@@ -321,25 +321,28 @@ test_that("the convergence verdict does not move with the sampling-weight scale"
 })
 
 test_that("the over-identified verdict does not move with the sampling-weight scale", {
-  # The generalized-method-of-moments criterion is also degree one in the
-  # sampling weights: the moment covariance the weighting matrix inverts carries
-  # a single sampling weight per unit, so the weighting cancels one power and the
-  # criterion and its gradient still read in the weights' units. A tolerance held
-  # fixed against them would call the survey-scale fit unconverged at the same
-  # solution the unscaled fit converged on.
+  # The generalized-method-of-moments criterion is normalized to degree zero in
+  # the sampling weights: the mean moment and the moment covariance the weighting
+  # matrix inverts are each divided by the average sampling weight, so both the
+  # criterion and its gradient are the same numbers whatever units the weights are
+  # written in. A tolerance held fixed against them therefore reads the fit, and
+  # the same million-fold expansion the just-identified case uses leaves the
+  # verdict and the balancing factors where they were.
   #
-  # The expansion factor here is a thousand rather than the million the
-  # just-identified case uses. The criterion's degree is exact at any factor, and
-  # the Rust suite pins it there for both weighting policies; how large an
-  # expansion the solve itself survives is set by the quasi-Newton backend the
-  # over-identified criterion is minimized through, whose line search is not
-  # scale-free.
+  # The tolerance is loosened from the default here. The criterion is invariant to
+  # twelve significant digits across expansions spanning a factor of a billion on
+  # this design, but the last stretch of the gradient below about 1e-9 is not: the
+  # quasi-Newton backend can settle into a non-progressing cycle at the minimizer
+  # from which any rounding perturbation escapes, so at the default 1e-10 the
+  # verdict records which trajectory the run happened to take rather than where it
+  # arrived. A tolerance the criterion's arithmetic reaches on both arms is what
+  # makes the invariance the assertion is about the thing being read.
   data <- sim_binary()
   withr::local_seed(9)
   data$sw <- stats::runif(nrow(data), 0.5, 1.5)
-  data$sw_expanded <- data$sw * 1e3
+  data$sw_expanded <- data$sw * 1e6
 
-  method <- bw_cbps(over_identified = TRUE)
+  method <- bw_cbps(over_identified = TRUE, convergence_tolerance = 1e-8)
   fit <- balance(
     data,
     exposure,
@@ -362,6 +365,10 @@ test_that("the over-identified verdict does not move with the sampling-weight sc
 
   expect_true(fit@converged)
   expect_true(expanded@converged)
+
+  # The reported criterion is the same number at either scale, not the same
+  # number times the expansion factor.
+  expect_equal(expanded@objective, fit@objective, tolerance = 1e-6)
 
   factors <- as.numeric(stats::weights(fit)) / data$sw
   factors_expanded <- as.numeric(stats::weights(expanded)) / data$sw_expanded

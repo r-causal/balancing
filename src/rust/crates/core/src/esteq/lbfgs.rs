@@ -7,7 +7,7 @@
 
 use basin::core::problem::{CostFunction, Gradient};
 use basin::solver::lbfgs::Unbounded;
-use basin::{Executor, GradientTolerance, Lbfgs, LbfgsState, MaxIter, State};
+use basin::{Executor, GradientTolerance, Lbfgs, LbfgsState, State};
 
 use super::{EsteqProblem, SolveOptions, SolveReport, Solver};
 
@@ -59,8 +59,13 @@ pub fn solve<P: EsteqProblem>(
     // moves the verdict.
     let grad_tol = opts.grad_tol * problem.residual_scale();
 
+    // The executor carries its own iteration budget, defaulting to a thousand,
+    // and checks it before any criterion registered alongside it. Setting that
+    // budget is therefore the only way a requested maximum above the default
+    // takes effect: an added `MaxIter` criterion can stop a run early but never
+    // extend it past the executor's own limit.
     let result = Executor::new(adapter, solver, state)
-        .terminate_on(MaxIter(opts.max_iter as u64))
+        .max_iter(opts.max_iter as u64)
         .terminate_on(GradientTolerance(grad_tol))
         .run()
         .expect("basin L-BFGS is infallible for an infallible problem");
@@ -136,6 +141,61 @@ mod tests {
             }
         }
         fn psi(&self, _beta: &[f64], _out: MatMut<'_, f64>) {}
+    }
+
+    /// A geometrically graded separable quadratic whose condition number is a
+    /// million. Limited-memory BFGS carries ten curvature pairs against forty
+    /// distinct scales, so it never resolves the smallest directions: the run
+    /// exhausts whatever iteration budget it is given rather than reaching the
+    /// tolerance, which is what makes the budget itself observable.
+    fn ill_conditioned_quadratic(p: usize) -> Quad {
+        let lo = 1e-3_f64;
+        let hi = 1e3_f64;
+        Quad {
+            center: (0..p).map(|j| 1.0 + 0.1 * j as f64).collect(),
+            scale: (0..p)
+                .map(|j| lo * (hi / lo).powf(j as f64 / (p - 1) as f64))
+                .collect(),
+        }
+    }
+
+    // The requested iteration maximum is the budget the run actually gets. The
+    // basin executor carries its own default budget, so a maximum above that
+    // default has to be pushed into the executor rather than added alongside it
+    // as one more termination criterion: an additional criterion can only stop a
+    // run earlier than the default, never let it continue past.
+    #[test]
+    fn the_requested_iteration_maximum_is_the_budget_the_run_gets() {
+        let problem = ill_conditioned_quadratic(40);
+        let solve_with = |max_iter: usize| {
+            let mut beta = vec![0.0; problem.n_params()];
+            solve(
+                &problem,
+                &mut beta,
+                &SolveOptions {
+                    max_iter,
+                    grad_tol: 1e-12,
+                    fista_rel_tol: 1e-10,
+                },
+                &|| false,
+            )
+        };
+
+        // A budget below the executor default binds, which is all the previous
+        // arrangement could express.
+        let small = solve_with(500);
+        assert_eq!(small.iterations, 500);
+        assert!(!small.converged, "the design must not reach the tolerance");
+
+        // A budget above it must bind too.
+        let large = solve_with(2000);
+        assert!(
+            large.iterations > 1000,
+            "max_iterations = 2000 ran only {} iterations, so the budget above \
+             the executor default was ignored",
+            large.iterations
+        );
+        assert_eq!(large.iterations, 2000);
     }
 
     #[test]

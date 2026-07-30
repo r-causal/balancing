@@ -572,15 +572,33 @@ impl GmmAccum {
 }
 
 impl GmmProblem<'_> {
+    /// The divisor that turns the per-unit sums below into the normalized
+    /// quantities the criterion is built from: the sample size times the average
+    /// sampling weight.
+    ///
+    /// Every accumulated sum here carries exactly one sampling weight per unit,
+    /// so dividing by the average weight as well as by the sample size makes the
+    /// mean moment, its parameter Jacobian, and the moment covariance all degree
+    /// zero in the sampling weights. Expressing the same design in survey-
+    /// expansion units then leaves each of them, and so the criterion `m' W m`
+    /// and its gradient, at exactly the numbers they held before, which is what
+    /// lets a fixed convergence tolerance read the fit rather than the units the
+    /// weights happen to be written in. Unit sampling weights average to one
+    /// exactly, so the arithmetic there is untouched.
+    fn normalizer(&self) -> f64 {
+        1.0 / (self.inputs.n as f64 * sampling_weight_scale(self.inputs.s))
+    }
+
     /// Fold the mean moment `m`, the moment-parameter Jacobian `grad` (column
-    /// major `m_total` by `p`), and, when requested, the moment covariance.
+    /// major `m_total` by `p`), and, when requested, the moment covariance, each
+    /// normalized by [`GmmProblem::normalizer`].
     fn accumulate(&self, beta: &[f64], want_cov: bool) -> GmmAccum {
         let inputs = self.inputs;
         let n = inputs.n;
         let p = inputs.p_mod;
         let p_bal = inputs.p_bal;
         let m_total = self.m_total;
-        let inv_n = 1.0 / n as f64;
+        let normalizer = self.normalizer();
         let mut acc = deterministic_map_reduce(
             &self.pool,
             n,
@@ -634,10 +652,10 @@ impl GmmProblem<'_> {
                 // measure here, weighting each unit's outer product by the mass
                 // it represents, where squaring them would instead treat them as
                 // the variance of a heteroskedastic error and change the
-                // over-identified point estimates. That choice also makes the
-                // covariance degree one in the sampling weights, matching the
-                // moment itself, which is what the problem's residual scale
-                // below accounts for.
+                // over-identified point estimates. That choice also gives the
+                // covariance the same single power of the sampling weights the
+                // moment itself carries, so the normalization applied below
+                // clears both at once.
                 if want_cov {
                     for a in 0..m_total {
                         let ga = s * acc.g_row[a];
@@ -662,14 +680,14 @@ impl GmmProblem<'_> {
             },
         );
         for value in &mut acc.m {
-            *value *= inv_n;
+            *value *= normalizer;
         }
         for value in &mut acc.grad {
-            *value *= inv_n;
+            *value *= normalizer;
         }
         if want_cov {
             for value in &mut acc.cov {
-                *value *= inv_n;
+                *value *= normalizer;
             }
         }
         acc
@@ -705,21 +723,9 @@ impl EsteqProblem for GmmProblem<'_> {
         Some(quad_form(&w, &acc.m, self.m_total))
     }
 
-    /// The criterion is degree one in the sampling weights, so its gradient is
-    /// too, and the tolerance is read at that scale.
-    ///
-    /// The moment and its parameter Jacobian are sampling-weighted totals, degree
-    /// one each, and the moment covariance the weighting matrix inverts is degree
-    /// one as well, so the weighting cancels exactly one power: `m' W m` and its
-    /// derivative both carry the units the sampling weights are expressed in.
-    /// Reading the same design in survey-expansion units would otherwise move the
-    /// convergence verdict without moving the minimizer. The scale is derived here
-    /// rather than cached on the problem because the struct is also built as a
-    /// covariance probe that is never solved, and the solvers resolve the scale
-    /// once per solve.
-    fn residual_scale(&self) -> f64 {
-        sampling_weight_scale(self.inputs.s)
-    }
+    // The criterion is already degree zero in the sampling weights, normalized
+    // there by `accumulate`, so it keeps the trait's default residual scale of
+    // one and the tolerance is read exactly as written.
 
     fn gradient(&self, beta: &[f64], grad: &mut [f64]) {
         let p = self.inputs.p_mod;
@@ -791,14 +797,19 @@ impl EsteqProblem for GmmProblem<'_> {
 }
 
 impl GmmProblem<'_> {
-    /// The continuously-updated gradient correction `-2/N sum_i (g_i . u)(G_i' u)`
-    /// for the fixed contraction `u = W m`.
+    /// The continuously-updated gradient correction `-2 (g_i . u)(G_i' u)`
+    /// summed over units and normalized by [`GmmProblem::normalizer`], for the
+    /// fixed contraction `u = W m`.
+    ///
+    /// The correction differentiates the weighting matrix, and the covariance it
+    /// inverts is normalized the same way the moment is, so this term takes the
+    /// same divisor as the rest of the gradient.
     fn continuous_extra(&self, beta: &[f64], u: &[f64]) -> Vec<f64> {
         let inputs = self.inputs;
         let n = inputs.n;
         let p = inputs.p_mod;
         let p_bal = inputs.p_bal;
-        let inv_n = 1.0 / n as f64;
+        let normalizer = self.normalizer();
         let mut extra = deterministic_map_reduce(
             &self.pool,
             n,
@@ -843,7 +854,7 @@ impl GmmProblem<'_> {
             },
         );
         for value in &mut extra {
-            *value *= -2.0 * inv_n;
+            *value *= -2.0 * normalizer;
         }
         extra
     }
@@ -2065,19 +2076,18 @@ mod tests {
         }
     }
 
-    // The over-identified criterion is degree one in the sampling weights: the
-    // moment and its parameter Jacobian are sampling-weighted totals, and the
-    // moment covariance the weighting matrix inverts accumulates a single sampling
-    // weight per unit, so the weighting cancels exactly one power and the
-    // criterion and its gradient are left carrying the weights' own units. This
-    // pins that structure directly, at a fixed parameter vector where no solver
-    // trajectory intervenes: expressing the same design in survey-expansion units
-    // multiplies both by the expansion factor, and the problem reports the same
-    // factor as its residual scale, which is what leaves the ratio the solvers
-    // judge convergence on untouched. Both weighting policies share the
-    // structure, so both are checked.
+    // The over-identified criterion is degree zero in the sampling weights: the
+    // mean moment, its parameter Jacobian, and the moment covariance the
+    // weighting matrix inverts are each divided by the average sampling weight,
+    // which leaves every one of them unchanged when the same design is expressed
+    // in survey-expansion units. The criterion and its gradient are then the same
+    // numbers at any expansion, not merely proportional to each other, so a fixed
+    // convergence tolerance reads the fit rather than the units the weights are
+    // written in. This pins the structure directly, at a fixed parameter vector
+    // where no solver trajectory intervenes. Both weighting policies share it, so
+    // both are checked.
     #[test]
-    fn the_gmm_criterion_and_its_residual_scale_share_the_sampling_weight_degree() {
+    fn the_gmm_criterion_is_degree_zero_in_the_sampling_weights() {
         let (covs, treat, n) = gmm_gradient_design();
         let base_s = gmm_gradient_sampling_weights();
         let factor = 1e6;
@@ -2088,7 +2098,6 @@ mod tests {
         for twostep in [true, false] {
             let mut criteria = Vec::new();
             let mut gradients = Vec::new();
-            let mut scales = Vec::new();
             for expansion in [1.0, factor] {
                 let s: Vec<f64> = base_s.iter().map(|si| si * expansion).collect();
                 let inputs = CbpsInputs {
@@ -2132,31 +2141,23 @@ mod tests {
                 problem.gradient(&beta, &mut grad);
                 criteria.push(problem.value(&beta).expect("the criterion has a value"));
                 gradients.push(grad);
-                scales.push(problem.residual_scale());
             }
 
-            let mean_s = base_s.iter().sum::<f64>() / n as f64;
+            // The bound is round-off on a million-fold expansion, far below the
+            // factor-of-a-million discrepancy a degree-one criterion would show.
             assert!(
-                (scales[0] - mean_s).abs() < 1e-12,
-                "two_step = {twostep} unscaled residual scale {} is not the average \
-                 sampling weight {mean_s}",
-                scales[0]
-            );
-            assert!(
-                (scales[1] / scales[0] - factor).abs() < 1e-3,
-                "two_step = {twostep} residual scale grew by {} rather than {factor}",
-                scales[1] / scales[0]
-            );
-            assert!(
-                (criteria[1] / criteria[0] - factor).abs() < 1e-3,
-                "two_step = {twostep} criterion grew by {} rather than {factor}",
-                criteria[1] / criteria[0]
+                (criteria[1] - criteria[0]).abs() <= 1e-9 * criteria[0].abs(),
+                "two_step = {twostep} criterion moved from {} to {} under a \
+                 {factor}-fold expansion",
+                criteria[0],
+                criteria[1]
             );
             for (k, unscaled) in gradients[0].iter().enumerate() {
-                let ratio = gradients[1][k] / unscaled;
                 assert!(
-                    (ratio - factor).abs() < 1e-3,
-                    "two_step = {twostep} gradient[{k}] grew by {ratio} rather than {factor}"
+                    (gradients[1][k] - unscaled).abs() <= 1e-9 * unscaled.abs(),
+                    "two_step = {twostep} gradient[{k}] moved from {unscaled} to {} \
+                     under a {factor}-fold expansion",
+                    gradients[1][k]
                 );
             }
         }
@@ -2200,6 +2201,14 @@ mod tests {
             expanded.converged,
             "the expanded fit reported a criterion of {} against tolerance 1e-10",
             expanded.gmm_obj.unwrap_or(f64::NAN)
+        );
+        // The reported criterion is the same number at either expansion, not the
+        // same number times the expansion factor.
+        let base_obj = base.gmm_obj.expect("the criterion is reported");
+        let expanded_obj = expanded.gmm_obj.expect("the criterion is reported");
+        assert!(
+            (expanded_obj - base_obj).abs() <= 1e-6 * base_obj.abs().max(1e-12),
+            "criterion {base_obj} unscaled against {expanded_obj} expanded"
         );
         for i in 0..n {
             assert!(

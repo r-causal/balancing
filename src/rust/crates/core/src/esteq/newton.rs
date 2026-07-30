@@ -41,7 +41,17 @@ fn sym_matvec(h: &[f64], p: usize, x: &[f64], out: &mut [f64]) {
 /// this a lower bound on the true resolution of an accumulated objective, whose
 /// rounding grows with the number of terms summed, which is the conservative
 /// direction for anything that reads it as a stationarity certificate.
+///
+/// An objective that is not finite carries no resolution to speak of, and the
+/// floor above would otherwise read a `NaN` as an objective of magnitude one:
+/// `f64::max` returns its finite argument when the other is `NaN`. Reporting
+/// zero instead refuses the certificate, which is the direction a caller reading
+/// this as evidence of stationarity needs, and leaves the stall to be reported
+/// as the non-convergence it is.
 fn value_resolution(value: f64) -> f64 {
+    if !value.is_finite() {
+        return 0.0;
+    }
     f64::EPSILON * value.abs().max(1.0)
 }
 
@@ -267,6 +277,21 @@ mod tests {
     use super::*;
     use crate::esteq::EsteqProblem;
     use faer::prelude::ReborrowMut;
+
+    // A stall is certified as convergence only when the predicted decrease sits
+    // below the objective's resolution, so an objective that cannot be read must
+    // report no resolution at all. Both non-finite readings would otherwise pass
+    // a stall off as an optimum: `f64::max` hands a `NaN` back the finite floor
+    // of one, and an infinite objective would report an infinite resolution that
+    // every predicted decrease falls below.
+    #[test]
+    fn a_non_finite_objective_has_no_resolution() {
+        assert_eq!(value_resolution(f64::NAN), 0.0);
+        assert_eq!(value_resolution(f64::INFINITY), 0.0);
+        assert_eq!(value_resolution(f64::NEG_INFINITY), 0.0);
+        assert_eq!(value_resolution(0.0), f64::EPSILON);
+        assert_eq!(value_resolution(-8.0), 8.0 * f64::EPSILON);
+    }
 
     /// `0.5 (beta - center)^2` per coordinate: one Newton step reaches the
     /// minimizer exactly, so the number of accepted steps is known in advance.
