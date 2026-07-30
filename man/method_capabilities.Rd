@@ -22,7 +22,10 @@ fit_method(method, prepared)
 \arguments{
 \item{method}{A \link{balance_method} specification.}
 
-\item{...}{Additional context, such as the resolved \code{constraints}.}
+\item{...}{Additional context for \code{supports_estimating_equations()}, passed by
+name. Every method accepts both \code{exposure_type} and \code{constraints} and
+ignores whichever of the two its answer does not depend on, so one call
+shape puts the question to any method.}
 
 \item{exposure_type}{One of \code{"binary"}, \code{"categorical"}, or \code{"continuous"}.}
 }

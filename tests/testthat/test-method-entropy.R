@@ -88,6 +88,21 @@ test_that("supports_estimating_equations() follows the tolerance rule", {
     bw_entropy(),
     constraints = balance_terms(tolerance = 0.05)
   ))
+  # The tolerance rule is the whole rule: the continuous fit produces the same
+  # smooth estimating equations its discrete fit does when nothing is relaxed, so
+  # the exposure type does not change the answer.
+  for (type in c("binary", "categorical", "continuous")) {
+    expect_true(supports_estimating_equations(
+      bw_entropy(),
+      exposure_type = type,
+      constraints = balance_terms(tolerance = 0)
+    ))
+    expect_false(supports_estimating_equations(
+      bw_entropy(),
+      exposure_type = type,
+      constraints = balance_terms(tolerance = 0.05)
+    ))
+  }
 })
 
 test_that("method_label() names the method", {

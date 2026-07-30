@@ -180,6 +180,75 @@ test_that("no method constructor binds a positional argument", {
   }
 })
 
+# ---- supports_estimating_equations() context arguments ---------------------
+
+# The generic takes its context through the dots, so every method has to declare
+# the same context arguments for a caller to be able to ask any of them the same
+# question. Entropy balancing and inverse probability tilting declared only
+# `constraints`, so `exposure_type` fell through to their `check_dots_empty()` and
+# the call errored for two of the six.
+test_that("every method answers with either context argument", {
+  methods <- list(
+    bw_entropy(),
+    bw_ipt(),
+    bw_cbps(),
+    bw_energy(),
+    bw_cfd(),
+    bw_sbw()
+  )
+  for (method in methods) {
+    for (type in c("binary", "categorical", "continuous")) {
+      answer <- supports_estimating_equations(method, exposure_type = type)
+      expect_type(answer, "logical")
+      expect_length(answer, 1L)
+      expect_false(is.na(answer))
+      combined <- supports_estimating_equations(
+        method,
+        exposure_type = type,
+        constraints = balance_terms(tolerance = 0)
+      )
+      expect_type(combined, "logical")
+      expect_length(combined, 1L)
+    }
+    expect_type(
+      supports_estimating_equations(
+        method,
+        constraints = balance_terms(tolerance = 0)
+      ),
+      "logical"
+    )
+    # An argument no method consumes is still refused, so a misspelled context
+    # name does not pass silently.
+    expect_error(supports_estimating_equations(method, bogus = 1))
+  }
+})
+
+# Entropy balancing's continuous fit solves smooth estimating equations exactly
+# when every requested tolerance is zero, the same rule its discrete fit follows.
+# No other method produces them for a continuous exposure at all.
+test_that("only entropy balancing answers TRUE for a continuous exposure", {
+  expect_true(supports_estimating_equations(
+    bw_entropy(),
+    exposure_type = "continuous"
+  ))
+  expect_true(supports_estimating_equations(
+    bw_entropy(),
+    exposure_type = "continuous",
+    constraints = balance_terms(tolerance = 0)
+  ))
+  expect_false(supports_estimating_equations(
+    bw_entropy(),
+    exposure_type = "continuous",
+    constraints = balance_terms(tolerance = 0.05)
+  ))
+  for (method in list(bw_ipt(), bw_cbps(), bw_energy(), bw_cfd(), bw_sbw())) {
+    expect_false(supports_estimating_equations(
+      method,
+      exposure_type = "continuous"
+    ))
+  }
+})
+
 # ---- balance_terms: named and list variants -------------------------------
 
 test_that("balance_terms() accepts a named tolerance vector", {

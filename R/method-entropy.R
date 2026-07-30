@@ -167,9 +167,17 @@ method(supported_estimands, bw_entropy) <- function(
   )
 }
 
+# Entropy balancing solves smooth estimating equations exactly when nothing is
+# relaxed, and the rule is the same for every exposure type it supports: the
+# continuous fit holds its marginal and correlation constraints as identifying
+# conditions in the same way the discrete fit holds its moment conditions, so a
+# positive tolerance is what removes them and the exposure type does not enter.
+# The exposure type is accepted so that the call shape matches the rest of the
+# family and a caller can put the same question to any method.
 method(supports_estimating_equations, bw_entropy) <- function(
   method,
   ...,
+  exposure_type = NULL,
   constraints = NULL
 ) {
   rlang::check_dots_empty()

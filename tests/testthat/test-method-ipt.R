@@ -87,7 +87,7 @@ test_that("supported_estimands() depends on the exposure type", {
   )
 })
 
-test_that("supports_estimating_equations() is always TRUE for bw_ipt", {
+test_that("supports_estimating_equations() is TRUE for every supported exposure", {
   expect_true(supports_estimating_equations(bw_ipt()))
   expect_true(supports_estimating_equations(
     bw_ipt(),
@@ -98,6 +98,15 @@ test_that("supports_estimating_equations() is always TRUE for bw_ipt", {
   expect_true(supports_estimating_equations(
     bw_ipt(),
     constraints = balance_terms(tolerance = 0.05)
+  ))
+  for (type in c("binary", "categorical")) {
+    expect_true(supports_estimating_equations(bw_ipt(), exposure_type = type))
+  }
+  # The tilt is derived for a discrete exposure and supports no continuous fit,
+  # so it has no continuous estimating equations to offer either.
+  expect_false(supports_estimating_equations(
+    bw_ipt(),
+    exposure_type = "continuous"
   ))
 })
 

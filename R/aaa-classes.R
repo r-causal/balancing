@@ -147,7 +147,10 @@ validate_distribution_moments <- function(moments) {
 #'
 #' @param method A [balance_method] specification.
 #' @param exposure_type One of `"binary"`, `"categorical"`, or `"continuous"`.
-#' @param ... Additional context, such as the resolved `constraints`.
+#' @param ... Additional context for `supports_estimating_equations()`, passed by
+#'   name. Every method accepts both `exposure_type` and `constraints` and
+#'   ignores whichever of the two its answer does not depend on, so one call
+#'   shape puts the question to any method.
 #'
 #' @return `supported_exposure_types()` and `supported_estimands()` return
 #'   character vectors; `supports_estimating_equations()` returns a single

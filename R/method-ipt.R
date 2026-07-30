@@ -113,14 +113,17 @@ method(supported_estimands, bw_ipt) <- function(method, exposure_type) {
 
 # Inverse probability tilting always solves smooth estimating equations. Unlike
 # entropy balancing, the tilt keeps them regardless of the requested tolerance,
-# so the constraints do not change the answer.
+# so the constraints do not change the answer. The tilt is derived for a discrete
+# exposure and supports no continuous fit, so it has no continuous estimating
+# equations to offer either.
 method(supports_estimating_equations, bw_ipt) <- function(
   method,
   ...,
+  exposure_type = NULL,
   constraints = NULL
 ) {
   rlang::check_dots_empty()
-  TRUE
+  !identical(exposure_type, "continuous")
 }
 
 # Assemble the Rust option list, dropping the tuning parameters left at the core
