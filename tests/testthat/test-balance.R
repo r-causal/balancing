@@ -938,6 +938,28 @@ test_that("an undefined imbalance warns that balance could not be assessed", {
   )
 })
 
+test_that("a missing imbalance warns that balance could not be assessed", {
+  # A missing statistic makes the maximum NA rather than NaN, which states a
+  # distance no better than NaN does, so the same could-not-assess warning covers
+  # it. This is the shape an unresolved verdict arrives in alongside a statistic
+  # that was never computed.
+  data <- sim_binary(n = 200)
+  original <- compute_balance_table
+  testthat::local_mocked_bindings(
+    compute_balance_table = function(...) {
+      table <- original(...)
+      table$weighted[[1]] <- NA_real_
+      table$within_tolerance[[1]] <- NA
+      table
+    }
+  )
+  expect_warning(
+    balance(data, exposure, c(x1, x2), method = bw_entropy()),
+    "could not be assessed",
+    class = "balancing_balance_warning"
+  )
+})
+
 test_that("an unresolved tolerance verdict warns rather than aborting", {
   # Defense in depth for the balance warning: whatever the constraint set, a
   # verdict that does not resolve to TRUE is reported as out of tolerance rather
