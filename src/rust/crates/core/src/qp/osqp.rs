@@ -66,9 +66,13 @@ impl QpBackend for Osqp {
         // reaching it as MaxIterationsReached or, when the looser tolerances are
         // already met, SolvedInaccurate. Both are chunk-boundary outcomes, not
         // genuine terminations, so the loop distinguishes them from the true cap
-        // by tracking the total against `opts.max_iter`.
-        let chunk = opts.chunk_iters.clamp(1, opts.max_iter.max(1)) as u32;
-        let settings = Settings::default()
+        // by tracking the total against the budget, and trims the last chunk to
+        // what is left of it so a cap that is not a whole number of chunks is
+        // still honored exactly. OSQP will not run fewer than one iteration, so a
+        // zero cap is served as one.
+        let budget = opts.max_iter.max(1);
+        let chunk = opts.chunk_iters.clamp(1, budget) as u32;
+        let mut settings = Settings::default()
             .eps_abs(opts.eps_abs)
             .eps_rel(opts.eps_rel)
             .max_iter(chunk)
@@ -84,20 +88,21 @@ impl QpBackend for Osqp {
             .map_err(|e| QpError::Setup(format!("{e:?}")))?;
 
         let mut total_iters = 0usize;
+        let mut cap = chunk;
         loop {
             let status = problem.solve();
             total_iters += status.iter() as usize;
 
             // A chunk-boundary outcome (the iteration cap reached, whether the
             // looser tolerances were met or not) is non-terminal: the solve carries
-            // on into the next chunk until the total reaches `opts.max_iter`. Every
+            // on into the next chunk until the total reaches the budget. Every
             // other status is a genuine termination.
             let terminal = !matches!(
                 status,
                 Status::MaxIterationsReached(_) | Status::SolvedInaccurate(_)
             );
 
-            if terminal || total_iters >= opts.max_iter {
+            if terminal || total_iters >= budget {
                 return Ok(finish(spec, &status, total_iters, false));
             }
 
@@ -111,6 +116,17 @@ impl QpBackend for Osqp {
                 None => return Ok(finish(spec, &status, total_iters, false)),
             };
             problem.warm_start(&x, &y);
+
+            // Trim the next chunk to the remaining budget. The comparison keeps
+            // the settings update to the one chunk that needs it, since OSQP
+            // revalidates the whole settings block on every call.
+            let remaining = u32::try_from(budget - total_iters).unwrap_or(u32::MAX);
+            let next_cap = chunk.min(remaining);
+            if next_cap != cap {
+                settings = settings.max_iter(next_cap);
+                problem.update_settings(&settings);
+                cap = next_cap;
+            }
         }
     }
 }
@@ -330,6 +346,34 @@ mod tests {
             solved.pri_res.is_finite() && solved.pri_res < 1e-6,
             "pri_res {} at convergence",
             solved.pri_res
+        );
+    }
+
+    #[test]
+    fn the_iteration_total_never_overruns_the_cap() {
+        // A cap that is not a multiple of the chunk. Untrimmed chunks of three
+        // would overshoot a cap of seven by two iterations, so the final chunk
+        // must be trimmed to the remaining budget. The chunk sits below OSQP's
+        // termination-check interval, so no chunk can report convergence and the
+        // loop runs the cap out.
+        let spec = simplex_spec();
+        let opts = QpOptions {
+            max_iter: 7,
+            chunk_iters: 3,
+            polish: false,
+            ..QpOptions::default()
+        };
+        let sol = Osqp.solve(&spec, &opts, &|| false).expect("setup succeeds");
+        assert_eq!(sol.status, QpStatus::MaxIter, "status {:?}", sol.status);
+        assert!(
+            sol.iterations <= opts.max_iter,
+            "{} iterations against a cap of {}",
+            sol.iterations,
+            opts.max_iter
+        );
+        assert_eq!(
+            sol.iterations, opts.max_iter,
+            "an exhausted cap should report exactly the cap"
         );
     }
 
