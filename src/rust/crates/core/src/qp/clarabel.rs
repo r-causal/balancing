@@ -10,8 +10,15 @@
 //! `A x >= l` reads as `(-A) x <= -l`. That negation is undone when the conic
 //! duals are gathered back into one multiplier per original constraint, so the
 //! reported duals carry the same orientation OSQP reports.
+//!
+//! Clarabel takes a termination callback, so the interrupt is polled once per
+//! interior-point iteration rather than at the chunk boundaries the OSQP backend
+//! has to fall back on.
+
+use std::ffi::{c_int, c_void};
 
 use clarabel::algebra::CscMatrix;
+use clarabel::solver::implementations::default::ffi::DefaultInfoFFI;
 use clarabel::solver::{
     DefaultSettings, DefaultSolver, IPSolver, SolverStatus, SupportedConeT::NonnegativeConeT,
     SupportedConeT::ZeroConeT,
@@ -45,7 +52,7 @@ impl QpBackend for Clarabel {
         &self,
         spec: &QpSpec,
         opts: &QpOptions,
-        _interrupt: &dyn Fn() -> bool,
+        interrupt: &dyn Fn() -> bool,
     ) -> Result<QpSolution, QpError> {
         if spec.convexity == Convexity::Indefinite {
             return Err(QpError::Indefinite);
@@ -112,8 +119,12 @@ impl QpBackend for Clarabel {
 
         let settings = solver_settings(opts);
 
+        // The callback reads the interrupt closure through this local, so it is
+        // declared ahead of the solver and never moved while the solve runs.
+        let mut poll: &dyn Fn() -> bool = interrupt;
         let mut solver = DefaultSolver::new(&p_csc, &spec.q, &a_csc, &b, &cones, settings)
             .map_err(|e| QpError::Setup(format!("{e:?}")))?;
+        solver.set_termination_callback_c(poll_interrupt, (&raw mut poll).cast::<c_void>());
         solver.solve();
 
         let x = solver.solution.x.clone();
@@ -133,17 +144,41 @@ impl QpBackend for Clarabel {
             }
         }
         let obj = objective(spec, &x);
+        // Clarabel reports a callback stop with its own status, which is the only
+        // way the interrupted status arises here, so the flag reads off the mapping
+        // rather than being tracked separately.
+        let status = map_status(solver.solution.status);
         Ok(QpSolution {
             x,
             duals,
-            status: map_status(solver.solution.status),
+            status,
             iterations: solver.solution.iterations as usize,
             obj,
             pri_res: solver.info.res_primal,
             dua_res: solver.info.res_dual,
-            interrupted: false,
+            interrupted: status == QpStatus::Interrupted,
         })
     }
+}
+
+/// Clarabel's per-iteration termination callback, which reports the caller's
+/// interrupt closure so a pending interrupt stops the solve at the next iteration
+/// rather than after it.
+///
+/// The closure reaches the callback through the C form rather than the Rust form
+/// because the Rust form demands a `'static` callback, while the closure a backend
+/// receives is borrowed for the length of the solve alone. `data` is the address
+/// of the `&dyn Fn() -> bool` that [`Clarabel::solve`] holds in its own frame, and
+/// the solver information record is not consulted: the decision to stop belongs to
+/// the caller, not to the iterate.
+extern "C" fn poll_interrupt(_info: *const DefaultInfoFFI<f64>, data: *mut c_void) -> c_int {
+    // SAFETY: `solve` registers this callback with the address of a live
+    // `&dyn Fn() -> bool` local that outlives the solver it registers on, Clarabel
+    // stores that address and hands it back unchanged, and it calls the callback
+    // synchronously from the solving thread, so no other reference to the local
+    // exists while the solve runs.
+    let interrupt = unsafe { &*(data as *const &dyn Fn() -> bool) };
+    c_int::from(interrupt())
 }
 
 /// Translate the shared tuning into Clarabel settings.
@@ -357,6 +392,38 @@ mod tests {
             }
         }
         grad.iter().fold(0.0_f64, |worst, g| worst.max(g.abs()))
+    }
+
+    #[test]
+    fn a_pending_interrupt_stops_the_solve() {
+        let spec = simplex_spec(Convexity::Psd);
+        let sol = Clarabel
+            .solve(&spec, &QpOptions::default(), &|| true)
+            .expect("psd spec solves");
+        assert!(sol.interrupted);
+        assert_eq!(sol.status, QpStatus::Interrupted);
+    }
+
+    #[test]
+    fn an_interrupt_that_never_fires_leaves_the_solve_alone() {
+        // The interrupt is polled once per iteration, so a closure that stays false
+        // must not disturb the trajectory or the reported flag.
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let spec = hand_kkt_spec();
+        let polls = AtomicUsize::new(0);
+        let sol = Clarabel
+            .solve(&spec, &QpOptions::default(), &|| {
+                polls.fetch_add(1, Ordering::Relaxed);
+                false
+            })
+            .expect("psd spec solves");
+        assert!(!sol.interrupted);
+        assert!(sol.status.is_solved(), "status {:?}", sol.status);
+        assert!(
+            polls.load(Ordering::Relaxed) > 0,
+            "the interrupt was never polled"
+        );
+        assert!((sol.x[0] - 1.5).abs() < 1e-6, "x0 = {}", sol.x[0]);
     }
 
     #[test]

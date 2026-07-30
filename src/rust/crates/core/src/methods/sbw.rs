@@ -991,6 +991,25 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "qp-clarabel")]
+    fn a_pending_interrupt_surfaces_from_the_clarabel_backend() {
+        // The interior-point backend has no iteration chunking to stop at, so it
+        // stops through its own termination callback. The result reads the same as
+        // the ADMM backend's.
+        use crate::qp::QpBackendChoice;
+        let levels = [0, 0, 0, 1, 1, 1];
+        let s = vec![1.0; 6];
+        let z = vec![1.5, -0.3, -1.2, 0.4, -0.1, -0.3];
+        let mut inputs = discrete_inputs(&levels, 2, &s, SbwEstimand::Ate, &z, &[0.0], &[0.02]);
+        inputs.qp.backend = QpBackendChoice::Clarabel;
+        let result = solve_discrete(&inputs, &|| true).unwrap();
+        assert!(result.interrupted);
+        assert_eq!(result.status, "interrupted");
+        assert!(!result.converged);
+        assert_eq!(result.backend, "clarabel");
+    }
+
+    #[test]
     fn a_categorical_ate_normalizes_each_group_to_its_size() {
         // Three levels, each pulled to a shared target of zero; every group's total
         // returns to its own size.

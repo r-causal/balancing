@@ -233,8 +233,11 @@ impl Default for QpOptions {
 /// A quadratic-program backend.
 ///
 /// The trait lets the benchmark harness drive OSQP and Clarabel through the same
-/// interface on the same spec. `interrupt` is polled between iteration chunks; a
-/// backend that cannot poll mid-solve honors it at chunk boundaries.
+/// interface on the same spec. `interrupt` is polled while the solve runs and a
+/// pending interrupt stops it, reporting `Interrupted` and setting the solution's
+/// `interrupted` flag. How often it is polled is the backend's own business:
+/// Clarabel takes a termination callback and polls every iteration, while OSQP has
+/// no mid-solve callback and polls at the boundaries of bounded iteration chunks.
 pub trait QpBackend {
     /// A short name carried to R as the solver identity.
     fn name(&self) -> &'static str;
