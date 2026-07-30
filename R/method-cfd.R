@@ -259,6 +259,36 @@ cfd_options <- function(method) {
   options
 }
 
+# Announce a pinned quadratic-program backend the kernel cannot use. The energy
+# kernel's Gram matrix is only conditionally positive semidefinite, so the
+# quadratic term it assembles is indefinite, and the interior-point backend
+# refuses an indefinite form up front. The core therefore routes that kernel to
+# the ADMM backend whatever was requested, which is the correct route rather than
+# an optional one, so the fit proceeds; what it owes the caller is to say the
+# request was dropped, as a method constructor does for a tuning argument its
+# exposure type cannot use. The automatic policy asks for no particular backend
+# and has nothing to report, and the recorded solver status names what ran either
+# way.
+warn_ignored_qp_backend <- function(
+  kernel,
+  backend,
+  call = rlang::caller_env()
+) {
+  if (!identical(backend, "clarabel") || !identical(kernel, "energy")) {
+    return(invisible())
+  }
+  warn(
+    c(
+      "The {.code balancing.qp_backend} option is {.val clarabel}, which the {.val energy} kernel cannot use, and is ignored.",
+      x = "The energy kernel's quadratic form is indefinite, and the interior-point backend solves only positive-semidefinite forms.",
+      i = "The fit used {.val osqp} instead, which {.code @solver_status} records."
+    ),
+    warning_class = "balancing_ignored_argument_warning",
+    call = call
+  )
+  invisible()
+}
+
 # The column-major p by n_draws frequency projections for the t kernel, drawn
 # under R's random number generator so a fixed seed reproduces them. Each column
 # is a multivariate t frequency vector: standard normal coordinates scaled by
@@ -317,6 +347,7 @@ method(fit_method, bw_cfd) <- function(method, prepared) {
   bw_scale <- 1
   t_proj <- cfd_projection(method, ncol(covs))
   options <- cfd_options(method)
+  warn_ignored_qp_backend(method@kernel, options$backend)
 
   if (identical(prepared$exposure_type, "binary")) {
     # The focal group is coded one and held fixed; the average treatment effect

@@ -116,6 +116,26 @@
       Constraints: 2 terms (tolerance 0)
       Largest imbalance: 0.0000 (standardized mean difference)
 
+# balancing_ignored_argument_warning: a clarabel pin the energy kernel cannot honor
+
+    Code
+      balance(data, exposure, c(x1, x2), method = bw_cfd(kernel = "energy"),
+      estimand = "ate")
+    Condition <balancing_ignored_argument_warning>
+      Warning in `method(fit_method, balancing::bw_cfd)`:
+      The `balancing.qp_backend` option is "clarabel", which the "energy" kernel cannot use, and is ignored.
+      x The energy kernel's quadratic form is indefinite, and the interior-point backend solves only positive-semidefinite forms.
+      i The fit used "osqp" instead, which `@solver_status` records.
+    Output
+      
+      -- Characteristic function distance balancing ----------------------------------
+      Exposure: "exposure" (binary)
+      Estimand: "ate"
+      Observations: 500
+      Solver: converged in 75 iterations
+      Constraints: 2 terms (tolerance 0)
+      Largest imbalance: 0.0118 (standardized mean difference)
+
 # balancing_class_downgrade_warning: mismatched estimands
 
     Code

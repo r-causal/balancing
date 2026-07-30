@@ -701,6 +701,63 @@ test_that("an explicit clarabel backend solves and records itself", {
   expect_true(fit@converged)
 })
 
+# The energy kernel is only conditionally positive semidefinite, so the quadratic
+# term it assembles is indefinite and the interior-point backend refuses it up
+# front. The routing to the ADMM backend is therefore correct rather than
+# optional, and what the fit owed the caller was to say so: a pinned clarabel
+# request used to be dropped in silence while the recorded backend read osqp.
+test_that("a clarabel pin the energy kernel cannot honor is announced", {
+  withr::local_options(balancing.qp_backend = "clarabel")
+  data <- sim_binary()
+  expect_warning(
+    fit <- balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_cfd(kernel = "energy"),
+      estimand = "ate"
+    ),
+    class = "balancing_ignored_argument_warning"
+  )
+  # The recorded backend names what actually ran, not what was asked for.
+  expect_identical(fit@solver_status, "osqp")
+  expect_true(fit@converged)
+})
+
+test_that("the energy kernel is silent under the automatic and osqp backends", {
+  data <- sim_binary()
+  for (backend in c("auto", "osqp")) {
+    fit <- withr::with_options(
+      list(balancing.qp_backend = backend),
+      expect_no_warning(balance(
+        data,
+        exposure,
+        c(x1, x2),
+        method = bw_cfd(kernel = "energy"),
+        estimand = "ate"
+      ))
+    )
+    expect_identical(fit@solver_status, "osqp")
+  }
+})
+
+test_that("a clarabel pin a positive-semidefinite kernel honors is silent", {
+  data <- sim_binary()
+  for (kernel in c("gaussian", "laplace", "matern")) {
+    fit <- withr::with_options(
+      list(balancing.qp_backend = "clarabel"),
+      expect_no_warning(balance(
+        data,
+        exposure,
+        c(x1, x2),
+        method = bw_cfd(kernel = kernel),
+        estimand = "ate"
+      ))
+    )
+    expect_identical(fit@solver_status, "clarabel")
+  }
+})
+
 # ---- Unsupported exposure type --------------------------------------------
 
 test_that("a continuous exposure raises balancing_exposure_type_error", {

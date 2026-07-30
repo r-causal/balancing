@@ -99,6 +99,23 @@ test_that("balancing_ignored_argument_warning: every argument a categorical fit 
   )
 })
 
+test_that("balancing_ignored_argument_warning: a clarabel pin the energy kernel cannot honor", {
+  # The energy kernel's quadratic term is indefinite, which the interior-point
+  # backend refuses, so a pinned clarabel request cannot be honored for it. The
+  # fit names the request it dropped and the backend that ran instead.
+  withr::local_options(balancing.qp_backend = "clarabel")
+  data <- sim_binary()
+  expect_balancing_warning(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_cfd(kernel = "energy"),
+      estimand = "ate"
+    )
+  )
+})
+
 # ---- Class-downgrade warning ----------------------------------------------
 
 test_that("balancing_class_downgrade_warning: mismatched estimands", {
