@@ -116,6 +116,24 @@ test_that("balancing_ignored_argument_warning: a clarabel pin the energy kernel 
   )
 })
 
+test_that("balancing_ignored_argument_warning: a clarabel pin energy balancing cannot honor", {
+  # Energy balancing assembles the same indefinite quadratic form as the energy
+  # kernel, so the interior-point backend refuses it and a pinned clarabel
+  # request cannot be honored. The fit names the request it dropped and the
+  # backend that ran instead.
+  withr::local_options(balancing.qp_backend = "clarabel")
+  data <- sim_binary()
+  expect_balancing_warning(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_energy(),
+      estimand = "ate"
+    )
+  )
+})
+
 test_that("balancing_ignored_argument_warning: focal_level with a pooled estimand", {
   # The average treatment effect reweights every exposure group rather than
   # holding one fixed, so it has no focal level to resolve and a supplied one is

@@ -20,12 +20,15 @@ under \verb{R CMD check}.
 of \code{"newton"} (the default), \code{"lbfgs"}, or \code{"lbfgs_then_newton"}. Newton is
 the only solver that drives the estimating equations to machine precision;
 the alternatives trade some precision for speed on large problems.
-\item \code{balancing.qp_backend}: the quadratic-program backend for the energy, CFD,
-and stable-balancing-weights methods, one of \code{"auto"} (the default),
-\code{"osqp"}, or \code{"clarabel"}. Under \code{"auto"}, the default solver runs first and
-the fit re-solves with the interior-point backend on a primal-infeasibility
+\item \code{balancing.qp_backend}: the quadratic-program backend for the CFD and
+stable-balancing-weights methods, one of \code{"auto"} (the default), \code{"osqp"},
+or \code{"clarabel"}. Under \code{"auto"}, the default solver runs first and the fit
+re-solves with the interior-point backend on a primal-infeasibility
 certificate; \code{"osqp"} disables that fallback and \code{"clarabel"} uses the
-interior-point backend directly.
+interior-point backend directly. Energy balancing and the CFD energy kernel
+assemble an indefinite quadratic form, which the interior-point backend
+refuses, so they always solve through \code{"osqp"} and announce a \code{"clarabel"}
+pin as ignored.
 }
 
 Results are deterministic across thread counts: the same inputs produce

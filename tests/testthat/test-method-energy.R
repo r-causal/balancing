@@ -514,6 +514,83 @@ test_that("the fit reports dual variables and the quadratic-program backend", {
   expect_identical(fit@solver_status, "osqp")
 })
 
+# ---- Backend routing ------------------------------------------------------
+
+# Energy balancing assembles an indefinite quadratic form, so it always solves
+# through the ADMM backend whatever the option asks for. What it owes the caller
+# is the account its quadratic-program siblings give: an unknown value is an
+# error rather than a silent default, a pinned interior-point backend is
+# announced as dropped, and the recorded backend names what actually ran.
+
+test_that("an unknown quadratic-program backend option is refused", {
+  data <- sim_binary()
+  withr::local_options(balancing.qp_backend = "bogus")
+  expect_error(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_energy(),
+      estimand = "ate"
+    ),
+    class = "balancing_range_error"
+  )
+})
+
+test_that("an unknown backend option is refused for a continuous fit", {
+  data <- sim_continuous()
+  withr::local_options(balancing.qp_backend = "bogus")
+  expect_error(
+    balance(data, exposure, c(x1, x2), method = bw_energy()),
+    class = "balancing_range_error"
+  )
+})
+
+test_that("a clarabel pin energy balancing cannot honor is announced", {
+  withr::local_options(balancing.qp_backend = "clarabel")
+  data <- sim_binary()
+  expect_warning(
+    fit <- balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_energy(),
+      estimand = "ate"
+    ),
+    class = "balancing_ignored_argument_warning"
+  )
+  # The recorded backend names what actually ran, not what was asked for.
+  expect_identical(fit@solver_status, "osqp")
+  expect_true(fit@converged)
+})
+
+test_that("a continuous fit announces a clarabel pin as well", {
+  withr::local_options(balancing.qp_backend = "clarabel")
+  data <- sim_continuous()
+  expect_warning(
+    fit <- balance(data, exposure, c(x1, x2), method = bw_energy()),
+    class = "balancing_ignored_argument_warning"
+  )
+  expect_identical(fit@solver_status, "osqp")
+})
+
+test_that("energy balancing is silent under the automatic and osqp backends", {
+  data <- sim_binary()
+  for (backend in c("auto", "osqp")) {
+    fit <- withr::with_options(
+      list(balancing.qp_backend = backend),
+      expect_no_warning(balance(
+        data,
+        exposure,
+        c(x1, x2),
+        method = bw_energy(),
+        estimand = "ate"
+      ))
+    )
+    expect_identical(fit@solver_status, "osqp")
+  }
+})
+
 test_that("an energy fit has no estimating equations", {
   data <- sim_binary()
   fit <- balance(

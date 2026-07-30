@@ -202,9 +202,10 @@ method(supports_estimating_equations, bw_energy) <- function(
 
 # Assemble the Rust option list, dropping the tuning parameters left at the core
 # default so the quadratic-program solver applies its own. The worker-thread
-# count is resolved on the R side and passed down on every call.
-energy_options <- function(method) {
-  options <- list(threads = resolve_threads())
+# count and the quadratic-program backend are resolved on the R side and passed
+# down on every call.
+energy_options <- function(method, backend) {
+  options <- list(threads = resolve_threads(), backend = backend)
   if (!is.null(method@convergence_tolerance)) {
     options$convergence_tolerance <- method@convergence_tolerance
   }
@@ -271,12 +272,42 @@ warn_ignored_tolerance <- function(call = rlang::caller_env()) {
   )
 }
 
+# Resolve the quadratic-program backend for an energy fit, and announce a pinned
+# interior-point backend the objective cannot use. The energy Gram matrix is only
+# conditionally positive semidefinite, so the quadratic term the fit assembles is
+# indefinite and the interior-point backend refuses an indefinite form up front.
+# Energy balancing therefore routes to the ADMM backend whatever was requested,
+# which is the correct route rather than an optional one, so the fit proceeds;
+# what it owes the caller is to say the request was dropped, as a method
+# constructor does for a tuning argument its exposure type cannot use. The
+# automatic policy asks for no particular backend and has nothing to report, and
+# the recorded solver status names what ran either way. Routing the option
+# through the shared resolver is also what makes an unknown value an error here
+# rather than a silent default.
+resolve_energy_backend <- function(call = rlang::caller_env()) {
+  backend <- resolve_qp_backend()
+  if (!identical(backend, "clarabel")) {
+    return(backend)
+  }
+  warn(
+    c(
+      "The {.code balancing.qp_backend} option is {.val clarabel}, which energy balancing cannot use, and is ignored.",
+      x = "The energy objective's quadratic form is indefinite, and the interior-point backend solves only positive-semidefinite forms.",
+      i = "The fit used {.val osqp} instead, which {.code @solver_status} records."
+    ),
+    warning_class = "balancing_ignored_argument_warning",
+    call = call
+  )
+  "osqp"
+}
+
 method(fit_method, bw_energy) <- function(method, prepared) {
+  backend <- resolve_energy_backend()
   if (identical(prepared$exposure_type, "continuous")) {
     if (has_positive_tolerance(prepared$constraints)) {
       warn_ignored_tolerance()
     }
-    return(fit_energy_continuous(method, prepared))
+    return(fit_energy_continuous(method, prepared, backend))
   }
 
   enforce <- requests_moments(prepared$constraints)
@@ -284,10 +315,10 @@ method(fit_method, bw_energy) <- function(method, prepared) {
     warn_ignored_tolerance()
   }
 
-  fit_energy_discrete(method, prepared, enforce)
+  fit_energy_discrete(method, prepared, enforce, backend)
 }
 
-fit_energy_discrete <- function(method, prepared, enforce) {
+fit_energy_discrete <- function(method, prepared, enforce, backend) {
   n <- prepared$n
   s <- prepared$sampling_weights
   covs <- distance_covariates(prepared$data, prepared$covariates)
@@ -322,7 +353,7 @@ fit_energy_discrete <- function(method, prepared, enforce) {
     moment_covs <- matrix(numeric(0), nrow = n, ncol = 0)
   }
 
-  options <- energy_options(method)
+  options <- energy_options(method, backend)
 
   if (identical(prepared$exposure_type, "binary")) {
     # The focal group is coded one and held fixed; the average treatment effect
@@ -402,7 +433,7 @@ center_on_measure <- function(columns, measure) {
   sweep(columns, 2, centers, "-")
 }
 
-fit_energy_continuous <- function(method, prepared) {
+fit_energy_continuous <- function(method, prepared, backend) {
   n <- prepared$n
   s <- prepared$sampling_weights
   covs <- distance_covariates(prepared$data, prepared$covariates)
@@ -447,7 +478,7 @@ fit_energy_continuous <- function(method, prepared) {
   bal_covs <- matrix(numeric(0), nrow = n, ncol = 0)
   bal_tols <- numeric(0)
 
-  options <- energy_options(method)
+  options <- energy_options(method, backend)
 
   result <- solve_energy_cont(
     covs,

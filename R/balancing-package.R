@@ -30,12 +30,15 @@ NULL
 #'   of `"newton"` (the default), `"lbfgs"`, or `"lbfgs_then_newton"`. Newton is
 #'   the only solver that drives the estimating equations to machine precision;
 #'   the alternatives trade some precision for speed on large problems.
-#' - `balancing.qp_backend`: the quadratic-program backend for the energy, CFD,
-#'   and stable-balancing-weights methods, one of `"auto"` (the default),
-#'   `"osqp"`, or `"clarabel"`. Under `"auto"`, the default solver runs first and
-#'   the fit re-solves with the interior-point backend on a primal-infeasibility
+#' - `balancing.qp_backend`: the quadratic-program backend for the CFD and
+#'   stable-balancing-weights methods, one of `"auto"` (the default), `"osqp"`,
+#'   or `"clarabel"`. Under `"auto"`, the default solver runs first and the fit
+#'   re-solves with the interior-point backend on a primal-infeasibility
 #'   certificate; `"osqp"` disables that fallback and `"clarabel"` uses the
-#'   interior-point backend directly.
+#'   interior-point backend directly. Energy balancing and the CFD energy kernel
+#'   assemble an indefinite quadratic form, which the interior-point backend
+#'   refuses, so they always solve through `"osqp"` and announce a `"clarabel"`
+#'   pin as ignored.
 #'
 #' Results are deterministic across thread counts: the same inputs produce
 #' identical weights at any `balancing.threads` value.

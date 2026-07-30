@@ -136,6 +136,25 @@
       Constraints: 2 terms (tolerance 0)
       Largest imbalance: 0.0118 (standardized mean difference)
 
+# balancing_ignored_argument_warning: a clarabel pin energy balancing cannot honor
+
+    Code
+      balance(data, exposure, c(x1, x2), method = bw_energy(), estimand = "ate")
+    Condition <balancing_ignored_argument_warning>
+      Warning in `method(fit_method, balancing::bw_energy)`:
+      The `balancing.qp_backend` option is "clarabel", which energy balancing cannot use, and is ignored.
+      x The energy objective's quadratic form is indefinite, and the interior-point backend solves only positive-semidefinite forms.
+      i The fit used "osqp" instead, which `@solver_status` records.
+    Output
+      
+      -- Energy balancing ------------------------------------------------------------
+      Exposure: "exposure" (binary)
+      Estimand: "ate"
+      Observations: 500
+      Solver: converged in 75 iterations
+      Constraints: 2 terms (tolerance 0)
+      Largest imbalance: 0.0118 (standardized mean difference)
+
 # balancing_ignored_argument_warning: focal_level with a pooled estimand
 
     Code
