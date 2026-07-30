@@ -380,7 +380,14 @@ balancing_estimating_equations <- new_class(
 #'   observation takes are dropped and do not appear. The first element is the
 #'   reference level every contrast in [`ipw()`][ipw.balancing] is measured
 #'   against. A continuous exposure carries no levels, so the vector is empty.
-#' @param covariates The covariate column names.
+#' @param covariates The covariate column names that contributed at least one
+#'   retained constraint column, in selection order. The constraint expansion
+#'   drops constant and aliased columns, and a covariate can be selected without
+#'   contributing any column at all, so this records what the fit constrained
+#'   rather than what was requested; the request itself stays in `call`. A fit
+#'   whose balance comes from its objective rather than from constraints, such as
+#'   energy or kernel balancing with no moment constraints, therefore records no
+#'   covariates even though its objective reads every selected one.
 #' @param focal_level The focal exposure level for `"att"` and `"atc"`, or
 #'   `NULL`.
 #' @param n The number of observations.

@@ -1075,6 +1075,82 @@ test_that("a constant covariate leaves a binary-exposure fit and ipw() intact", 
   expect_true(all(is.finite(result$estimates$std.err)))
 })
 
+# ---- What @covariates records ----------------------------------------------
+
+# The slot names the covariates the fit constrained, not the ones the caller
+# selected. A constant or aliased column is dropped at expansion and a `moments`
+# request of zero contributes none, so a selected covariate can end up with no
+# constraint column at all; listing it anyway claimed balance the fit never
+# targeted. The request itself stays visible in the recorded call.
+test_that("@covariates omits a covariate whose column was dropped as constant", {
+  withr::local_options(balancing.quiet = TRUE)
+  data <- sim_binary(n = 200)
+  data$fixed <- 5
+  fit <- balance(data, exposure, c(x1, x2, fixed), method = bw_entropy())
+  expect_identical(fit@covariates, c("x1", "x2"))
+  expect_match(paste(deparse(fit@call), collapse = " "), "fixed", fixed = TRUE)
+})
+
+test_that("@covariates omits a covariate whose column was dropped as aliased", {
+  withr::local_options(balancing.quiet = TRUE)
+  data <- sim_binary(n = 200)
+  data$copy <- data$x1
+  fit <- balance(data, exposure, c(x1, x2, copy), method = bw_entropy())
+  expect_identical(fit@covariates, c("x1", "x2"))
+})
+
+test_that("@covariates omits a covariate with no moments requested", {
+  data <- sim_binary(n = 200)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    constraints = balance_terms(moments = c(x1 = 0L, x2 = 1L))
+  )
+  expect_identical(fit@covariates, "x2")
+})
+
+test_that("@covariates keeps a covariate that only partners an interaction", {
+  # An interaction column constrains both of its factors, so a covariate with no
+  # column of its own is still constrained through the product.
+  data <- sim_binary(n = 200)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    constraints = balance_terms(
+      moments = c(x1 = 1L, x2 = 0L),
+      interactions = TRUE
+    )
+  )
+  terms <- fit@balance_table$term
+  expect_true(any(grepl("x2", terms, fixed = TRUE)))
+  expect_identical(fit@covariates, c("x1", "x2"))
+})
+
+test_that("@covariates lists the whole selection when every column is kept", {
+  data <- sim_binary(n = 200)
+  fit <- balance(data, exposure, c(x1, x2), method = bw_entropy())
+  expect_identical(fit@covariates, c("x1", "x2"))
+})
+
+test_that("an objective-driven fit with no constraints records no covariates", {
+  # Energy and kernel balancing are driven by their objective, which reads every
+  # selected covariate, so a fit with no constraint columns balances them without
+  # constraining any. The slot records what was constrained, which is nothing.
+  data <- sim_binary(n = 200)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(),
+    constraints = balance_terms(moments = 0L)
+  )
+  expect_identical(fit@covariates, character(0))
+})
+
 test_that("a covariate set with no spread at all is a classed error", {
   data <- sim_continuous(n = 200)
   data$fixed <- 5

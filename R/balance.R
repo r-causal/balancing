@@ -286,7 +286,7 @@ balance <- function(
     exposure = exposure_name,
     exposure_type = exposure_type,
     exposure_levels = levels,
-    covariates = covariate_names,
+    covariates = constrained_covariates(built$recipe, covariate_names),
     focal_level = focal_level,
     n = as.integer(n),
     constraints = constraints,
@@ -530,6 +530,21 @@ validate_exposure_level_count <- function(
     error_class = "balancing_estimand_error",
     call = call
   )
+}
+
+# The covariates that kept at least one constraint column, in the order they were
+# selected. The expansion drops constant and aliased columns, and a `moments`
+# request of zero contributes none, so a covariate can be selected and constrain
+# nothing; listing it on the fit would claim balance the fit never targeted. The
+# request stays visible in the recorded call. An interaction column constrains
+# both of its factors, so a covariate that appears only as a partner still
+# counts.
+constrained_covariates <- function(recipe, covariates) {
+  sources <- unlist(
+    lapply(recipe, function(record) c(record$source, record$partner)),
+    use.names = FALSE
+  )
+  covariates[covariates %in% sources[!is.na(sources)]]
 }
 
 # Resolve the focal exposure level for att and atc. A binary exposure infers the
