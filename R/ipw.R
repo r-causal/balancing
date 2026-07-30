@@ -485,6 +485,7 @@ validate_ipw_outcome_model <- function(
       call = call
     )
   }
+  validate_ipw_response_shape(outcome_mod, call = call)
   term_labels <- attr(stats::terms(outcome_mod), "term.labels")
   if (!exposure_name %in% term_labels) {
     abort(
@@ -506,6 +507,39 @@ validate_ipw_outcome_model <- function(
   # the engine the caller never named.
   resolve_outcome_response(outcome_mod, call = call)
   invisible(NULL)
+}
+
+# A two-column response is the grouped binomial form: each row carries a count of
+# successes and a count of failures rather than one Bernoulli draw. Fitted that
+# way, the model's prior weights are the weights it was given times each row's
+# trial count, which is a scale the fit knows nothing about: the fit weights
+# units, and the stacked variance rebuilds the outcome-model score from the
+# weights the fit reports at each set of weight parameters. That score is not the
+# score the model fitted, and the trial counts are nowhere in the stack to make
+# it one.
+#
+# The shape is therefore refused, and refused here rather than left to the weight
+# preflight, which compares the model's scaled prior weights against the fit's
+# and would report a mismatch to a caller who supplied exactly the fit's weights.
+validate_ipw_response_shape <- function(
+  outcome_mod,
+  call = rlang::caller_env()
+) {
+  response <- stats::model.response(stats::model.frame(outcome_mod))
+  columns <- NCOL(response)
+  if (columns <= 1L) {
+    return(invisible(NULL))
+  }
+  abort(
+    c(
+      "{.fun ipw} cannot compute a stacked variance for a grouped binomial outcome model.",
+      x = "Its response is a matrix of {columns} columns, so {.fun glm} scaled the weights it was given by each row's trial count.",
+      i = "Fit the weights and the outcome model on data with one row per trial, or see the inference vignette for a bootstrap workflow."
+    ),
+    error_class = "balancing_ipw_unsupported_error",
+    call = call,
+    .envir = environment()
+  )
 }
 
 # The effects the method reports are contrasts of two marginal means, and each

@@ -3251,6 +3251,55 @@ test_that("ipw() gives identical results for an lm and a gaussian glm", {
   expect_equal(lm_result$std.err, glm_result$std.err)
 })
 
+# A two-column response is the grouped binomial form, one row per group of trials
+# rather than one row per Bernoulli draw. It is refused, and the refusal has to
+# name the shape: `glm()` records the prior weights as the weights it was given
+# times each row's trial count, so the weight preflight sees a mismatch and would
+# otherwise tell a caller who supplied exactly the fit's weights to supply them.
+
+test_that("ipw() refuses a grouped binomial outcome model", {
+  data <- ipw_fixture()
+  trials <- 4L
+  data$successes <- withr::with_seed(
+    505,
+    stats::rbinom(
+      nrow(data),
+      trials,
+      stats::plogis(-0.3 + 0.5 * data$exposure + 0.4 * data$x1)
+    )
+  )
+  data$failures <- trials - data$successes
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  grouped_mod <- fit_outcome(
+    cbind(successes, failures) ~ exposure,
+    data,
+    w,
+    stats::binomial()
+  )
+
+  # The weights the model recorded are the supplied weights times the trial
+  # count, which is the mismatch the preflight used to report.
+  expect_equal(as.numeric(stats::weights(grouped_mod)), w * trials)
+
+  expect_error(
+    ipw(fit, grouped_mod),
+    class = "balancing_ipw_unsupported_error"
+  )
+
+  cnd <- rlang::catch_cnd(
+    ipw(fit, grouped_mod),
+    classes = "balancing_ipw_unsupported_error"
+  )
+  expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
+})
+
 # ---- Re-evaluation hook validation ----------------------------------------
 
 # The container's psi re-evaluation hook crosses into Rust; a wrong-length

@@ -102,6 +102,16 @@
       x It has a factor response but was fitted with `y = FALSE`, which discards that response.
       i Refit it with `y = TRUE`, or on a numeric 0/1 response.
 
+# ipw() refuses a grouped binomial outcome model
+
+    Code
+      stop(cnd)
+    Condition <balancing_ipw_unsupported_error>
+      Error in `ipw()`:
+      ! `ipw()` cannot compute a stacked variance for a grouped binomial outcome model.
+      x Its response is a matrix of 2 columns, so `glm()` scaled the weights it was given by each row's trial count.
+      i Fit the weights and the outcome model on data with one row per trial, or see the inference vignette for a bootstrap workflow.
+
 # ipw() rejects a continuous-exposure fit that has a container
 
     Code
