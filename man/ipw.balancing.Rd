@@ -116,6 +116,15 @@ exposure term raises \code{balancing_ipw_input_error}, since its fixed-exposure
 predictions would all be the same prediction and every contrast it reported
 would be zero.
 
+The exposure may be a factor, a character column, or an integer code, and a
+term that transforms it counts as carrying it. A character column becomes a
+factor in a model formula on its own, while an integer code is written
+\code{factor(exposure)} for a model with one parameter per level; left
+untransformed, an integer code enters as a slope in the codes and the marginal
+means are the g-computation means of that model rather than of a saturated
+one. A transformed exposure is not a column of the model frame, since the
+frame stores the transformation, so such a model is passed with \code{.data}.
+
 Which population the marginal means are averaged over is part of the
 estimand, and matters as soon as the outcome model adjusts for anything. A
 marginal model is saturated in the exposure, one free parameter per exposure

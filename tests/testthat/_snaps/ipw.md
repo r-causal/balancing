@@ -28,8 +28,8 @@
     Condition <balancing_ipw_input_error>
       Error in `ipw()`:
       ! `outcome_mod` must include the exposure among its predictors.
-      x The exposure "exposure" is not one of its terms.
-      i The model may adjust for covariates alongside the exposure.
+      x The exposure "exposure" appears in none of its terms.
+      i The model may adjust for covariates alongside the exposure, and may carry the exposure inside a transformation such as `factor()`.
 
 # ipw() rejects an estimand that contradicts the fit
 

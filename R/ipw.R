@@ -87,6 +87,15 @@
 #' predictions would all be the same prediction and every contrast it reported
 #' would be zero.
 #'
+#' The exposure may be a factor, a character column, or an integer code, and a
+#' term that transforms it counts as carrying it. A character column becomes a
+#' factor in a model formula on its own, while an integer code is written
+#' `factor(exposure)` for a model with one parameter per level; left
+#' untransformed, an integer code enters as a slope in the codes and the marginal
+#' means are the g-computation means of that model rather than of a saturated
+#' one. A transformed exposure is not a column of the model frame, since the
+#' frame stores the transformation, so such a model is passed with `.data`.
+#'
 #' Which population the marginal means are averaged over is part of the
 #' estimand, and matters as soon as the outcome model adjusts for anything. A
 #' marginal model is saturated in the exposure, one free parameter per exposure
@@ -457,6 +466,21 @@ is_gaussian_outcome <- function(outcome_mod) {
   TRUE
 }
 
+# The variables the outcome model's terms are built from, which is what the
+# exposure is looked for among. The exposure counts as present whenever a term
+# reads it, not only when a term is spelled exactly like it: an exposure stored
+# as a character column or as an integer code is written `factor(exposure)` to
+# give the outcome model a level per group, and that model carries the exposure
+# as surely as one whose formula names the column outright. The fixed-exposure
+# designs are rebuilt from the model's own terms with the exposure column set to
+# each level, so a transformation is applied again at each of them; what the
+# transformation costs is the model frame, which stores the transformed column
+# rather than the exposure, so such a model needs `.data`.
+model_term_variables <- function(outcome_mod) {
+  labels <- attr(stats::terms(outcome_mod), "term.labels")
+  unique(unlist(lapply(labels, function(label) all.vars(str2lang(label)))))
+}
+
 # The outcome model may adjust for covariates, and may interact them with the
 # exposure, but it must carry the exposure itself. The marginal means are
 # computed by fixing the exposure to each level and predicting, so a model
@@ -486,13 +510,12 @@ validate_ipw_outcome_model <- function(
     )
   }
   validate_ipw_response_shape(outcome_mod, call = call)
-  term_labels <- attr(stats::terms(outcome_mod), "term.labels")
-  if (!exposure_name %in% term_labels) {
+  if (!exposure_name %in% model_term_variables(outcome_mod)) {
     abort(
       c(
         "{.arg outcome_mod} must include the exposure among its predictors.",
-        x = "The exposure {.val {exposure_name}} is not one of its terms.",
-        i = "The model may adjust for covariates alongside the exposure."
+        x = "The exposure {.val {exposure_name}} appears in none of its terms.",
+        i = "The model may adjust for covariates alongside the exposure, and may carry the exposure inside a transformation such as {.fun factor}."
       ),
       error_class = "balancing_ipw_input_error",
       call = call

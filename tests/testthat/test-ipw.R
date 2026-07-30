@@ -2166,6 +2166,100 @@ test_that("the categorical reference level follows the fit's level ordering", {
   )
 })
 
+# ---- Exposure coding -------------------------------------------------------
+
+# A categorical exposure need not be a factor. A character column and an integer
+# code describe the same levels in the same order the fit resolves them in, so
+# each has to carry the whole chain: the fit, the outcome model, the
+# counterfactual designs, and the effects. The factor-coded fit is the reference
+# every coding is compared against, since only the labels differ.
+
+test_that("ipw() computes effects for a character categorical exposure", {
+  data <- ipw_categorical_fixture()
+  data$arm <- as.character(data$exposure)
+
+  reference_fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate"
+  )
+  fit <- balance(data, arm, c(x1, x2), method = bw_ipt(), estimand = "ate")
+  expect_identical(fit@exposure_type, "categorical")
+  expect_identical(fit@exposure_levels, c("a", "b", "c"))
+
+  w <- as.numeric(stats::weights(fit))
+  expect_equal(w, as.numeric(stats::weights(reference_fit)), tolerance = 1e-8)
+
+  outcome_mod <- fit_outcome(y ~ arm, data, w, stats::binomial())
+  reference_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  estimates <- as.data.frame(ipw(fit, outcome_mod))
+  reference <- as.data.frame(ipw(reference_fit, reference_mod))
+
+  expect_identical(estimates$comparison, reference$comparison)
+  expect_equal(estimates$estimate, reference$estimate, tolerance = 1e-8)
+  expect_equal(estimates$std.err, reference$std.err, tolerance = 1e-8)
+})
+
+test_that("ipw() computes effects for an integer-coded categorical exposure", {
+  # An integer code carries no levels of its own, so the saturated outcome model
+  # writes the factor in the formula. The model frame then stores the transformed
+  # column rather than the exposure, which is what `.data` supplies.
+  data <- ipw_categorical_fixture()
+  data$arm <- match(as.character(data$exposure), c("a", "b", "c"))
+
+  reference_fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate"
+  )
+  fit <- balance(data, arm, c(x1, x2), method = bw_ipt(), estimand = "ate")
+  expect_identical(fit@exposure_type, "categorical")
+  expect_identical(fit@exposure_levels, c("1", "2", "3"))
+
+  w <- as.numeric(stats::weights(fit))
+  expect_equal(w, as.numeric(stats::weights(reference_fit)), tolerance = 1e-8)
+
+  outcome_mod <- fit_outcome(y ~ factor(arm), data, w, stats::binomial())
+  reference_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  estimates <- as.data.frame(ipw(fit, outcome_mod, .data = data))
+  reference <- as.data.frame(ipw(reference_fit, reference_mod))
+
+  expect_identical(
+    estimates$comparison,
+    c(rep("2 vs 1", 3L), rep("3 vs 1", 3L))
+  )
+  expect_equal(estimates$estimate, reference$estimate, tolerance = 1e-8)
+  expect_equal(estimates$std.err, reference$std.err, tolerance = 1e-8)
+})
+
+test_that("a transformed exposure still needs the exposure column", {
+  # The model frame of a transformed exposure stores `factor(arm)`, not `arm`,
+  # so the counterfactual designs cannot be built from it alone. The refusal
+  # names the argument that carries the untransformed column.
+  data <- ipw_categorical_fixture()
+  data$arm <- match(as.character(data$exposure), c("a", "b", "c"))
+  fit <- balance(data, arm, c(x1, x2), method = bw_ipt(), estimand = "ate")
+  outcome_mod <- fit_outcome(
+    y ~ factor(arm),
+    data,
+    as.numeric(stats::weights(fit)),
+    stats::binomial()
+  )
+
+  expect_error(
+    ipw(fit, outcome_mod),
+    class = "balancing_ipw_input_error",
+    regexp = ".data",
+    fixed = TRUE
+  )
+})
+
 test_that("a categorical adjusted model standardizes over everyone for ate", {
   data <- ipw_categorical_fixture()
   fit <- balance(
