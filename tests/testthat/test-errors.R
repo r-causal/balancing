@@ -267,6 +267,33 @@ test_that("balancing_range_error: sampling weights that are all zero", {
   )
 })
 
+test_that("balancing_range_error: an exposure level with no measure", {
+  data <- sim_binary(n = 100)
+  expect_balancing_error(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(),
+      sampling_weights = ifelse(data$exposure == 1L, 0, 1)
+    )
+  )
+})
+
+test_that("balancing_range_error: disjoint sampling and base weight supports", {
+  data <- sim_binary(n = 100)
+  alternating <- rep(c(0, 1), length.out = nrow(data))
+  expect_balancing_error(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(base_weights = 1 - alternating),
+      sampling_weights = alternating
+    )
+  )
+})
+
 test_that("balancing_constraints_error: a duplicated moments name", {
   data <- sim_binary(n = 100)
   expect_balancing_error(

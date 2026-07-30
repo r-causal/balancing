@@ -68,6 +68,43 @@ test_that("validate_sampling_weights() accepts individual zero weights", {
   expect_identical(validate_sampling_weights(weights, n = 3), weights)
 })
 
+# ---- The base measure gate --------------------------------------------------
+
+# The base measure is the product of the sampling weights and any base weights.
+# Every group total a fit divides by is taken under it, so a group with no mass
+# leaves that group's constraint targets and reported total undefined, and a
+# measure with no mass at all leaves the pooled target undefined too.
+test_that("validate_base_measure() passes a measure with mass in every group", {
+  measure <- c(0, 1, 2, 1)
+  groups <- list(a = c(1L, 2L), b = c(3L, 4L))
+  expect_identical(validate_base_measure(measure, groups), measure)
+})
+
+test_that("validate_base_measure() names a group with no mass", {
+  groups <- list(a = c(1L, 2L), b = c(3L, 4L))
+  expect_error(
+    validate_base_measure(c(0, 0, 2, 1), groups),
+    class = "balancing_range_error"
+  )
+  expect_error(validate_base_measure(c(0, 0, 2, 1), groups), "\"a\"")
+})
+
+test_that("validate_base_measure() refuses a measure with no mass at all", {
+  expect_error(
+    validate_base_measure(rep(0, 4), NULL),
+    class = "balancing_range_error"
+  )
+  expect_error(
+    validate_base_measure(rep(0, 4), list(a = 1:2, b = 3:4)),
+    class = "balancing_range_error"
+  )
+})
+
+test_that("validate_base_measure() accepts a grouped fit with no groups", {
+  measure <- c(0, 1, 2, 1)
+  expect_identical(validate_base_measure(measure, NULL), measure)
+})
+
 # ---- The shared finiteness gate --------------------------------------------
 
 test_that("validate_finite() returns a finite vector invisibly", {

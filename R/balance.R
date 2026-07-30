@@ -218,6 +218,13 @@ balance <- function(
     tolerances = column_tolerances(built$recipe)
   )
 
+  # The sampling weights are the whole base measure for every method that carries
+  # no base weights of its own, so a group left without mass is refused here,
+  # before any fit, rather than through whichever failure each method's path
+  # happens to reach. Entropy balancing checks the product its base weights form
+  # as well, where their length has been validated.
+  validate_base_measure(prepared$sampling_weights, groups)
+
   fit <- fit_method(method, prepared)
 
   # A user interrupt during the solve unwinds the Rust core cleanly and reports
@@ -268,15 +275,7 @@ balance <- function(
   if (
     !isTRUE(fit$approximate) && !all(balance_table$within_tolerance %in% TRUE)
   ) {
-    worst <- max(abs(balance_table$weighted))
-    warn(
-      c(
-        "The achieved balance exceeds the requested tolerance.",
-        x = "The largest imbalance is {formatC(worst, format = 'f', digits = 4)}.",
-        i = "Raise {.arg tolerance} in {.fn balance_terms}, lower the moments, or drop interactions."
-      ),
-      warning_class = "balancing_balance_warning"
-    )
+    warn_balance_exceeded(max(abs(balance_table$weighted)))
   }
 
   balancing(
@@ -301,6 +300,39 @@ balance <- function(
     sampling_weights = sampling_weights_value,
     call = the_call
   )
+}
+
+# Report a fit whose achieved balance sits outside its tolerance box. The largest
+# imbalance names how far the fit missed, so it is only offered when it is a
+# number: a maximum that is not finite means at least one constraint's statistic is
+# undefined, and "the largest imbalance is NaN" states a distance that was never
+# measured. That case reports the assessment as the thing that failed, since no
+# tolerance the caller could raise would answer it. Requiring every exposure level
+# to carry base-measure mass removes the reachable cause, so this is the guard
+# behind that rather than a case a fit reaches.
+warn_balance_exceeded <- function(worst, call = rlang::caller_env()) {
+  if (!is.finite(worst)) {
+    warn(
+      c(
+        "The achieved balance could not be assessed.",
+        x = "At least one constraint's balance statistic is undefined.",
+        i = "Check for an exposure level whose weights sum to zero."
+      ),
+      warning_class = "balancing_balance_warning",
+      call = call
+    )
+    return(invisible())
+  }
+  warn(
+    c(
+      "The achieved balance exceeds the requested tolerance.",
+      x = "The largest imbalance is {formatC(worst, format = 'f', digits = 4)}.",
+      i = "Raise {.arg tolerance} in {.fn balance_terms}, lower the moments, or drop interactions."
+    ),
+    warning_class = "balancing_balance_warning",
+    call = call
+  )
+  invisible()
 }
 
 # Raise or warn on the solver outcome. The quadratic-program family reports a

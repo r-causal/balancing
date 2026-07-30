@@ -276,8 +276,13 @@ fit_entropy_discrete <- function(method, prepared) {
 
   # The reference distribution the tilt anchors to is the base measure, so that
   # units already balanced under their base weights are left proportional to
-  # them.
+  # them. Every constraint target below is a ratio of totals under it, so each
+  # group the estimand needs has to carry some of its mass. The sampling weights
+  # were checked on their own before the fit; this covers what their product with
+  # the base weights leaves, which can be nothing at all where the two are nonzero
+  # nowhere in common.
   measure <- s * base
+  validate_base_measure(measure, groups)
 
   if (identical(estimand, "ate")) {
     focal_idx <- integer(0)
@@ -486,8 +491,12 @@ fit_entropy_continuous <- function(method, prepared) {
   tolerances <- prepared$tolerances
 
   # The reference distribution the tilt anchors to is the base measure, the
-  # product of the sampling and base weights, as it is for a discrete exposure.
+  # product of the sampling and base weights, as it is for a discrete exposure. A
+  # continuous fit is a single group, so what it needs is mass overall: the
+  # exposure is centered and scaled under this measure, which a total of zero
+  # leaves undefined.
   measure <- s * base
+  validate_base_measure(measure, NULL)
 
   # The exposure crosses the product columns centered and scaled on the base
   # measure. The marginal constraint below holds the weighted exposure mean at

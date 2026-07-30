@@ -227,6 +227,28 @@
       x Every weight is zero, which leaves no sample to reweight.
       i Individual zero weights are supported; those units are pinned at zero.
 
+# balancing_range_error: an exposure level with no measure
+
+    Code
+      balance(data, exposure, c(x1, x2), method = bw_entropy(), sampling_weights = ifelse(
+        data$exposure == 1L, 0, 1))
+    Condition <balancing_range_error>
+      Error in `balance()`:
+      ! Every exposure level must carry some base-measure mass.
+      x Exposure level "1" has a base measure of zero.
+      i The base measure is the sampling weights times any base weights; a level with none has no target to balance to and no total to report at.
+
+# balancing_range_error: disjoint sampling and base weight supports
+
+    Code
+      balance(data, exposure, c(x1, x2), method = bw_entropy(base_weights = 1 -
+        alternating), sampling_weights = alternating)
+    Condition <balancing_range_error>
+      Error in `fit_entropy_discrete()`:
+      ! The base measure must carry some mass.
+      x It is zero for every observation.
+      i The base measure is the sampling weights times any base weights, so vectors that are nonzero nowhere in common leave no sample to reweight.
+
 # balancing_constraints_error: a duplicated moments name
 
     Code

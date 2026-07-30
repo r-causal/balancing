@@ -228,6 +228,73 @@ validate_finite_data <- function(
   invisible(NULL)
 }
 
+#' Validate that the base measure carries mass where a fit needs it
+#'
+#' The base measure is the product of the sampling weights and any base weights,
+#' and every group total a fit takes is taken under it: the constraint targets a
+#' group is reweighted to, the total each group's reported weights are scaled to,
+#' and the reference the balance table measures against. A group whose measure
+#' sums to zero leaves each of those a ratio of zero totals, which reaches the
+#' solver as a missing target and comes back as weights whose balance cannot be
+#' assessed. The check runs before any fit, so every method reports the same
+#' defect rather than the collinearity, infeasibility, or missing-value failure its
+#' own path happens to reach first.
+#'
+#' Both vectors are validated non-negative before this, so a positive total is the
+#' same condition as a positive value somewhere. A measure with no mass at all
+#' needs both vectors to be nonzero somewhere and to be nonzero nowhere in common,
+#' which neither vector's own all-zero check can see.
+#'
+#' [balance()] applies this to the sampling weights, which are the whole measure
+#' for every method that carries no base weights. Entropy balancing applies it
+#' again to the product its base weights form, once the base-weight length has been
+#' checked where that fit reads them.
+#'
+#' @param measure The base measure, a non-negative numeric vector.
+#' @param groups The per-level row indices, or `NULL` for a continuous exposure,
+#'   which carries no groups.
+#' @param call The calling environment, used to build the error's call.
+#'
+#' @return `measure`, invisibly, when every required total is positive.
+#' @keywords internal
+#' @noRd
+validate_base_measure <- function(
+  measure,
+  groups,
+  call = rlang::caller_env()
+) {
+  if (!any(measure > 0)) {
+    abort(
+      c(
+        "The base measure must carry some mass.",
+        x = "It is zero for every observation.",
+        i = "The base measure is the sampling weights times any base weights, so vectors that are nonzero nowhere in common leave no sample to reweight."
+      ),
+      error_class = "balancing_range_error",
+      call = call
+    )
+  }
+  if (!is.null(groups)) {
+    empty <- names(groups)[vapply(
+      groups,
+      function(idx) !any(measure[idx] > 0),
+      logical(1)
+    )]
+    if (length(empty) > 0) {
+      abort(
+        c(
+          "Every exposure level must carry some base-measure mass.",
+          x = "Exposure level{?s} {.val {empty}} {?has/have} a base measure of zero.",
+          i = "The base measure is the sampling weights times any base weights; a level with none has no target to balance to and no total to report at."
+        ),
+        error_class = "balancing_range_error",
+        call = call
+      )
+    }
+  }
+  invisible(measure)
+}
+
 #' Validate sampling weights
 #'
 #' A unit given no sampling weight is pinned at zero rather than dropped, so an

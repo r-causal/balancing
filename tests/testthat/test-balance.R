@@ -555,6 +555,150 @@ test_that("all-zero sampling weights error", {
   )
 })
 
+# ---- Zero-measure groups --------------------------------------------------
+
+# A group with no base-measure mass has no weighted mean to target and no total to
+# report at, so every quantity built from it is undefined. Depending on the method
+# that used to surface as a fit whose balance table was entirely missing values,
+# as an infeasibility blamed on the constraint set, or as a convergence error
+# blamed on collinearity. The requirement is checked once, before the fit, so
+# every method reports the same defect.
+test_that("a focal group with no sampling-weight mass is a classed error", {
+  data <- sim_binary(n = 200)
+  focal_zero <- ifelse(data$exposure == 1L, 0, 1)
+  for (method in list(bw_entropy(), bw_ipt(), bw_cbps(), bw_energy())) {
+    expect_error(
+      balance(
+        data,
+        exposure,
+        c(x1, x2),
+        method = method,
+        estimand = "att",
+        sampling_weights = focal_zero
+      ),
+      class = "balancing_range_error"
+    )
+  }
+})
+
+test_that("any group with no sampling-weight mass is a classed error", {
+  data <- sim_binary(n = 200)
+  group_zero <- ifelse(data$exposure == 1L, 0, 1)
+  for (method in list(
+    bw_entropy(),
+    bw_ipt(),
+    bw_cbps(),
+    bw_energy(),
+    bw_cfd()
+  )) {
+    expect_error(
+      balance(
+        data,
+        exposure,
+        c(x1, x2),
+        method = method,
+        sampling_weights = group_zero
+      ),
+      class = "balancing_range_error"
+    )
+  }
+  expect_error(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_sbw(),
+      sampling_weights = group_zero,
+      constraints = balance_terms(tolerance = 0.05)
+    ),
+    class = "balancing_range_error"
+  )
+})
+
+test_that("a categorical level with no sampling-weight mass is a classed error", {
+  data <- sim_categorical(n = 200)
+  level_zero <- ifelse(data$exposure == "a", 0, 1)
+  expect_error(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(),
+      sampling_weights = level_zero
+    ),
+    class = "balancing_range_error"
+  )
+})
+
+# The sampling weights and the base weights multiply, so each can be nonzero
+# somewhere while their product is zero everywhere. That left every constraint
+# target a ratio of zero totals and died on the group renormalization blaming
+# collinearity.
+test_that("disjoint sampling and base weight supports are a classed error", {
+  data <- sim_binary(n = 200)
+  n <- nrow(data)
+  sampling <- rep(c(0, 1), length.out = n)
+  base <- rep(c(1, 0), length.out = n)
+  expect_error(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(base_weights = base),
+      sampling_weights = sampling
+    ),
+    class = "balancing_range_error"
+  )
+})
+
+test_that("disjoint supports error on the continuous path too", {
+  data <- sim_continuous(n = 200)
+  n <- nrow(data)
+  sampling <- rep(c(0, 1), length.out = n)
+  base <- rep(c(1, 0), length.out = n)
+  expect_error(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(base_weights = base),
+      sampling_weights = sampling
+    ),
+    class = "balancing_range_error"
+  )
+})
+
+# Individual zero weights stay legal, and a group that keeps mass under a partly
+# zero vector still fits, so the check refuses only a group with nothing left.
+test_that("partly zero sampling weights that leave every group mass still fit", {
+  data <- sim_binary(n = 200)
+  sampling <- rep(c(0, 1), length.out = nrow(data))
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    sampling_weights = sampling
+  )
+  expect_true(all(is.finite(as.numeric(stats::weights(fit)))))
+  expect_true(all(is.finite(fit@balance_table$weighted)))
+})
+
+# The base-weight length mismatch belongs to the entropy fit, which names the
+# argument and the sample size, so the measure check must not intercept it.
+test_that("a base weight vector of the wrong length still reports its length", {
+  data <- sim_binary(n = 200)
+  expect_error(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(base_weights = rep(1, 3))
+    ),
+    "one value per observation"
+  )
+})
+
 # Sampling weights are naturally supplied as integer counts, and both the solver
 # boundary and the fitted object's property take a double, so an integer vector
 # fits and is stored coerced.
@@ -698,6 +842,28 @@ test_that("a covariate set with no spread at all is a classed error", {
   expect_error(
     balance(data, exposure, fixed, method = bw_entropy()),
     class = "balancing_constraints_error"
+  )
+})
+
+# A balance statistic that is not a number says nothing about how far a fit
+# missed, so the warning must not offer it as the largest imbalance. It reports
+# that balance could not be assessed instead. No fit reaches this once every group
+# is required to carry measure, so the balance table is mocked to reach it.
+test_that("an undefined imbalance warns that balance could not be assessed", {
+  data <- sim_binary(n = 200)
+  original <- compute_balance_table
+  testthat::local_mocked_bindings(
+    compute_balance_table = function(...) {
+      table <- original(...)
+      table$weighted[[1]] <- NaN
+      table$within_tolerance[[1]] <- FALSE
+      table
+    }
+  )
+  expect_warning(
+    balance(data, exposure, c(x1, x2), method = bw_entropy()),
+    "could not be assessed",
+    class = "balancing_balance_warning"
   )
 })
 
