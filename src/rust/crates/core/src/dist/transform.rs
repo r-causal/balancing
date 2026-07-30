@@ -341,6 +341,94 @@ mod tests {
     }
 
     #[test]
+    fn mahalanobis_drops_the_null_direction_of_a_singular_covariance() {
+        // Columns 1 and 2 are exactly collinear, so the correlation matrix the
+        // whitening reads is singular and one eigenvalue is numerically zero.
+        // The relative floor turns that direction's inverse square root into a
+        // hard zero rather than clamping it at the floor, which is the
+        // generalized-inverse reading: the null direction contributes nothing.
+        // Whitened distance is then the Mahalanobis distance of the rank-
+        // deficient data under the pseudo-inverse, and that equals the whitened
+        // distance on any basis of the column space, here columns 1 and 3.
+        //
+        // The expectation is written out rather than taken from a second call.
+        // Standardizing sends column 2 onto column 1 exactly, so the
+        // correlation matrix is [[1, 1, 0], [1, 1, 0], [0, 0, 1]], whose
+        // pseudo-inverse is [[1/4, 1/4, 0], [1/4, 1/4, 0], [0, 0, 1]]. A
+        // difference of standardized rows is (da, da, dc), and the quadratic
+        // form against that pseudo-inverse collapses to da^2 + dc^2: the plain
+        // Euclidean distance on the two standardized basis columns. Their
+        // scales come from the reliability variance, as in the test above: five
+        // equal weights give the denominator 1 - 5/25, and both basis columns
+        // are mean zero with mean square 2.
+        let n = 5;
+        let p = 3;
+        let covs = [
+            -2.0, -1.0, 0.0, 1.0, 2.0, // column 1
+            -4.0, -2.0, 0.0, 2.0, 4.0, // column 2, twice column 1
+            -1.0, 2.0, 0.0, -2.0, 1.0, // column 3, orthogonal to column 1
+        ];
+        let w = [1.0; 5];
+        let sd = (2.0_f64 / 0.8).sqrt();
+        let basis_distance = |i: usize, k: usize| {
+            let da = (covs[i] - covs[k]) / sd;
+            let dc = (covs[2 * n + i] - covs[2 * n + k]) / sd;
+            (da * da + dc * dc).sqrt()
+        };
+
+        let out = mahalanobis(&covs, n, p, &w, 1);
+        assert_eq!(out.len(), n * p);
+
+        // Exactly one output column is identically zero: the floor drops the
+        // null direction rather than clamping its eigenvalue at the floor and
+        // keeping the direction. The eigenvalue here is a hard zero, so without
+        // the floor its inverse square root is infinite and the direction comes
+        // back as a column of NaN rather than as nothing at all.
+        let zero_columns = (0..p)
+            .filter(|k| (0..n).all(|i| out[k * n + i] == 0.0))
+            .count();
+        assert_eq!(zero_columns, 1, "the null direction must be dropped");
+
+        let distance = |x: &[f64], i: usize, k: usize| {
+            (0..p)
+                .map(|j| {
+                    let d = x[j * n + i] - x[j * n + k];
+                    d * d
+                })
+                .sum::<f64>()
+                .sqrt()
+        };
+
+        // Carrying the duplicated column as its own coordinate, which is what
+        // the scaled-Euclidean fallback on the factorization failure does,
+        // counts the collinear part twice inside the square root. The fixture
+        // has to separate that reading from the pseudo-inverse one, or the
+        // equality below would hold either way.
+        let mut standardized = vec![0.0; n * p];
+        for j in 0..p {
+            let scale = if j == 1 { 2.0 * sd } else { sd };
+            for i in 0..n {
+                standardized[j * n + i] = covs[j * n + i] / scale;
+            }
+        }
+        assert!(
+            (distance(&standardized, 0, 4) - basis_distance(0, 4)).abs() > 0.5,
+            "the fixture must separate the dropped direction from a kept one"
+        );
+
+        for i in 0..n {
+            for k in (i + 1)..n {
+                let got = distance(&out, i, k);
+                let want = basis_distance(i, k);
+                assert!(
+                    (got - want).abs() < 1e-12,
+                    "pair ({i}, {k}): whitened distance {got}, basis distance {want}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn mahalanobis_whitens_to_unit_covariance() {
         // Independent standard-normal-like columns: the whitened columns should
         // have (weighted) covariance close to the identity, so the sum of
