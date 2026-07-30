@@ -3894,8 +3894,10 @@ test_that("ipw() honors an offset in a categorical outcome model", {
   # An offset leaves the model unsaturated in the exposure, so the marginal
   # means stop being the weighted group means and start depending on the offset
   # each unit carries. A fixed-exposure design that dropped the offset would
-  # report the offset-free means instead, and the gap between the two readings
-  # is far larger than the tolerance the equalities below are held to.
+  # predict from the offset-fitted coefficients with no offset at all; the
+  # offset-free refit below stands in for that reading to show the gap between it
+  # and the offset means is far larger than the tolerance the equalities below
+  # are held to.
   offset_free <- fit_outcome(y ~ exposure, data, w, stats::binomial())
   expect_gt(
     max(abs(
@@ -4355,11 +4357,13 @@ test_that("ipw() gives identical results for an lm and a gaussian glm", {
   expect_equal(lm_result$std.err, glm_result$std.err)
 })
 
-# A two-column response is the grouped binomial form, one row per group of trials
-# rather than one row per Bernoulli draw. It is refused, and the refusal has to
-# name the shape: `glm()` records the prior weights as the weights it was given
-# times each row's trial count, so the weight preflight sees a mismatch and would
-# otherwise tell a caller who supplied exactly the fit's weights to supply them.
+# A two-column response through `glm()` is the grouped binomial form, one row per
+# group of trials rather than one row per Bernoulli draw. It is refused, and the
+# refusal has to name the shape: `glm()` records the prior weights as the weights
+# it was given times each row's trial count, so the weight preflight sees a
+# mismatch and would otherwise tell a caller who supplied exactly the fit's
+# weights to supply them. The same check turns away a multivariate `lm()`, whose
+# response is a matrix for a different reason, so the message names both.
 
 test_that("ipw() refuses a grouped binomial outcome model", {
   data <- ipw_fixture()

@@ -173,9 +173,13 @@ its observed value while the exposure is fixed to each level, so a discrete
 exposure's marginal means would read one exposure in the design and another in
 the offset, and a continuous exposure's coefficient would be something other
 than the effect of a one-unit change. An exposure-free offset stays supported.
-That check is static, so an offset supplied as a precomputed vector whose name
-says nothing about the exposure is accepted, and keeping the exposure out of
-it is the caller's to honor.
+That check is static, so it accepts any offset whose stored expression does
+not name the exposure: a precomputed vector under some other symbol, and
+equally a wrapper that forwards the offset through its dots, which records
+\code{..1} in the fitted call. Keeping the exposure out of such an offset is the
+caller's to honor, and it matters most for a discrete exposure, where a
+laundered offset corrupts the fixed-exposure marginal means and can reverse
+the sign of the reported contrast rather than merely shifting a coefficient.
 
 The exposure may be a factor, a character column, or an integer code, and a
 term that transforms it counts as carrying it. A character column becomes a

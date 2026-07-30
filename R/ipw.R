@@ -136,9 +136,13 @@
 #' exposure's marginal means would read one exposure in the design and another in
 #' the offset, and a continuous exposure's coefficient would be something other
 #' than the effect of a one-unit change. An exposure-free offset stays supported.
-#' That check is static, so an offset supplied as a precomputed vector whose name
-#' says nothing about the exposure is accepted, and keeping the exposure out of
-#' it is the caller's to honor.
+#' That check is static, so it accepts any offset whose stored expression does
+#' not name the exposure: a precomputed vector under some other symbol, and
+#' equally a wrapper that forwards the offset through its dots, which records
+#' `..1` in the fitted call. Keeping the exposure out of such an offset is the
+#' caller's to honor, and it matters most for a discrete exposure, where a
+#' laundered offset corrupts the fixed-exposure marginal means and can reverse
+#' the sign of the reported contrast rather than merely shifting a coefficient.
 #'
 #' The exposure may be a factor, a character column, or an integer code, and a
 #' term that transforms it counts as carrying it. A character column becomes a
@@ -705,18 +709,21 @@ validate_ipw_outcome_model <- function(
   invisible(NULL)
 }
 
-# A two-column response is the grouped binomial form: each row carries a count of
-# successes and a count of failures rather than one Bernoulli draw. Fitted that
-# way, the model's prior weights are the weights it was given times each row's
-# trial count, which is a scale the fit knows nothing about: the fit weights
-# units, and the stacked variance rebuilds the outcome-model score from the
-# weights the fit reports at each set of weight parameters. That score is not the
-# score the model fitted, and the trial counts are nowhere in the stack to make
-# it one.
+# A response of more than one column is two different models, and the stack
+# handles neither. Through `glm()` it is the grouped binomial form: each row
+# carries a count of successes and a count of failures rather than one Bernoulli
+# draw, and the model's prior weights are the weights it was given times each
+# row's trial count, a scale the fit knows nothing about. Through `lm()` it is a
+# multivariate fit, whose weights are the weights it was given but whose
+# coefficients are one block per response column and whose score is therefore not
+# a single per-unit vector. Either way the stacked variance rebuilds an
+# outcome-model score from the weights the fit reports at each set of weight
+# parameters, and that score is not the one the model fitted.
 #
 # The shape is therefore refused, and refused here rather than left to the weight
-# preflight, which compares the model's scaled prior weights against the fit's
-# and would report a mismatch to a caller who supplied exactly the fit's weights.
+# preflight, which sees the grouped binomial form's scaled prior weights and
+# would report a mismatch to a caller who supplied exactly the fit's weights, and
+# sees nothing at all wrong with the multivariate one.
 validate_ipw_response_shape <- function(
   outcome_mod,
   call = rlang::caller_env()
@@ -728,9 +735,10 @@ validate_ipw_response_shape <- function(
   }
   abort(
     c(
-      "{.fun ipw} cannot compute a stacked variance for a grouped binomial outcome model.",
-      x = "Its response is a matrix of {columns} columns, so {.fun glm} scaled the weights it was given by each row's trial count.",
-      i = "Fit the weights and the outcome model on data with one row per trial, or see the inference vignette for a bootstrap workflow."
+      "{.fun ipw} cannot compute a stacked variance for a multi-column response.",
+      x = "Its response is a matrix of {columns} columns, which is the grouped binomial form for {.fun glm} and a multivariate fit for {.fun lm}.",
+      i = "A grouped binomial fit scales the weights it was given by each row's trial count; a multivariate fit carries one coefficient block per response column. Neither leaves a single per-unit score the stack can rebuild.",
+      i = "Fit the weights and the outcome model on data with one row per unit and one response column, or see the inference vignette for a bootstrap workflow."
     ),
     error_class = "balancing_ipw_unsupported_error",
     call = call,

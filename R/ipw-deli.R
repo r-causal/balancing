@@ -480,8 +480,12 @@ msm_effect_name <- function(outcome_mod, call = rlang::caller_env()) {
 #
 # The stacked bread is block lower triangular: the weight-parameter equations
 # depend on the weight parameters alone, so the system's determinant is that
-# block's times the rest, and the stack is singular exactly when the fit's own
-# Jacobian is. Asking the finite difference to report that is asking too much of
+# block's times the rest, and the stack is singular whenever the fit's own
+# Jacobian is. The converse needs the stack's other diagonal blocks to be
+# nonsingular, which holds for a converged glm with estimable coefficients and,
+# on the discrete path, for the mean and contrast blocks, whose diagonals are
+# minus the standardization total and minus one.
+# Asking the finite difference to report that is asking too much of
 # it. A deficiency that is a second-order cancellation comes back as a pivot of
 # rounding size rather than as a zero, and `solve()` accepts it, so
 # `allow_pinv = FALSE` refuses only the deficiencies that survive to the last bit

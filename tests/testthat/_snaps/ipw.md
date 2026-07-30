@@ -119,9 +119,10 @@
       stop(cnd)
     Condition <balancing_ipw_unsupported_error>
       Error in `ipw()`:
-      ! `ipw()` cannot compute a stacked variance for a grouped binomial outcome model.
-      x Its response is a matrix of 2 columns, so `glm()` scaled the weights it was given by each row's trial count.
-      i Fit the weights and the outcome model on data with one row per trial, or see the inference vignette for a bootstrap workflow.
+      ! `ipw()` cannot compute a stacked variance for a multi-column response.
+      x Its response is a matrix of 2 columns, which is the grouped binomial form for `glm()` and a multivariate fit for `lm()`.
+      i A grouped binomial fit scales the weights it was given by each row's trial count; a multivariate fit carries one coefficient block per response column. Neither leaves a single per-unit score the stack can rebuild.
+      i Fit the weights and the outcome model on data with one row per unit and one response column, or see the inference vignette for a bootstrap workflow.
 
 # ipw() rejects a fit whose container carries no re-evaluation hooks
 
