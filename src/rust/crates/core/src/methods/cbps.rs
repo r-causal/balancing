@@ -626,6 +626,18 @@ impl GmmProblem<'_> {
                         acc.grad[base + p + j] += bal_scale * acc.bal_row[j];
                     }
                 }
+                // The moment covariance accumulates a single sampling weight per
+                // unit rather than its square. Any positive semidefinite
+                // weighting matrix leaves the generalized-method-of-moments
+                // estimator consistent, so this is a choice of efficiency and not
+                // of identification: the sampling weights enter as a design
+                // measure here, weighting each unit's outer product by the mass
+                // it represents, where squaring them would instead treat them as
+                // the variance of a heteroskedastic error and change the
+                // over-identified point estimates. That choice also makes the
+                // covariance degree one in the sampling weights, matching the
+                // moment itself, which is what the problem's residual scale
+                // below accounts for.
                 if want_cov {
                     for a in 0..m_total {
                         let ga = s * acc.g_row[a];
@@ -691,6 +703,22 @@ impl EsteqProblem for GmmProblem<'_> {
         let acc = self.accumulate(beta, want_cov);
         let w = self.weighting_matrix(&acc.cov);
         Some(quad_form(&w, &acc.m, self.m_total))
+    }
+
+    /// The criterion is degree one in the sampling weights, so its gradient is
+    /// too, and the tolerance is read at that scale.
+    ///
+    /// The moment and its parameter Jacobian are sampling-weighted totals, degree
+    /// one each, and the moment covariance the weighting matrix inverts is degree
+    /// one as well, so the weighting cancels exactly one power: `m' W m` and its
+    /// derivative both carry the units the sampling weights are expressed in.
+    /// Reading the same design in survey-expansion units would otherwise move the
+    /// convergence verdict without moving the minimizer. The scale is derived here
+    /// rather than cached on the problem because the struct is also built as a
+    /// covariance probe that is never solved, and the solvers resolve the scale
+    /// once per solve.
+    fn residual_scale(&self) -> f64 {
+        sampling_weight_scale(self.inputs.s)
     }
 
     fn gradient(&self, beta: &[f64], grad: &mut [f64]) {
@@ -2037,6 +2065,152 @@ mod tests {
         }
     }
 
+    // The over-identified criterion is degree one in the sampling weights: the
+    // moment and its parameter Jacobian are sampling-weighted totals, and the
+    // moment covariance the weighting matrix inverts accumulates a single sampling
+    // weight per unit, so the weighting cancels exactly one power and the
+    // criterion and its gradient are left carrying the weights' own units. This
+    // pins that structure directly, at a fixed parameter vector where no solver
+    // trajectory intervenes: expressing the same design in survey-expansion units
+    // multiplies both by the expansion factor, and the problem reports the same
+    // factor as its residual scale, which is what leaves the ratio the solvers
+    // judge convergence on untouched. Both weighting policies share the
+    // structure, so both are checked.
+    #[test]
+    fn the_gmm_criterion_and_its_residual_scale_share_the_sampling_weight_degree() {
+        let (covs, treat, n) = gmm_gradient_design();
+        let base_s = gmm_gradient_sampling_weights();
+        let factor = 1e6;
+        let beta = [0.15, -0.3];
+        let p = 2;
+        let m_total = 2 * p;
+
+        for twostep in [true, false] {
+            let mut criteria = Vec::new();
+            let mut gradients = Vec::new();
+            let mut scales = Vec::new();
+            for expansion in [1.0, factor] {
+                let s: Vec<f64> = base_s.iter().map(|si| si * expansion).collect();
+                let inputs = CbpsInputs {
+                    covs_mod: &covs,
+                    covs_bal: &covs,
+                    n,
+                    p_mod: p,
+                    p_bal: p,
+                    treat: &treat,
+                    s: &s,
+                    link: Link::Logit,
+                    estimand: CbpsEstimand::Ate,
+                    over: true,
+                    twostep,
+                    threads: 1,
+                    max_iter: 1,
+                    tol: 1e-12,
+                };
+                let pool = get_pool(1);
+                let weighting = if twostep {
+                    let probe = GmmProblem {
+                        inputs: &inputs,
+                        m_total,
+                        weighting: GmmWeighting::Continuous,
+                        pool: Arc::clone(&pool),
+                    };
+                    let cov = probe.accumulate(&beta, true).cov;
+                    GmmWeighting::TwoStep(
+                        pseudo_inverse_symmetric(&cov, m_total).expect("covariance decomposes"),
+                    )
+                } else {
+                    GmmWeighting::Continuous
+                };
+                let problem = GmmProblem {
+                    inputs: &inputs,
+                    m_total,
+                    weighting,
+                    pool,
+                };
+                let mut grad = vec![0.0; p];
+                problem.gradient(&beta, &mut grad);
+                criteria.push(problem.value(&beta).expect("the criterion has a value"));
+                gradients.push(grad);
+                scales.push(problem.residual_scale());
+            }
+
+            let mean_s = base_s.iter().sum::<f64>() / n as f64;
+            assert!(
+                (scales[0] - mean_s).abs() < 1e-12,
+                "two_step = {twostep} unscaled residual scale {} is not the average \
+                 sampling weight {mean_s}",
+                scales[0]
+            );
+            assert!(
+                (scales[1] / scales[0] - factor).abs() < 1e-3,
+                "two_step = {twostep} residual scale grew by {} rather than {factor}",
+                scales[1] / scales[0]
+            );
+            assert!(
+                (criteria[1] / criteria[0] - factor).abs() < 1e-3,
+                "two_step = {twostep} criterion grew by {} rather than {factor}",
+                criteria[1] / criteria[0]
+            );
+            for (k, unscaled) in gradients[0].iter().enumerate() {
+                let ratio = gradients[1][k] / unscaled;
+                assert!(
+                    (ratio - factor).abs() < 1e-3,
+                    "two_step = {twostep} gradient[{k}] grew by {ratio} rather than {factor}"
+                );
+            }
+        }
+    }
+
+    // The verdict the criterion above earns, end to end through the solve. The
+    // two-step policy is the one this design reaches the tolerance on at the
+    // unscaled reading, so it is the policy that can pin a verdict here: an arm
+    // whose unscaled fit does not converge would pin the backend's difficulty
+    // rather than the scale. The continuously-updated criterion's own degree in
+    // the sampling weights is pinned above, and both policies are exercised end to
+    // end by the R suite.
+    #[test]
+    fn the_over_identified_verdict_is_invariant_to_the_sampling_weight_scale() {
+        let (covs, treat, n) = continuous_cov_design();
+        let solve_at = |scale: f64| {
+            let s = vec![scale; n];
+            let inputs = CbpsInputs {
+                covs_mod: &covs,
+                covs_bal: &covs,
+                n,
+                p_mod: 2,
+                p_bal: 2,
+                treat: &treat,
+                s: &s,
+                link: Link::Logit,
+                estimand: CbpsEstimand::Ate,
+                over: true,
+                twostep: true,
+                threads: 1,
+                max_iter: 500,
+                tol: 1e-10,
+            };
+            solve(&inputs, &no_interrupt())
+        };
+        let base = solve_at(1.0);
+        let expanded = solve_at(1e6);
+
+        assert!(base.converged, "the unscaled fit must converge");
+        assert!(
+            expanded.converged,
+            "the expanded fit reported a criterion of {} against tolerance 1e-10",
+            expanded.gmm_obj.unwrap_or(f64::NAN)
+        );
+        for i in 0..n {
+            assert!(
+                (base.weights[i] - expanded.weights[i]).abs() < 1e-6,
+                "weight[{i}]: unscaled {} versus expanded {}",
+                base.weights[i],
+                expanded.weights[i]
+            );
+        }
+    }
+
     #[test]
     fn over_identified_interrupt_is_surfaced() {
         let (covs, treat, n) = continuous_cov_design();
@@ -2216,15 +2390,10 @@ mod tests {
         }
     }
 
-    /// The generalized-method-of-moments gradient must match a central finite
-    /// difference of the criterion for both weighting policies, under non-unit
-    /// sampling weights. The two-step criterion holds its weighting fixed, so the
-    /// gradient is the plain moment-Jacobian contraction; the continuously-updated
-    /// criterion differentiates the weighting too, and a sampling-weight
-    /// double-count in that correction shows up here but not under unit weights.
-
-    #[test]
-    fn gmm_gradient_matches_finite_differences() {
+    /// An eight-unit binary design with an intercept and one covariate, used for
+    /// the criterion's analytic checks at a fixed parameter vector rather than for
+    /// a solve.
+    fn gmm_gradient_design() -> (Vec<f64>, Vec<i32>, usize) {
         let covs = vec![
             // intercept column
             1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, //
@@ -2232,8 +2401,25 @@ mod tests {
             -1.2, 0.4, 0.9, -0.5, 1.5, -0.8, 0.2, 1.1,
         ];
         let treat = vec![1, 0, 1, 0, 1, 0, 1, 0];
-        let s = vec![0.7, 1.3, 0.5, 1.8, 1.1, 0.9, 1.4, 0.6];
-        let n = 8;
+        (covs, treat, 8)
+    }
+
+    /// Non-unit sampling weights for that design, so a term that reads them the
+    /// wrong number of times shows up where unit weights would hide it.
+    fn gmm_gradient_sampling_weights() -> Vec<f64> {
+        vec![0.7, 1.3, 0.5, 1.8, 1.1, 0.9, 1.4, 0.6]
+    }
+
+    /// The generalized-method-of-moments gradient must match a central finite
+    /// difference of the criterion for both weighting policies, under non-unit
+    /// sampling weights. The two-step criterion holds its weighting fixed, so the
+    /// gradient is the plain moment-Jacobian contraction; the continuously-updated
+    /// criterion differentiates the weighting too, and a sampling-weight
+    /// double-count in that correction shows up here but not under unit weights.
+    #[test]
+    fn gmm_gradient_matches_finite_differences() {
+        let (covs, treat, n) = gmm_gradient_design();
+        let s = gmm_gradient_sampling_weights();
         let p = 2;
         let m_total = 2 * p;
         let beta = [0.15, -0.3];

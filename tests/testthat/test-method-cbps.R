@@ -320,6 +320,54 @@ test_that("the convergence verdict does not move with the sampling-weight scale"
   expect_equal(factors_expanded, factors, tolerance = 1e-9)
 })
 
+test_that("the over-identified verdict does not move with the sampling-weight scale", {
+  # The generalized-method-of-moments criterion is also degree one in the
+  # sampling weights: the moment covariance the weighting matrix inverts carries
+  # a single sampling weight per unit, so the weighting cancels one power and the
+  # criterion and its gradient still read in the weights' units. A tolerance held
+  # fixed against them would call the survey-scale fit unconverged at the same
+  # solution the unscaled fit converged on.
+  #
+  # The expansion factor here is a thousand rather than the million the
+  # just-identified case uses. The criterion's degree is exact at any factor, and
+  # the Rust suite pins it there for both weighting policies; how large an
+  # expansion the solve itself survives is set by the quasi-Newton backend the
+  # over-identified criterion is minimized through, whose line search is not
+  # scale-free.
+  data <- sim_binary()
+  withr::local_seed(9)
+  data$sw <- stats::runif(nrow(data), 0.5, 1.5)
+  data$sw_expanded <- data$sw * 1e3
+
+  method <- bw_cbps(over_identified = TRUE)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = method,
+    estimand = "ate",
+    sampling_weights = sw
+  )
+  expanded <- expect_no_warning(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = method,
+      estimand = "ate",
+      sampling_weights = sw_expanded
+    ),
+    class = "balancing_convergence_warning"
+  )
+
+  expect_true(fit@converged)
+  expect_true(expanded@converged)
+
+  factors <- as.numeric(stats::weights(fit)) / data$sw
+  factors_expanded <- as.numeric(stats::weights(expanded)) / data$sw_expanded
+  expect_equal(factors_expanded, factors, tolerance = 1e-6)
+})
+
 # ---- Explicit focal level on a binary exposure ----------------------------
 
 # A binary focal estimand infers its target from the estimand alone only when the
