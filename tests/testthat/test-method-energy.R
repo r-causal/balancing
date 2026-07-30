@@ -151,6 +151,35 @@ test_that("bw_energy() rejects a negative minimum weight", {
   expect_error(bw_energy(min_weight = -1e-8))
 })
 
+# The quadratic program pins each reweighted arm's mean weight at one, so a floor
+# at one leaves the uniform weighting as the only feasible point and a floor above
+# one leaves no feasible point at all. Both used to reach the solver and come back
+# as an infeasibility blamed on the constraint set.
+test_that("bw_energy() rejects a minimum weight at or above one", {
+  expect_identical(bw_energy(min_weight = 0.5)@min_weight, 0.5)
+  expect_error(bw_energy(min_weight = 1), "less than one")
+  expect_error(bw_energy(min_weight = 2), "less than one")
+  expect_error(bw_energy(min_weight = Inf), "less than one")
+})
+
+test_that("bw_energy() rejects a missing or infinite weight penalty", {
+  expect_error(bw_energy(weight_penalty = NA_real_), "finite")
+  expect_error(bw_energy(weight_penalty = Inf), "finite")
+  expect_error(bw_energy(weight_penalty = c(1e-4, 1e-3)), "single")
+})
+
+# The distribution moments reach a comparison in the continuous fit path, so a
+# missing value or a vector used to stop that fit with a base error rather than
+# reporting at construction with the property named.
+test_that("bw_energy() rejects missing or multi-element distribution moments", {
+  expect_identical(
+    bw_energy(distribution_moments = 2L)@distribution_moments,
+    2L
+  )
+  expect_error(bw_energy(distribution_moments = NA_integer_), "single")
+  expect_error(bw_energy(distribution_moments = c(1L, 2L)), "single")
+})
+
 test_that("bw_energy() rejects a non-positive convergence tolerance", {
   expect_null(bw_energy()@convergence_tolerance)
   expect_error(bw_energy(convergence_tolerance = -1e-8))

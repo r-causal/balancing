@@ -167,6 +167,17 @@ test_that("bw_sbw() rejects a negative minimum weight", {
   expect_error(bw_sbw(min_weight = -1e-8))
 })
 
+# The quadratic program pins each reweighted arm's mean weight at one, so a floor
+# at one leaves the uniform weighting as the only feasible point and a floor above
+# one leaves no feasible point at all. Both used to reach the solver and come back
+# as an infeasibility blamed on the constraint set.
+test_that("bw_sbw() rejects a minimum weight at or above one", {
+  expect_identical(bw_sbw(min_weight = 0.5)@min_weight, 0.5)
+  expect_error(bw_sbw(min_weight = 1), "less than one")
+  expect_error(bw_sbw(min_weight = 2), "less than one")
+  expect_error(bw_sbw(min_weight = Inf), "less than one")
+})
+
 test_that("bw_sbw() rejects a non-positive convergence tolerance", {
   expect_null(bw_sbw()@convergence_tolerance)
   expect_error(bw_sbw(convergence_tolerance = -1e-8))

@@ -71,6 +71,13 @@ bw_ipt <- new_class(
   ) {
     check_method_dots(...)
     link <- rlang::arg_match(link)
+    if (!is.null(convergence_tolerance)) {
+      convergence_tolerance <- vctrs::vec_cast(
+        convergence_tolerance,
+        double(),
+        x_arg = "convergence_tolerance"
+      )
+    }
     if (!is.null(max_iterations)) {
       max_iterations <- vctrs::vec_cast(
         max_iterations,

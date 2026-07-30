@@ -143,16 +143,11 @@ bw_sbw <- new_class(
       max_iterations = max_iterations
     )
   },
+  # The minimum-weight floor is validated by the quadratic-program parent, which
+  # declares it, together with the weight penalty this method holds at zero.
   validator = function(self) {
     if (!self@norm %in% c("l2", "l1", "linf")) {
       return("@norm must be one of \"l2\", \"l1\", or \"linf\"")
-    }
-    if (
-      length(self@min_weight) != 1 ||
-        is.na(self@min_weight) ||
-        self@min_weight < 0
-    ) {
-      return("@min_weight must be a single non-negative number")
     }
   }
 )

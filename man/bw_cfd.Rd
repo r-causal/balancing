@@ -25,7 +25,11 @@ bw_cfd(
 Used only by the Matern kernel.}
 
 \item{degrees_of_freedom}{The degrees of freedom of the t kernel's frequency
-distribution, greater than two. Used only by the \code{"t"} kernel.}
+distribution, a finite number greater than two. Used only by the \code{"t"}
+kernel. The t kernel approaches the Gaussian kernel as the degrees of
+freedom grow, so that limit is requested as \code{kernel = "gaussian"} rather
+than as an infinite degrees of freedom, which names no frequency
+distribution to draw from.}
 
 \item{simulation_draws}{The number of Monte Carlo frequency projections for
 the \code{"t"} kernel.}
@@ -71,9 +75,11 @@ or \code{2.5}. The \code{"t"} kernel approximates a heavy-tailed spectral kernel
 Monte Carlo: \code{simulation_draws} frequency vectors are drawn from a
 multivariate t distribution with \code{degrees_of_freedom} degrees of freedom, on
 the R side under R's random number generator, so a fixed seed reproduces the
-weights. The improved variant for the average treatment effect adds the
-between-group term of the kernel mean embedding, balancing the groups against
-one another as well as against the sample.
+weights. Raising the degrees of freedom takes the t kernel toward the
+Gaussian kernel, which is available exactly as \code{kernel = "gaussian"} and needs
+no Monte Carlo draws. The improved variant for the average treatment effect
+adds the between-group term of the kernel mean embedding, balancing the groups
+against one another as well as against the sample.
 
 Setting \code{kernel = "energy"} uses the negative pairwise distance, which
 reproduces \code{\link[=bw_energy]{bw_energy()}} with its \code{"scaled_euclidean"} distance on the

@@ -106,6 +106,32 @@ test_that("bw_cfd() rejects degrees of freedom at or below two", {
   expect_error(bw_cfd(degrees_of_freedom = 1))
 })
 
+# An infinity used to pass the sign and missingness checks, since `is.na(Inf)` is
+# FALSE and every infinity is greater than two. The t kernel's radial draw then
+# took a chi-square on infinite degrees of freedom, which is a missing value, so
+# every Monte Carlo frequency projection came out non-finite and the fit failed
+# blaming collinearity. All three non-finite values report at construction.
+test_that("bw_cfd() rejects a non-finite degrees of freedom", {
+  expect_equal(bw_cfd(degrees_of_freedom = 3)@degrees_of_freedom, 3)
+  expect_error(bw_cfd(degrees_of_freedom = Inf), "finite")
+  expect_error(bw_cfd(degrees_of_freedom = NA_real_), "finite")
+  expect_error(bw_cfd(degrees_of_freedom = NaN), "finite")
+})
+
+test_that("bw_cfd() rejects a multi-element degrees of freedom", {
+  expect_error(bw_cfd(degrees_of_freedom = c(3, 5)), "single")
+})
+
+# The t-kernel projections are what a non-finite degrees of freedom poisons, so
+# the rejection is also pinned on the draw itself: every projection a legal
+# specification produces is finite.
+test_that("cfd_projection() draws finite projections", {
+  spec <- bw_cfd(kernel = "t", degrees_of_freedom = 5, simulation_draws = 50)
+  projection <- withr::with_seed(414, cfd_projection(spec, 3))
+  expect_length(projection, 3 * 50)
+  expect_true(all(is.finite(projection)))
+})
+
 test_that("bw_cfd() rejects a negative weight penalty", {
   expect_identical(bw_cfd(weight_penalty = 1e-3)@weight_penalty, 1e-3)
   expect_error(bw_cfd(weight_penalty = -1e-4))
@@ -114,6 +140,17 @@ test_that("bw_cfd() rejects a negative weight penalty", {
 test_that("bw_cfd() rejects a negative minimum weight", {
   expect_identical(bw_cfd(min_weight = 1e-6)@min_weight, 1e-6)
   expect_error(bw_cfd(min_weight = -1e-8))
+})
+
+# The quadratic program pins each reweighted arm's mean weight at one, so a floor
+# at one leaves the uniform weighting as the only feasible point and a floor above
+# one leaves no feasible point at all. Both used to reach the solver and come back
+# as an infeasibility blamed on the constraint set.
+test_that("bw_cfd() rejects a minimum weight at or above one", {
+  expect_identical(bw_cfd(min_weight = 0.5)@min_weight, 0.5)
+  expect_error(bw_cfd(min_weight = 1), "less than one")
+  expect_error(bw_cfd(min_weight = 2), "less than one")
+  expect_error(bw_cfd(min_weight = Inf), "less than one")
 })
 
 test_that("bw_cfd() rejects a non-positive number of simulation draws", {

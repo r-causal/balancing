@@ -43,13 +43,31 @@ balance_method <- new_class(
     convergence_tolerance = NULL | class_double,
     max_iterations = NULL | class_integer
   ),
+  # Each solver knob is optional, so a supplied value is checked for being a
+  # single usable number rather than only for its sign. A missing value or a
+  # vector of the wrong length would otherwise decide the sign comparison and stop
+  # the validator itself with a base error, leaving the property unnamed. The
+  # tolerance divides and multiplies inside the solve, so an infinity is refused
+  # alongside the missing value; the iteration cap is an integer and cannot hold
+  # one. Every concrete method inherits these checks rather than repeating them.
   validator = function(self) {
-    if (
-      !is.null(self@convergence_tolerance) && self@convergence_tolerance <= 0
-    ) {
-      "@convergence_tolerance must be a positive number"
-    } else if (!is.null(self@max_iterations) && self@max_iterations < 0L) {
-      "@max_iterations must be a non-negative whole number"
+    if (!is.null(self@convergence_tolerance)) {
+      if (
+        length(self@convergence_tolerance) != 1 ||
+          !is.finite(self@convergence_tolerance) ||
+          self@convergence_tolerance <= 0
+      ) {
+        return("@convergence_tolerance must be a single finite positive number")
+      }
+    }
+    if (!is.null(self@max_iterations)) {
+      if (
+        length(self@max_iterations) != 1 ||
+          is.na(self@max_iterations) ||
+          self@max_iterations < 0L
+      ) {
+        return("@max_iterations must be a single non-negative whole number")
+      }
     }
   }
 )
@@ -71,8 +89,53 @@ quadratic_program_method <- new_class(
   properties = list(
     weight_penalty = class_double,
     min_weight = class_double
-  )
+  ),
+  # The penalty and the minimum-weight floor belong to every quadratic program, so
+  # they are validated where they are declared rather than in each concrete
+  # constructor. The floor has a ceiling as well as a sign: the constraint set pins
+  # each reweighted arm's mean weight at one, so a floor at one leaves the uniform
+  # weighting as the only feasible point and a floor above one leaves none at all.
+  # Both used to reach the solver and return as an infeasibility blamed on the
+  # constraints. An infinite penalty is refused for the same reason a missing one
+  # is: neither names a quadratic the solver can form.
+  validator = function(self) {
+    if (
+      length(self@weight_penalty) != 1 ||
+        !is.finite(self@weight_penalty) ||
+        self@weight_penalty < 0
+    ) {
+      return("@weight_penalty must be a single finite non-negative number")
+    }
+    if (
+      length(self@min_weight) != 1 ||
+        is.na(self@min_weight) ||
+        self@min_weight < 0
+    ) {
+      return("@min_weight must be a single non-negative number")
+    }
+    if (self@min_weight >= 1) {
+      return(
+        "@min_weight must be less than one, the mean weight the constraint set pins each reweighted arm at"
+      )
+    }
+  }
 )
+
+# The validator clause for a `distribution_moments` property, shared by the two
+# methods that hold marginal distribution moments for a continuous exposure.
+# Both read the property the same way, as a single count of one or more, and both
+# used to reach the comparison in their fit path with whatever was supplied, so
+# the clause is written once. Returns `NULL` when the value is usable, which is
+# what an S7 validator returns to accept an object.
+validate_distribution_moments <- function(moments) {
+  if (length(moments) != 1 || is.na(moments)) {
+    return("@distribution_moments must be a single whole number")
+  }
+  if (moments < 1L) {
+    return("@distribution_moments must be a positive whole number")
+  }
+  NULL
+}
 
 # ---- Capability generics ---------------------------------------------------
 
@@ -213,11 +276,25 @@ balance_terms <- new_class(
       tolerance = tolerance
     )
   },
+  # Each range check reads a whole vector, since every one of these properties may
+  # carry a value per covariate. A missing value anywhere in one would decide the
+  # comparison it reaches and stop the validator with a base error, so missingness
+  # is refused first, per property, and the range checks then run on values they
+  # can compare.
   validator = function(self) {
     quantile_values <- if (is.list(self@quantiles)) {
       unlist(self@quantiles, use.names = FALSE)
     } else {
       self@quantiles
+    }
+    if (anyNA(self@moments)) {
+      return("@moments must not contain missing values")
+    }
+    if (anyNA(quantile_values)) {
+      return("@quantiles must not contain missing values")
+    }
+    if (anyNA(self@tolerance)) {
+      return("@tolerance must not contain missing values")
     }
     if (!is.null(self@moments) && any(self@moments < 0L)) {
       "@moments must be non-negative"

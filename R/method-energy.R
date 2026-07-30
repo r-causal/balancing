@@ -148,21 +148,11 @@ bw_energy <- new_class(
       max_iterations = max_iterations
     )
   },
+  # The weight penalty and the minimum-weight floor are validated by the
+  # quadratic-program parent, which declares them. The distribution moments reach a
+  # comparison in the continuous fit path, so a missing value or a vector is
+  # refused here rather than left to stop that fit with a base error.
   validator = function(self) {
-    if (
-      length(self@weight_penalty) != 1 ||
-        is.na(self@weight_penalty) ||
-        self@weight_penalty < 0
-    ) {
-      return("@weight_penalty must be a single non-negative number")
-    }
-    if (
-      length(self@min_weight) != 1 ||
-        is.na(self@min_weight) ||
-        self@min_weight < 0
-    ) {
-      return("@min_weight must be a single non-negative number")
-    }
     if (length(self@improved) != 1 || is.na(self@improved)) {
       return("@improved must be a single logical value")
     }
@@ -172,8 +162,8 @@ bw_energy <- new_class(
     ) {
       return("@dimension_adjustment must be a single logical value")
     }
-    if (!is.null(self@distribution_moments) && self@distribution_moments < 1L) {
-      return("@distribution_moments must be a positive whole number")
+    if (!is.null(self@distribution_moments)) {
+      return(validate_distribution_moments(self@distribution_moments))
     }
   }
 )

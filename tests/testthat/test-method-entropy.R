@@ -38,6 +38,21 @@ test_that("bw_entropy() rejects unnamed extra arguments", {
   expect_error(bw_entropy(bogus = 1), class = "balancing_method_error")
 })
 
+# The iteration cap and the convergence tolerance are cast to the property's type
+# the way the five sibling constructors cast theirs, so a bare numeric literal is
+# accepted rather than failing the S7 property type check.
+test_that("bw_entropy() casts bare numeric tuning literals", {
+  expect_identical(bw_entropy(max_iterations = 200)@max_iterations, 200L)
+  expect_identical(
+    bw_entropy(convergence_tolerance = 1L)@convergence_tolerance,
+    1
+  )
+  expect_error(
+    bw_entropy(max_iterations = 1.5),
+    class = "vctrs_error_cast_lossy"
+  )
+})
+
 # ---- Capability methods ---------------------------------------------------
 
 test_that("supported_exposure_types() lists every exposure type", {

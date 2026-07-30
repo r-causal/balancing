@@ -54,6 +54,21 @@ test_that("bw_entropy() rejects an all-zero base weight vector", {
   expect_error(bw_entropy(base_weights = rep(0, 3)), "must not be all zero")
 })
 
+# Entropy balancing carried no distribution-moments clause at all, so a missing
+# value or a value below one passed construction and reached the continuous fit,
+# which stopped on a base comparison. Energy balancing validates the same property
+# and both now refuse the same set at construction.
+test_that("bw_entropy() validates the distribution moments", {
+  expect_identical(
+    bw_entropy(distribution_moments = 2L)@distribution_moments,
+    2L
+  )
+  expect_error(bw_entropy(distribution_moments = NA_integer_), "single")
+  expect_error(bw_entropy(distribution_moments = c(1L, 2L)), "single")
+  expect_error(bw_entropy(distribution_moments = 0L), "positive")
+  expect_error(bw_entropy(distribution_moments = -1L), "positive")
+})
+
 # ---- balance_terms validators ---------------------------------------------
 
 test_that("balance_terms() rejects a negative tolerance", {
@@ -70,6 +85,74 @@ test_that("balance_terms() rejects quantiles outside the open unit interval", {
   expect_identical(balance_terms(quantiles = 0.5)@quantiles, 0.5)
   expect_error(balance_terms(quantiles = c(0, 0.5)))
   expect_error(balance_terms(quantiles = c(0.5, 1)))
+})
+
+# A missing value used to reach the range comparisons and stop the validator
+# itself with a base error, so nothing named the property at fault. Each of the
+# three range-checked properties reports the missingness instead.
+test_that("balance_terms() rejects missing values in every range property", {
+  expect_error(balance_terms(moments = NA), "missing values")
+  expect_error(balance_terms(moments = c(x1 = 2L, x2 = NA_integer_)), "missing")
+  expect_error(balance_terms(tolerance = NA_real_), "missing values")
+  expect_error(balance_terms(tolerance = c(x1 = 0.1, x2 = NA)), "missing")
+  expect_error(balance_terms(quantiles = NA_real_), "missing values")
+  expect_error(balance_terms(quantiles = c(0.25, NA)), "missing values")
+  expect_error(balance_terms(quantiles = list(x1 = c(0.5, NA))), "missing")
+})
+
+# ---- balance_method validators --------------------------------------------
+
+# The optional solver tuning parameters are validated for being a single usable
+# number, not only for their sign. A missing value or a vector of the wrong length
+# used to steer the sign comparison and stop the validator with a base error, so
+# the property was never named. Every method inherits the check from the abstract
+# parent, so one specification covers all six.
+test_that("a missing, non-finite, or multi-element tuning value is refused", {
+  constructors <- list(
+    bw_entropy = bw_entropy,
+    bw_ipt = bw_ipt,
+    bw_cbps = bw_cbps,
+    bw_energy = bw_energy,
+    bw_cfd = bw_cfd,
+    bw_sbw = bw_sbw
+  )
+  for (name in names(constructors)) {
+    constructor <- constructors[[name]]
+    expect_identical(
+      constructor(convergence_tolerance = 1e-8)@convergence_tolerance,
+      1e-8
+    )
+    expect_error(constructor(convergence_tolerance = NA_real_), "finite")
+    expect_error(constructor(convergence_tolerance = NaN), "finite")
+    expect_error(constructor(convergence_tolerance = Inf), "finite")
+    expect_error(constructor(convergence_tolerance = c(1e-8, 1e-9)), "single")
+    expect_identical(constructor(max_iterations = 50L)@max_iterations, 50L)
+    expect_error(constructor(max_iterations = NA_integer_), "single")
+    expect_error(constructor(max_iterations = c(10L, 20L)), "single")
+  }
+})
+
+# The five methods that cast their tuning arguments accept a bare numeric literal;
+# entropy balancing used to be the exception, failing the S7 property type check
+# on the integer iteration cap and the double tolerance alike. All six now take
+# whichever numeric type the caller typed.
+test_that("every method casts bare numeric tuning literals", {
+  constructors <- list(
+    bw_entropy = bw_entropy,
+    bw_ipt = bw_ipt,
+    bw_cbps = bw_cbps,
+    bw_energy = bw_energy,
+    bw_cfd = bw_cfd,
+    bw_sbw = bw_sbw
+  )
+  for (name in names(constructors)) {
+    constructor <- constructors[[name]]
+    expect_identical(constructor(max_iterations = 200)@max_iterations, 200L)
+    expect_identical(
+      constructor(convergence_tolerance = 1L)@convergence_tolerance,
+      1
+    )
+  }
 })
 
 # ---- balance_terms: named and list variants -------------------------------

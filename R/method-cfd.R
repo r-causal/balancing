@@ -32,9 +32,11 @@
 #' Monte Carlo: `simulation_draws` frequency vectors are drawn from a
 #' multivariate t distribution with `degrees_of_freedom` degrees of freedom, on
 #' the R side under R's random number generator, so a fixed seed reproduces the
-#' weights. The improved variant for the average treatment effect adds the
-#' between-group term of the kernel mean embedding, balancing the groups against
-#' one another as well as against the sample.
+#' weights. Raising the degrees of freedom takes the t kernel toward the
+#' Gaussian kernel, which is available exactly as `kernel = "gaussian"` and needs
+#' no Monte Carlo draws. The improved variant for the average treatment effect
+#' adds the between-group term of the kernel mean embedding, balancing the groups
+#' against one another as well as against the sample.
 #'
 #' Setting `kernel = "energy"` uses the negative pairwise distance, which
 #' reproduces [bw_energy()] with its `"scaled_euclidean"` distance on the
@@ -56,7 +58,11 @@
 #' @param smoothness The Matern smoothness order, one of `0.5`, `1.5`, or `2.5`.
 #'   Used only by the Matern kernel.
 #' @param degrees_of_freedom The degrees of freedom of the t kernel's frequency
-#'   distribution, greater than two. Used only by the `"t"` kernel.
+#'   distribution, a finite number greater than two. Used only by the `"t"`
+#'   kernel. The t kernel approaches the Gaussian kernel as the degrees of
+#'   freedom grow, so that limit is requested as `kernel = "gaussian"` rather
+#'   than as an infinite degrees of freedom, which names no frequency
+#'   distribution to draw from.
 #' @param simulation_draws The number of Monte Carlo frequency projections for
 #'   the `"t"` kernel.
 #' @param improved Whether to add the between-group term of the improved variant
@@ -161,6 +167,15 @@ bw_cfd <- new_class(
       max_iterations = max_iterations
     )
   },
+  # The weight penalty and the minimum-weight floor are validated by the
+  # quadratic-program parent, which declares them.
+  #
+  # The degrees of freedom must be finite as well as above two. An infinity passes
+  # a sign comparison and a missingness check alike, and the radial draw then takes
+  # a chi-square on infinite degrees of freedom, which is a missing value: every
+  # Monte Carlo frequency projection comes out non-finite and the fit fails blaming
+  # collinearity. The Gaussian limit an infinite value reaches for is available
+  # directly as `kernel = "gaussian"`.
   validator = function(self) {
     if (
       length(self@smoothness) != 1 ||
@@ -175,10 +190,12 @@ bw_cfd <- new_class(
     }
     if (
       length(self@degrees_of_freedom) != 1 ||
-        is.na(self@degrees_of_freedom) ||
+        !is.finite(self@degrees_of_freedom) ||
         self@degrees_of_freedom <= 2
     ) {
-      return("@degrees_of_freedom must be a single number greater than two")
+      return(
+        "@degrees_of_freedom must be a single finite number greater than two"
+      )
     }
     if (
       length(self@simulation_draws) != 1 ||
@@ -189,20 +206,6 @@ bw_cfd <- new_class(
     }
     if (length(self@improved) != 1 || is.na(self@improved)) {
       return("@improved must be a single logical value")
-    }
-    if (
-      length(self@weight_penalty) != 1 ||
-        is.na(self@weight_penalty) ||
-        self@weight_penalty < 0
-    ) {
-      return("@weight_penalty must be a single non-negative number")
-    }
-    if (
-      length(self@min_weight) != 1 ||
-        is.na(self@min_weight) ||
-        self@min_weight < 0
-    ) {
-      return("@min_weight must be a single non-negative number")
     }
   }
 )

@@ -91,11 +91,66 @@ rebuild_constraint_matrix <- function(recipe, .data) {
   matrix
 }
 
+# Check the names of a per-covariate specification before it is expanded, the
+# rules `moments` and `tolerance` share. The callers reach this only for a vector
+# that carries names, since an unnamed one is a scalar applied to every covariate.
+# A vector that carries names for some elements and not others leaves the unnamed
+# ones with no covariate to apply to; the empty name used to be reported as a
+# covariate that does not exist, which named the wrong defect. A name given twice
+# silently kept the first value and dropped the rest, so the second request never
+# reached the fit. Both join the unknown-name check here so one set of rules covers
+# both arguments.
+check_covariate_names <- function(
+  values,
+  covariates,
+  arg,
+  call = rlang::caller_env()
+) {
+  element_names <- names(values)
+  unnamed <- sum(!nzchar(element_names))
+  if (unnamed > 0) {
+    abort(
+      c(
+        "Every element of {.arg {arg}} must be named when any element is.",
+        x = "{unnamed} element{?s} carr{?ies/y} no name.",
+        i = "Name each element with one of {.val {covariates}}, or supply a single unnamed value for every covariate."
+      ),
+      error_class = "balancing_constraints_error",
+      call = call
+    )
+  }
+  repeated <- unique(element_names[duplicated(element_names)])
+  if (length(repeated) > 0) {
+    abort(
+      c(
+        "{.arg {arg}} names must be unique.",
+        x = "{.val {repeated}} {?is/are} named more than once.",
+        i = "Give each covariate one value."
+      ),
+      error_class = "balancing_constraints_error",
+      call = call
+    )
+  }
+  unknown <- setdiff(element_names, covariates)
+  if (length(unknown) > 0) {
+    abort(
+      c(
+        "{.arg {arg}} names must be covariates.",
+        x = "Not {cli::qty(unknown)} {?a covariate/covariates}: {.val {unknown}}.",
+        i = "Name each element with one of {.val {covariates}}."
+      ),
+      error_class = "balancing_constraints_error",
+      call = call
+    )
+  }
+  invisible(values)
+}
+
 # Expand `moments` into a per-covariate named integer vector. A scalar applies to
 # every covariate; a named vector overrides the default of one moment. An unnamed
-# vector of length other than one, or a name that is not a covariate, is a classed
-# error rather than a silent recycle or a silently ignored request, matching how
-# `resolve_tolerance()` treats the same two shapes.
+# vector of length other than one is a classed error rather than a silent recycle,
+# and `check_covariate_names()` refuses a partly named, repeated, or unknown name,
+# matching how `resolve_tolerance()` treats the same shapes.
 resolve_moments <- function(moments, covariates, call = rlang::caller_env()) {
   resolved <- stats::setNames(rep(1L, length(covariates)), covariates)
   if (is.null(moments) || length(moments) == 0) {
@@ -116,18 +171,7 @@ resolve_moments <- function(moments, covariates, call = rlang::caller_env()) {
     resolved[] <- as.integer(moments[[1]])
     return(resolved)
   }
-  unknown <- setdiff(names(moments), covariates)
-  if (length(unknown) > 0) {
-    abort(
-      c(
-        "{.arg moments} names must be covariates.",
-        x = "Not {cli::qty(unknown)} {?a covariate/covariates}: {.val {unknown}}.",
-        i = "Name each element with one of {.val {covariates}}."
-      ),
-      error_class = "balancing_constraints_error",
-      call = call
-    )
-  }
+  check_covariate_names(moments, covariates, "moments", call = call)
   resolved[names(moments)] <- as.integer(moments[names(moments)])
   resolved
 }
@@ -135,8 +179,9 @@ resolve_moments <- function(moments, covariates, call = rlang::caller_env()) {
 # Expand `tolerance` into a per-covariate named numeric vector. A scalar applies
 # to every covariate; a named vector sets tolerances per covariate, with unnamed
 # covariates left at exact balance (0). Derived columns inherit their source
-# covariate's tolerance. An unnamed vector of length other than one, or a name
-# that is not a covariate, is a classed error rather than a silent misrecycle.
+# covariate's tolerance. An unnamed vector of length other than one is a classed
+# error rather than a silent misrecycle, and `check_covariate_names()` refuses a
+# partly named, repeated, or unknown name.
 resolve_tolerance <- function(
   tolerance,
   covariates,
@@ -161,18 +206,7 @@ resolve_tolerance <- function(
     resolved[] <- tolerance
     return(resolved)
   }
-  unknown <- setdiff(names(tolerance), covariates)
-  if (length(unknown) > 0) {
-    abort(
-      c(
-        "{.arg tolerance} names must be covariates.",
-        x = "Not {cli::qty(unknown)} {?a covariate/covariates}: {.val {unknown}}.",
-        i = "Name each element with one of {.val {covariates}}."
-      ),
-      error_class = "balancing_constraints_error",
-      call = call
-    )
-  }
+  check_covariate_names(tolerance, covariates, "tolerance", call = call)
   resolved[names(tolerance)] <- tolerance
   resolved
 }

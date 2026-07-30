@@ -88,6 +88,20 @@ bw_entropy <- new_class(
         x_arg = "distribution_moments"
       )
     }
+    if (!is.null(convergence_tolerance)) {
+      convergence_tolerance <- vctrs::vec_cast(
+        convergence_tolerance,
+        double(),
+        x_arg = "convergence_tolerance"
+      )
+    }
+    if (!is.null(max_iterations)) {
+      max_iterations <- vctrs::vec_cast(
+        max_iterations,
+        integer(),
+        x_arg = "max_iterations"
+      )
+    }
     new_object(
       S7_object(),
       base_weights = base_weights,
@@ -103,7 +117,18 @@ bw_entropy <- new_class(
   # every constraint target a ratio of zero totals. Rejecting all three here
   # covers the discrete and the continuous fit paths alike. Individual zeros stay
   # legal: those units are held at no weight.
+  #
+  # The distribution moments are read the same way energy balancing reads them and
+  # are validated by the same clause, which entropy balancing carried no version of
+  # at all: a missing value passed construction and stopped the continuous fit on a
+  # base comparison.
   validator = function(self) {
+    if (!is.null(self@distribution_moments)) {
+      invalid <- validate_distribution_moments(self@distribution_moments)
+      if (!is.null(invalid)) {
+        return(invalid)
+      }
+    }
     if (is.null(self@base_weights)) {
       return(NULL)
     }

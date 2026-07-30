@@ -227,6 +227,28 @@
       x Every weight is zero, which leaves no sample to reweight.
       i Individual zero weights are supported; those units are pinned at zero.
 
+# balancing_constraints_error: a duplicated moments name
+
+    Code
+      balance(data, exposure, c(x1, x2), method = bw_entropy(), constraints = balance_terms(
+        moments = c(x1 = 2L, x1 = 3L)))
+    Condition <balancing_constraints_error>
+      Error in `balance()`:
+      ! `moments` names must be unique.
+      x "x1" is named more than once.
+      i Give each covariate one value.
+
+# balancing_constraints_error: a partially named tolerance
+
+    Code
+      balance(data, exposure, c(x1, x2), method = bw_sbw(), constraints = balance_terms(
+        tolerance = c(x1 = 0.1, 0.2)))
+    Condition <balancing_constraints_error>
+      Error in `balance()`:
+      ! Every element of `tolerance` must be named when any element is.
+      x 1 element carries no name.
+      i Name each element with one of "x1" and "x2", or supply a single unnamed value for every covariate.
+
 # balancing_range_error: an invalid entropy solver option
 
     Code

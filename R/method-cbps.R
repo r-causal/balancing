@@ -111,6 +111,13 @@ bw_cbps <- new_class(
   ) {
     check_method_dots(...)
     link <- rlang::arg_match(link)
+    if (!is.null(convergence_tolerance)) {
+      convergence_tolerance <- vctrs::vec_cast(
+        convergence_tolerance,
+        double(),
+        x_arg = "convergence_tolerance"
+      )
+    }
     if (!is.null(max_iterations)) {
       max_iterations <- vctrs::vec_cast(
         max_iterations,
@@ -127,20 +134,14 @@ bw_cbps <- new_class(
       max_iterations = max_iterations
     )
   },
+  # The solver tuning parameters are validated by the abstract parent, which
+  # declares them, so only this method's own flags are checked here.
   validator = function(self) {
     if (length(self@over_identified) != 1 || is.na(self@over_identified)) {
       return("@over_identified must be a single logical value")
     }
     if (length(self@two_step) != 1 || is.na(self@two_step)) {
       return("@two_step must be a single logical value")
-    }
-    if (
-      !is.null(self@convergence_tolerance) && self@convergence_tolerance <= 0
-    ) {
-      return("@convergence_tolerance must be positive")
-    }
-    if (!is.null(self@max_iterations) && self@max_iterations < 0) {
-      return("@max_iterations must be non-negative")
     }
   }
 )

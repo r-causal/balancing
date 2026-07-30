@@ -267,6 +267,32 @@ test_that("balancing_range_error: sampling weights that are all zero", {
   )
 })
 
+test_that("balancing_constraints_error: a duplicated moments name", {
+  data <- sim_binary(n = 100)
+  expect_balancing_error(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(),
+      constraints = balance_terms(moments = c(x1 = 2L, x1 = 3L))
+    )
+  )
+})
+
+test_that("balancing_constraints_error: a partially named tolerance", {
+  data <- sim_binary(n = 100)
+  expect_balancing_error(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_sbw(),
+      constraints = balance_terms(tolerance = c(x1 = 0.1, 0.2))
+    )
+  )
+})
+
 test_that("balancing_range_error: an invalid entropy solver option", {
   data <- sim_binary(n = 100)
   withr::local_options(balancing.entropy_solver = "nope")

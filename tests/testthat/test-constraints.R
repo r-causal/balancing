@@ -510,6 +510,46 @@ test_that("moments named for a non-covariate is a classed error", {
   )
 })
 
+# A name given twice used to take the first value and drop the rest, so the
+# requested power silently never reached the fit.
+test_that("a duplicated moments name is a classed error", {
+  data <- withr::with_seed(31, data.frame(x1 = rnorm(20), x2 = rnorm(20)))
+  expect_error(
+    build_constraint_matrix(
+      data,
+      c("x1", "x2"),
+      balance_terms(moments = c(x1 = 2L, x1 = 3L)),
+      exposure_type = "binary"
+    ),
+    class = "balancing_constraints_error"
+  )
+})
+
+# A partly named vector leaves its unnamed elements with no covariate to apply
+# to. The empty name used to be reported as a covariate that does not exist,
+# which named the wrong defect.
+test_that("a partially named moments vector names the unnamed elements", {
+  data <- withr::with_seed(31, data.frame(x1 = rnorm(20), x2 = rnorm(20)))
+  expect_error(
+    build_constraint_matrix(
+      data,
+      c("x1", "x2"),
+      balance_terms(moments = c(x1 = 2L, 3L)),
+      exposure_type = "binary"
+    ),
+    class = "balancing_constraints_error"
+  )
+  expect_error(
+    build_constraint_matrix(
+      data,
+      c("x1", "x2"),
+      balance_terms(moments = c(x1 = 2L, 3L)),
+      exposure_type = "binary"
+    ),
+    "no name"
+  )
+})
+
 # ---- Per-covariate tolerance ----------------------------------------------
 
 test_that("a scalar tolerance applies to every constraint column", {
@@ -566,6 +606,34 @@ test_that("a tolerance named for a non-covariate is a classed error", {
       exposure_type = "binary"
     ),
     class = "balancing_constraints_error"
+  )
+})
+
+# The tolerance specification is resolved by the same rules as the moments, so a
+# duplicated name and a partly named vector are refused there too.
+test_that("a duplicated tolerance name is a classed error", {
+  data <- data.frame(x1 = rnorm(20), x2 = rnorm(20))
+  expect_error(
+    build_constraint_matrix(
+      data,
+      c("x1", "x2"),
+      balance_terms(tolerance = c(x1 = 0.1, x1 = 0.2)),
+      exposure_type = "binary"
+    ),
+    class = "balancing_constraints_error"
+  )
+})
+
+test_that("a partially named tolerance vector names the unnamed elements", {
+  data <- data.frame(x1 = rnorm(20), x2 = rnorm(20))
+  expect_error(
+    build_constraint_matrix(
+      data,
+      c("x1", "x2"),
+      balance_terms(tolerance = c(x1 = 0.1, 0.2)),
+      exposure_type = "binary"
+    ),
+    "no name"
   )
 })
 
