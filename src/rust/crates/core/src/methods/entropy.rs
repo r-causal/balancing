@@ -880,6 +880,48 @@ pub fn eval_weights_continuous(
     ))
 }
 
+/// The weights and the estimating functions a set of duals implies, returned
+/// together.
+#[derive(Debug)]
+pub struct EntropyParts {
+    /// The length-`n` weight vector, at the scale the solve reports.
+    pub weights: Vec<f64>,
+    /// The column-major `n` by `P` estimating functions at the same duals.
+    pub psi: Vec<f64>,
+}
+
+/// Re-evaluate the discrete weights and estimating functions at one set of
+/// duals, together.
+///
+/// The estimating functions are the weights times the centered constraint rows,
+/// so the two entrypoints [`eval_weights_discrete`] and [`eval_psi_discrete`]
+/// compute the same exponential tilt. A sandwich variance needs both at every
+/// parameter vector it presents, so this returns both from one tilt, with the
+/// arguments and the scale conventions of the two entrypoints it replaces.
+pub fn eval_parts_discrete(
+    inputs: &EntropyInputs<'_>,
+    group_idx: &[i32],
+    coefs: &[f64],
+    scales: &[f64],
+) -> Result<EntropyParts, String> {
+    let _ = (inputs, group_idx, coefs, scales);
+    unimplemented!("the combined discrete re-evaluation is not written yet")
+}
+
+/// Re-evaluate the continuous weights and estimating functions at one set of
+/// duals, together.
+///
+/// The single-group case of [`eval_parts_discrete`], with the arguments and the
+/// scale conventions of [`eval_weights_continuous`] and [`eval_psi_continuous`].
+pub fn eval_parts_continuous(
+    inputs: &EntropyInputs<'_>,
+    coefs: &[f64],
+    scale: f64,
+) -> Result<EntropyParts, String> {
+    let _ = (inputs, coefs, scale);
+    unimplemented!("the combined continuous re-evaluation is not written yet")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1571,5 +1613,249 @@ mod tests {
         let short_s = continuous_inputs(&covs, &targets, &base, &s[..n - 1], n, p, &tols);
         let err = eval_psi_continuous(&short_s, &coefs, 1.0).unwrap_err();
         assert!(err.contains("weight"), "message was: {err}");
+    }
+
+    // The combined re-evaluation exists to spare the second tilt, not to compute
+    // a different one, so its output is compared bit for bit rather than to a
+    // tolerance: the arithmetic reaching each entry is the same arithmetic the
+    // separate entrypoints perform, in the same order.
+    fn assert_bitwise(actual: &[f64], expected: &[f64], what: &str) {
+        assert_eq!(actual.len(), expected.len(), "{what}: length");
+        for (i, (a, b)) in actual.iter().zip(expected).enumerate() {
+            assert_eq!(a.to_bits(), b.to_bits(), "{what}[{i}]: {a} versus {b}");
+        }
+    }
+
+    // Three groups whose units interleave, so a group's units are never
+    // contiguous and the per-group index sets are what carries the partition.
+    // Both measures are non-uniform: the sampling weights enter the tilt's
+    // normalizer and the base weights the tilt itself.
+    fn three_group_design() -> (Vec<f64>, Vec<i32>, Vec<f64>, usize, usize) {
+        let n = 15;
+        let p = 3;
+        let x1 = [
+            0.4, -1.1, 0.7, 1.3, -0.2, 0.9, -0.8, 0.3, -1.4, 1.0, 0.1, -0.6, 0.8, -0.3, 0.5,
+        ];
+        let x2 = [
+            -0.9, 0.6, 1.1, -0.4, 0.2, -1.2, 0.5, 1.4, -0.7, 0.3, -0.1, 0.8, -1.0, 0.7, -0.5,
+        ];
+        let x3 = [
+            1.2, 0.3, -0.6, 0.5, -1.3, 0.8, 0.1, -0.9, 0.6, -0.2, 1.1, -0.4, 0.2, -1.1, 0.9,
+        ];
+        let mut covs = Vec::with_capacity(n * p);
+        covs.extend_from_slice(&x1);
+        covs.extend_from_slice(&x2);
+        covs.extend_from_slice(&x3);
+        let group_idx: Vec<i32> = (0..n as i32).map(|i| i % 3).collect();
+        let mut targets = vec![0.0; p];
+        for (j, target) in targets.iter_mut().enumerate() {
+            *target = (0..n).map(|i| covs[j * n + i]).sum::<f64>() / n as f64;
+        }
+        (covs, group_idx, targets, n, p)
+    }
+
+    fn three_group_sampling_weights() -> Vec<f64> {
+        vec![
+            0.6, 1.4, 0.9, 1.1, 0.7, 1.6, 0.8, 1.2, 0.5, 1.3, 1.0, 0.4, 1.7, 0.95, 1.05,
+        ]
+    }
+
+    fn three_group_base_weights() -> Vec<f64> {
+        vec![
+            1.2, 0.8, 1.5, 0.6, 1.1, 0.9, 1.3, 0.7, 1.4, 1.0, 0.85, 1.25, 0.75, 1.35, 0.65,
+        ]
+    }
+
+    // The dual vectors the equality is asserted at: one with every block
+    // distinct and non-zero, and the zero vector, where the tilt collapses to
+    // the base measure and every group's weights are that measure renormalized.
+    fn three_group_coefs() -> Vec<Vec<f64>> {
+        vec![
+            vec![0.3, -0.2, 0.15, -0.45, 0.25, 0.05, 0.6, -0.35, -0.1],
+            vec![0.0; 9],
+        ]
+    }
+
+    #[test]
+    fn eval_parts_discrete_matches_the_separate_entrypoints() {
+        let (covs, group_idx, targets, n, p) = three_group_design();
+        let s = three_group_sampling_weights();
+        let base = three_group_base_weights();
+        let tols = vec![0.0; p];
+        let mut inputs = eval_inputs(&covs, &targets, &base, &s, n, p, &tols);
+        inputs.n_eff = s.iter().sum::<f64>() / 3.0;
+        // A reporting scale that is not one for any group, so a block the
+        // combined path forgot to scale cannot pass by coincidence.
+        let scales = [1.4, 0.6, 2.3];
+
+        for coefs in three_group_coefs() {
+            let parts = eval_parts_discrete(&inputs, &group_idx, &coefs, &scales).unwrap();
+            let weights = eval_weights_discrete(&inputs, &group_idx, &coefs, &scales).unwrap();
+            let psi = eval_psi_discrete(&inputs, &group_idx, &coefs, &scales).unwrap();
+            assert_bitwise(&parts.weights, &weights, "weights");
+            assert_bitwise(&parts.psi, &psi, "psi");
+            assert_eq!(parts.psi.len(), n * 3 * p);
+        }
+    }
+
+    // A group holding a single unit normalizes that unit's tilt to the whole
+    // group total, so its weight is free of the duals while its estimating
+    // functions are not. The combined path has to reach the same pair.
+    #[test]
+    fn eval_parts_discrete_matches_with_a_single_unit_group() {
+        let (covs, _group_idx, targets, n, p) = three_group_design();
+        // Group two holds unit 2 alone; the other units alternate between the
+        // first two groups.
+        let mut group_idx: Vec<i32> = (0..n as i32).map(|i| i % 2).collect();
+        group_idx[2] = 2;
+        let s = three_group_sampling_weights();
+        let base = three_group_base_weights();
+        let tols = vec![0.0; p];
+        let mut inputs = eval_inputs(&covs, &targets, &base, &s, n, p, &tols);
+        inputs.n_eff = 2.0;
+        let scales = [0.8, 1.9, 1.35];
+
+        for coefs in three_group_coefs() {
+            let parts = eval_parts_discrete(&inputs, &group_idx, &coefs, &scales).unwrap();
+            let weights = eval_weights_discrete(&inputs, &group_idx, &coefs, &scales).unwrap();
+            let psi = eval_psi_discrete(&inputs, &group_idx, &coefs, &scales).unwrap();
+            assert_bitwise(&parts.weights, &weights, "weights");
+            assert_bitwise(&parts.psi, &psi, "psi");
+        }
+    }
+
+    // The continuous constraint matrix in the shape the R layer builds it: the
+    // exposure and two covariate marginals followed by the two product columns,
+    // solved over the whole sample as one group.
+    #[test]
+    fn eval_parts_continuous_matches_the_separate_entrypoints() {
+        let (covs, targets, dist_ind, n, p) = continuous_design();
+        assert_eq!(p, 5);
+        let s = continuous_sampling_weights();
+        let base = continuous_base_weights();
+        let tols = vec![0.0; p];
+        let inputs = continuous_inputs(&covs, &targets, &base, &s, n, p, &tols);
+        let result = solve_continuous(&inputs, &dist_ind, &no_interrupt());
+        assert!(result.converged);
+
+        let scale = 1.7;
+        for coefs in [result.duals.clone(), vec![0.0; p]] {
+            let parts = eval_parts_continuous(&inputs, &coefs, scale).unwrap();
+            let weights = eval_weights_continuous(&inputs, &coefs, scale).unwrap();
+            let psi = eval_psi_continuous(&inputs, &coefs, scale).unwrap();
+            assert_bitwise(&parts.weights, &weights, "weights");
+            assert_bitwise(&parts.psi, &psi, "psi");
+            assert_eq!(parts.psi.len(), n * p);
+        }
+    }
+
+    // A wrong-length dual vector or a short input block is reported by the
+    // combined path on the same terms as the separate ones, since a caller
+    // reaches it through the same boundary.
+    #[test]
+    fn eval_parts_rejects_mismatched_arguments() {
+        let (covs, group_idx, targets, n, p) = three_group_design();
+        let s = three_group_sampling_weights();
+        let base = three_group_base_weights();
+        let tols = vec![0.0; p];
+        let inputs = eval_inputs(&covs, &targets, &base, &s, n, p, &tols);
+        let one_block = [0.0; 3];
+        let err =
+            eval_parts_discrete(&inputs, &group_idx, &one_block, &[1.0, 1.0, 1.0]).unwrap_err();
+        assert!(err.contains("group(s)"), "message was: {err}");
+
+        let (ccovs, ctargets, _dist_ind, cn, cp) = continuous_design();
+        let cs = vec![1.0; cn];
+        let cbase = vec![1.0; cn];
+        let ctols = vec![0.0; cp];
+        let short = continuous_inputs(
+            &ccovs[..cn * cp - 1],
+            &ctargets,
+            &cbase,
+            &cs,
+            cn,
+            cp,
+            &ctols,
+        );
+        let short_coefs = [0.0; 5];
+        let err = eval_parts_continuous(&short, &short_coefs, 1.0).unwrap_err();
+        assert!(err.contains("covs"), "message was: {err}");
+    }
+
+    // A design large enough for the chunked reduction to span several chunks per
+    // group, which is what makes a thread count visible to the fold at all.
+    struct WideDesign {
+        covs: Vec<f64>,
+        group_idx: Vec<i32>,
+        targets: Vec<f64>,
+        s: Vec<f64>,
+        base: Vec<f64>,
+    }
+
+    fn wide_design(n: usize) -> WideDesign {
+        let p = 2;
+        let mut covs = Vec::with_capacity(n * p);
+        covs.extend((0..n).map(|i| ((i as f64) * 0.37).sin()));
+        covs.extend((0..n).map(|i| ((i as f64) * 0.11).cos() * 0.8));
+        let group_idx: Vec<i32> = (0..n as i32).map(|i| i % 2).collect();
+        let mut targets = vec![0.0; p];
+        for (j, target) in targets.iter_mut().enumerate() {
+            *target = (0..n).map(|i| covs[j * n + i]).sum::<f64>() / n as f64;
+        }
+        let s: Vec<f64> = (0..n).map(|i| 0.5 + ((i % 7) as f64) * 0.15).collect();
+        let base: Vec<f64> = (0..n).map(|i| 0.6 + ((i % 5) as f64) * 0.2).collect();
+        WideDesign {
+            covs,
+            group_idx,
+            targets,
+            s,
+            base,
+        }
+    }
+
+    // The reductions the tilt drives are chunked in a fixed order, so a thread
+    // count changes how the chunks are scheduled and never how they are summed.
+    // The combined entrypoint therefore returns the same bits at any thread
+    // count, which is the precondition for the boundary passing a resolved
+    // thread count through instead of pinning one worker.
+    #[test]
+    fn eval_parts_is_bit_identical_across_thread_counts() {
+        let n = 9000;
+        let p = 2;
+        let design = wide_design(n);
+        let group_idx = design.group_idx.as_slice();
+        let tols = vec![0.0; p];
+        let coefs = [0.35, -0.2, -0.15, 0.4];
+        let scales = [1.3, 0.7];
+        let build = |threads: usize| {
+            let mut inputs = eval_inputs(
+                &design.covs,
+                &design.targets,
+                &design.base,
+                &design.s,
+                n,
+                p,
+                &tols,
+            );
+            inputs.n_eff = 100.0;
+            inputs.threads = threads;
+            inputs
+        };
+
+        let single = build(1);
+        let one = eval_parts_discrete(&single, group_idx, &coefs, &scales).unwrap();
+
+        let many = build(4);
+        let four = eval_parts_discrete(&many, group_idx, &coefs, &scales).unwrap();
+
+        assert_bitwise(&four.weights, &one.weights, "weights");
+        assert_bitwise(&four.psi, &one.psi, "psi");
+
+        // The separate entrypoints share the tilt, so the same holds of them and
+        // of the agreement between the two paths at four threads.
+        let weights = eval_weights_discrete(&many, group_idx, &coefs, &scales).unwrap();
+        let psi = eval_psi_discrete(&many, group_idx, &coefs, &scales).unwrap();
+        assert_bitwise(&weights, &one.weights, "threaded weights");
+        assert_bitwise(&psi, &one.psi, "threaded psi");
     }
 }

@@ -5463,6 +5463,115 @@ test_that("the deli sandwich evaluates each hook once per distinct weight vector
   expect_identical(counted$calls$weights, 2L * p + 1L)
 })
 
+# The estimating functions are the weights times the centered constraint rows,
+# so the two hooks recompute one tilt between them and a container may carry a
+# combined hook returning both from a single pass. What that hook returns has to
+# be what the two separate hooks return, to the bit: the sandwich's agreement
+# with its own oracles rests on the same arithmetic reaching it either way, and a
+# combined hook that merely agrees to a tolerance would move every reported
+# standard error by an amount no test bounds.
+expect_parts_agree <- function(ee, theta) {
+  parts <- ee@parts_fn(theta)
+  expect_identical(as.numeric(parts$weights), as.numeric(ee@weights_fn(theta)))
+  expect_identical(parts$psi, ee@psi_fn(theta))
+}
+
+test_that("the entropy container's combined hook agrees with its separate hooks", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  ee <- estimating_equations(fit)
+  expect_true(rlang::is_function(ee@parts_fn))
+
+  theta <- as.numeric(ee@parameters)
+  expect_parts_agree(ee, theta)
+  expect_parts_agree(ee, theta + 1e-6)
+  expect_parts_agree(ee, rep(0, length(theta)))
+})
+
+test_that("the continuous entropy container's combined hook agrees with its separate hooks", {
+  data <- ipw_continuous_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  ee <- estimating_equations(fit)
+  expect_true(rlang::is_function(ee@parts_fn))
+
+  theta <- as.numeric(ee@parameters)
+  expect_parts_agree(ee, theta)
+  expect_parts_agree(ee, theta + 1e-6)
+  expect_parts_agree(ee, rep(0, length(theta)))
+})
+
+# The cache below the stacked closure exists to hold the crossings down to the
+# distinct weight sub-vectors a central difference presents, `2 * p + 1` of them.
+# A combined hook is one crossing, so the count the cache admits is one
+# evaluation per distinct sub-vector: filling both halves of a cache entry from
+# two crossings would double the count without changing a single returned value,
+# which is the regression this pins against.
+counting_parts_container <- function(ee) {
+  calls <- new.env(parent = emptyenv())
+  calls$parts <- 0L
+  calls$seen <- list()
+  container <- balancing_estimating_equations(
+    parameters = ee@parameters,
+    psi = ee@psi,
+    jacobian = ee@jacobian,
+    weight_jacobian = ee@weight_jacobian,
+    weights_raw = ee@weights_raw,
+    psi_fn = ee@psi_fn,
+    weights_fn = ee@weights_fn,
+    parts_fn = function(theta) {
+      calls$parts <- calls$parts + 1L
+      calls$seen <- c(calls$seen, list(unname(as.numeric(theta))))
+      ee@parts_fn(theta)
+    }
+  )
+  list(container = container, calls = calls)
+}
+
+test_that("the deli sandwich evaluates the combined hook once per distinct weight vector", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  ee <- estimating_equations(fit)
+  p <- length(ee@parameters)
+  counted <- counting_parts_container(ee)
+
+  plain <- call_deli_sandwich(fit, outcome_mod, data)
+  doctored <- ipw_deli_sandwich(
+    container = counted$container,
+    outcome_mod = outcome_mod,
+    frame = data,
+    exposure_name = fit@exposure,
+    levels = fit@exposure_levels,
+    sampling_weights = fit@sampling_weights
+  )
+
+  expect_identical(doctored$theta, plain$theta)
+  expect_identical(doctored$vcov, plain$vcov)
+
+  expect_identical(length(unique(counted$calls$seen)), 2L * p + 1L)
+  expect_identical(counted$calls$parts, 2L * p + 1L)
+})
+
 # ---- Outcome families through the deli engine ------------------------------
 
 # deli has no quasibinomial estimating equation and does not need one. The
