@@ -82,6 +82,20 @@ snap_smoothness <- function(smoothness) {
 #' than selecting an inexact solver. A tolerance supplied without moment
 #' constraints has nothing to relax, so it is warned and ignored.
 #'
+#' What the optimization pins is the objective and the balance it achieves, not
+#' the individual weights. A kernel matrix built on a smooth kernel is
+#' ill-conditioned by construction, since nearby units contribute nearly
+#' proportional rows, and a quadratic program whose objective is flat along such
+#' directions has a set of solutions rather than one. Two quadratic-program
+#' backends given the same ill-conditioned problem agree on the objective to
+#' seven significant figures while individual unit weights differ materially; a
+#' Gaussian kernel at its median bandwidth is the case this was measured on.
+#' Treat the per-unit weights of a `bw_cfd()` fit as one member of an equivalence
+#' set rather than as a uniquely determined quantity: what the method determines
+#' is the reweighted distribution, so estimands and balance statistics computed
+#' from the weights are stable where a claim about a particular unit's weight is
+#' not.
+#'
 #' @param kernel The covariate kernel the objective is built on, one of
 #'   `"gaussian"`, `"matern"`, `"laplace"`, `"t"`, or `"energy"`.
 #' @param smoothness The Matern smoothness order, one of `0.5`, `1.5`, or `2.5`.

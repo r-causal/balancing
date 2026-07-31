@@ -97,6 +97,20 @@ drives balance, and with them the constraint rows hold within tolerance. The
 tolerance in \code{\link[=balance_terms]{balance_terms()}} relaxes any added moment constraints rather
 than selecting an inexact solver. A tolerance supplied without moment
 constraints has nothing to relax, so it is warned and ignored.
+
+What the optimization pins is the objective and the balance it achieves, not
+the individual weights. A kernel matrix built on a smooth kernel is
+ill-conditioned by construction, since nearby units contribute nearly
+proportional rows, and a quadratic program whose objective is flat along such
+directions has a set of solutions rather than one. Two quadratic-program
+backends given the same ill-conditioned problem agree on the objective to
+seven significant figures while individual unit weights differ materially; a
+Gaussian kernel at its median bandwidth is the case this was measured on.
+Treat the per-unit weights of a \code{bw_cfd()} fit as one member of an equivalence
+set rather than as a uniquely determined quantity: what the method determines
+is the reweighted distribution, so estimands and balance statistics computed
+from the weights are stable where a claim about a particular unit's weight is
+not.
 }
 \examples{
 n <- 200
