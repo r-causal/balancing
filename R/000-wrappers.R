@@ -37,6 +37,40 @@ NULL
   stop(class, " cannot be modified", call. = FALSE)
 }
 
+#' Re-evaluate the discrete entropy weights and estimating functions together.
+#'
+#' The estimating functions are the weights against the centered constraint
+#' rows, so `eval_weights_entropy` and `eval_psi_entropy` compute one tilt
+#' between them. A sandwich variance needs both at every parameter vector it
+#' presents, so this takes the arguments of those two and returns both from a
+#' single tilt: a list with `weights`, the length-`n` vector, and `psi`, the `n`
+#' by `P` matrix, each on the scale its own entrypoint reports.
+#'
+#' Internal solver entry point, called from the R layer rather than by users, so
+#' it is not exported. `@noRd` keeps it out of the reference and out of
+#' NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+#' lines into the generated wrapper.
+#' @noRd
+`eval_parts_entropy` <- function(`coefs`, `covs`, `group_idx`, `targets`, `base_weights`, `s_weights`, `n_eff`, `esteq_scale`) {
+  .Call(savvy_eval_parts_entropy__impl, `coefs`, `covs`, `group_idx`, `targets`, `base_weights`, `s_weights`, `n_eff`, `esteq_scale`)
+}
+
+#' Re-evaluate the continuous entropy weights and estimating functions together.
+#'
+#' The single-group case of `eval_parts_entropy`, taking the arguments of
+#' `eval_weights_entropy_cont` and `eval_psi_entropy_cont` and returning a list
+#' with `weights`, the length-`n` vector, and `psi`, the `n` by `p` matrix, each
+#' on the scale its own entrypoint reports.
+#'
+#' Internal solver entry point, called from the R layer rather than by users, so
+#' it is not exported. `@noRd` keeps it out of the reference and out of
+#' NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+#' lines into the generated wrapper.
+#' @noRd
+`eval_parts_entropy_cont` <- function(`coefs`, `covs`, `targets`, `base_weights`, `s_weights`, `n_eff`, `esteq_scale`) {
+  .Call(savvy_eval_parts_entropy_cont__impl, `coefs`, `covs`, `targets`, `base_weights`, `s_weights`, `n_eff`, `esteq_scale`)
+}
+
 #' Re-evaluate the binary just-identified covariate balancing propensity score
 #' estimating functions at a set of coefficients.
 #'

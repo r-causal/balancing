@@ -39,6 +39,16 @@ SEXP handle_result(SEXP res_) {
     return (SEXP)res;
 }
 
+SEXP savvy_eval_parts_entropy__impl(SEXP c_arg__coefs, SEXP c_arg__covs, SEXP c_arg__group_idx, SEXP c_arg__targets, SEXP c_arg__base_weights, SEXP c_arg__s_weights, SEXP c_arg__n_eff, SEXP c_arg__esteq_scale) {
+    SEXP res = savvy_eval_parts_entropy__ffi(c_arg__coefs, c_arg__covs, c_arg__group_idx, c_arg__targets, c_arg__base_weights, c_arg__s_weights, c_arg__n_eff, c_arg__esteq_scale);
+    return handle_result(res);
+}
+
+SEXP savvy_eval_parts_entropy_cont__impl(SEXP c_arg__coefs, SEXP c_arg__covs, SEXP c_arg__targets, SEXP c_arg__base_weights, SEXP c_arg__s_weights, SEXP c_arg__n_eff, SEXP c_arg__esteq_scale) {
+    SEXP res = savvy_eval_parts_entropy_cont__ffi(c_arg__coefs, c_arg__covs, c_arg__targets, c_arg__base_weights, c_arg__s_weights, c_arg__n_eff, c_arg__esteq_scale);
+    return handle_result(res);
+}
+
 SEXP savvy_eval_psi_cbps__impl(SEXP c_arg__coefs, SEXP c_arg__covs, SEXP c_arg__treat, SEXP c_arg__s_weights, SEXP c_arg__estimand, SEXP c_arg__link) {
     SEXP res = savvy_eval_psi_cbps__ffi(c_arg__coefs, c_arg__covs, c_arg__treat, c_arg__s_weights, c_arg__estimand, c_arg__link);
     return handle_result(res);
@@ -166,6 +176,8 @@ SEXP savvy_thread_info__impl(void) {
 
 
 static const R_CallMethodDef CallEntries[] = {
+    {"savvy_eval_parts_entropy__impl", (DL_FUNC) &savvy_eval_parts_entropy__impl, 8},
+    {"savvy_eval_parts_entropy_cont__impl", (DL_FUNC) &savvy_eval_parts_entropy_cont__impl, 7},
     {"savvy_eval_psi_cbps__impl", (DL_FUNC) &savvy_eval_psi_cbps__impl, 6},
     {"savvy_eval_psi_entropy__impl", (DL_FUNC) &savvy_eval_psi_entropy__impl, 8},
     {"savvy_eval_psi_entropy_cont__impl", (DL_FUNC) &savvy_eval_psi_entropy_cont__impl, 7},

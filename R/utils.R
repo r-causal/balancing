@@ -123,13 +123,33 @@ renormalize_group_weights <- function(
 # coupling from the one the container's Jacobian describes.
 make_weights_fn <- function(eval_fn, reported, weights_raw) {
   force(eval_fn)
-  scale <- reported / weights_raw
-  # A unit the solve holds at zero weight has no reporting scale to move to, so
-  # it keeps whatever the evaluator returns rather than an undefined ratio.
-  scale[!is.finite(scale)] <- 1
+  scale <- reporting_scale(reported, weights_raw)
   function(theta) {
     as.numeric(eval_fn(theta)) * scale
   }
+}
+
+# The container's combined hook, from an evaluator returning a method's weights
+# and estimating functions together. The weights carry the same fixed reporting
+# scale `make_weights_fn()` applies, and the estimating functions come back as
+# the evaluator computed them, so what this returns is what the two separate
+# hooks return at the same parameters.
+make_parts_fn <- function(eval_fn, reported, weights_raw) {
+  force(eval_fn)
+  scale <- reporting_scale(reported, weights_raw)
+  function(theta) {
+    parts <- eval_fn(theta)
+    list(weights = as.numeric(parts$weights) * scale, psi = parts$psi)
+  }
+}
+
+# The per-unit factor carrying a method's stored weight scale to its reported
+# one. A unit the solve holds at zero weight has no reporting scale to move to,
+# so it keeps whatever the evaluator returns rather than an undefined ratio.
+reporting_scale <- function(reported, weights_raw) {
+  scale <- reported / weights_raw
+  scale[!is.finite(scale)] <- 1
+  scale
 }
 
 # Guard the trailing dots of a method constructor. Each constructor takes only

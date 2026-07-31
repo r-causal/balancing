@@ -11,7 +11,8 @@ balancing_estimating_equations(
   weight_jacobian = numeric(0),
   weights_raw = NULL,
   psi_fn = NULL,
-  weights_fn = NULL
+  weights_fn = NULL,
+  parts_fn = NULL
 )
 }
 \arguments{
@@ -39,6 +40,16 @@ reporting scale is fixed at the fit rather than recomputed at each set of
 parameters, so the function's derivative is \code{weight_jacobian} rescaled by
 the ratio of the reported weights to \code{weights_raw}, which is the weight
 coupling a stacked variance needs.}
+
+\item{parts_fn}{An optional function returning both of the above at one set
+of parameters, a list with elements \code{weights} and \code{psi} holding exactly
+what \code{weights_fn} and \code{psi_fn} return there. A method whose estimating
+functions are a transformation of its own weights computes the pair
+together for the price of one, and a consumer that needs both at every
+parameter vector, as a stacked sandwich does, halves its work by asking for
+them together. It is an optimization rather than a contract: a consumer
+reads it when it is present and falls back to the two functions when it is
+not, so a method supplies it only when the saving is real.}
 }
 \value{
 A \code{balancing_estimating_equations} object.

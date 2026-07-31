@@ -1,3 +1,5 @@
+SEXP savvy_eval_parts_entropy__ffi(SEXP c_arg__coefs, SEXP c_arg__covs, SEXP c_arg__group_idx, SEXP c_arg__targets, SEXP c_arg__base_weights, SEXP c_arg__s_weights, SEXP c_arg__n_eff, SEXP c_arg__esteq_scale);
+SEXP savvy_eval_parts_entropy_cont__ffi(SEXP c_arg__coefs, SEXP c_arg__covs, SEXP c_arg__targets, SEXP c_arg__base_weights, SEXP c_arg__s_weights, SEXP c_arg__n_eff, SEXP c_arg__esteq_scale);
 SEXP savvy_eval_psi_cbps__ffi(SEXP c_arg__coefs, SEXP c_arg__covs, SEXP c_arg__treat, SEXP c_arg__s_weights, SEXP c_arg__estimand, SEXP c_arg__link);
 SEXP savvy_eval_psi_entropy__ffi(SEXP c_arg__coefs, SEXP c_arg__covs, SEXP c_arg__group_idx, SEXP c_arg__targets, SEXP c_arg__base_weights, SEXP c_arg__s_weights, SEXP c_arg__n_eff, SEXP c_arg__esteq_scale);
 SEXP savvy_eval_psi_entropy_cont__ffi(SEXP c_arg__coefs, SEXP c_arg__covs, SEXP c_arg__targets, SEXP c_arg__base_weights, SEXP c_arg__s_weights, SEXP c_arg__n_eff, SEXP c_arg__esteq_scale);

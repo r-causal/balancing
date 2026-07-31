@@ -195,20 +195,19 @@ ipw_deli_sandwich <- function(
   # another crossing into the method, so it is cheap and it caches with the
   # values it is derived from.
   #
-  # The reported weight map is named on its own because the rank check below
-  # differences the same map the closure carries, and reads it at parameters the
-  # closure never asks for.
+  # The renormalization is named on its own because the cache applies it to
+  # whichever hook supplied the weights, and the reported weight map is named on
+  # its own because the rank check below differences the same map the closure
+  # carries, at parameters the closure never asks for.
+  rescale <- function(weights) {
+    renormalize_group_weights(weights, sampling, groups, targets)
+  }
   weights_at <- function(weight_theta) {
-    renormalize_group_weights(
-      as.numeric(container@weights_fn(weight_theta)),
-      sampling,
-      groups,
-      targets
-    )
+    rescale(as.numeric(container@weights_fn(weight_theta)))
   }
   hooks_at <- make_hooks_cache(
     container,
-    weights_at,
+    rescale,
     as.numeric(weight_parameters)
   )
 
@@ -336,7 +335,7 @@ ipw_deli_msm_sandwich <- function(
   }
   hooks_at <- make_hooks_cache(
     container,
-    weights_at,
+    identity,
     as.numeric(weight_parameters)
   )
 
@@ -380,16 +379,34 @@ ipw_deli_msm_sandwich <- function(
 # are short numeric vectors, so comparing them outright is cheaper than hashing
 # them.
 #
-# The weight map is passed in rather than read off the container, since the
-# reported scale is the caller's to decide: a discrete exposure renormalizes the
-# hook's output per group and a continuous one takes it as it comes.
-make_hooks_cache <- function(container, weights_at, parameters) {
-  evaluate_hooks <- function(weight_theta) {
-    list(
-      key = weight_theta,
-      weights = weights_at(weight_theta),
-      psi = t(container@psi_fn(weight_theta))
-    )
+# A container may carry the two hooks as one, which is what a method whose
+# estimating functions are a transformation of its own weights can offer: the
+# pair costs what one of them costs. Every cache miss wants both, so the combined
+# hook is read when it is there and the two separate ones when it is not. The
+# two paths return the same values to the bit, so which one a container takes is
+# a matter of how much work reaching them costs.
+#
+# The reported scale is the caller's to decide: a discrete exposure renormalizes
+# the hook's output per group and a continuous one takes it as it comes. So
+# `rescale` is passed in and applied to whichever hook supplied the weights.
+make_hooks_cache <- function(container, rescale, parameters) {
+  evaluate_hooks <- if (is.null(container@parts_fn)) {
+    function(weight_theta) {
+      list(
+        key = weight_theta,
+        weights = rescale(as.numeric(container@weights_fn(weight_theta))),
+        psi = t(container@psi_fn(weight_theta))
+      )
+    }
+  } else {
+    function(weight_theta) {
+      parts <- container@parts_fn(weight_theta)
+      list(
+        key = weight_theta,
+        weights = rescale(as.numeric(parts$weights)),
+        psi = t(parts$psi)
+      )
+    }
   }
   base_hooks <- evaluate_hooks(parameters)
   recent_hooks <- base_hooks

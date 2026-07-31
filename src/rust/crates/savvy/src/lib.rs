@@ -342,6 +342,96 @@ fn eval_weights_entropy(
     Ok(real_vector(&weights)?.into())
 }
 
+/// Re-evaluate the discrete entropy weights and estimating functions together.
+///
+/// The estimating functions are the weights against the centered constraint
+/// rows, so `eval_weights_entropy` and `eval_psi_entropy` compute one tilt
+/// between them. A sandwich variance needs both at every parameter vector it
+/// presents, so this takes the arguments of those two and returns both from a
+/// single tilt: a list with `weights`, the length-`n` vector, and `psi`, the `n`
+/// by `P` matrix, each on the scale its own entrypoint reports.
+///
+/// Internal solver entry point, called from the R layer rather than by users, so
+/// it is not exported. `@noRd` keeps it out of the reference and out of
+/// NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+/// lines into the generated wrapper.
+/// @noRd
+// The argument list is the fixed savvy boundary signature; the balancing inputs
+// are irreducibly numerous.
+#[allow(clippy::too_many_arguments)]
+#[savvy]
+fn eval_parts_entropy(
+    coefs: RealSexp,
+    covs: RealSexp,
+    group_idx: IntegerSexp,
+    targets: RealSexp,
+    base_weights: RealSexp,
+    s_weights: RealSexp,
+    n_eff: f64,
+    esteq_scale: RealSexp,
+) -> savvy::Result<savvy::Sexp> {
+    let n = s_weights.len();
+    let p = targets.len();
+
+    if covs.len() != n * p {
+        return Err(savvy::Error::new(format!(
+            "covs has {} elements but n * p = {n} * {p} = {}",
+            covs.len(),
+            n * p
+        )));
+    }
+    if base_weights.len() != n || group_idx.len() != n {
+        return Err(savvy::Error::new(
+            "base_weights and group_idx must have length n",
+        ));
+    }
+    let n_groups = esteq_scale.len();
+    if p == 0 || coefs.len() != n_groups * p {
+        return Err(savvy::Error::new(
+            "coefs must have length p times the number of groups",
+        ));
+    }
+    require_finite(covs.as_slice(), "covs")?;
+    require_finite(base_weights.as_slice(), "base_weights")?;
+    require_finite(s_weights.as_slice(), "s_weights")?;
+
+    let inputs = EntropyInputs {
+        covs: covs.as_slice(),
+        n,
+        p,
+        targets: targets.as_slice(),
+        tols: &vec![0.0; p],
+        base: base_weights.as_slice(),
+        s: s_weights.as_slice(),
+        n_eff,
+        threads: 1,
+        max_iter: 0,
+        tol: 0.0,
+        solver: balancing_core::methods::entropy::EntropySolver::Newton,
+    };
+    let parts = balancing_core::methods::entropy::eval_parts_discrete(
+        &inputs,
+        group_idx.as_slice(),
+        coefs.as_slice(),
+        esteq_scale.as_slice(),
+    )
+    .map_err(savvy::Error::new)?;
+    entropy_parts_list(&parts, n, n_groups * p)
+}
+
+/// Pack a combined entropy re-evaluation into its R list: `weights`, the
+/// length-`n` vector, and `psi`, the `n` by `total_params` matrix.
+fn entropy_parts_list(
+    parts: &balancing_core::methods::entropy::EntropyParts,
+    n: usize,
+    total_params: usize,
+) -> savvy::Result<savvy::Sexp> {
+    let mut out = OwnedListSexp::new(2, true)?;
+    out.set_name_and_value(0, "weights", real_vector(&parts.weights)?)?;
+    out.set_name_and_value(1, "psi", real_matrix(&parts.psi, n, total_params)?)?;
+    Ok(out.into())
+}
+
 /// Solve a continuous-exposure entropy balancing problem over the whole sample.
 ///
 /// Internal solver entry point, called from the R layer rather than by users, so
@@ -553,6 +643,71 @@ fn eval_weights_entropy_cont(
     )
     .map_err(savvy::Error::new)?;
     Ok(real_vector(&weights)?.into())
+}
+
+/// Re-evaluate the continuous entropy weights and estimating functions together.
+///
+/// The single-group case of `eval_parts_entropy`, taking the arguments of
+/// `eval_weights_entropy_cont` and `eval_psi_entropy_cont` and returning a list
+/// with `weights`, the length-`n` vector, and `psi`, the `n` by `p` matrix, each
+/// on the scale its own entrypoint reports.
+///
+/// Internal solver entry point, called from the R layer rather than by users, so
+/// it is not exported. `@noRd` keeps it out of the reference and out of
+/// NAMESPACE, and survives wrapper regeneration because savvy copies these doc
+/// lines into the generated wrapper.
+/// @noRd
+#[savvy]
+fn eval_parts_entropy_cont(
+    coefs: RealSexp,
+    covs: RealSexp,
+    targets: RealSexp,
+    base_weights: RealSexp,
+    s_weights: RealSexp,
+    n_eff: f64,
+    esteq_scale: f64,
+) -> savvy::Result<savvy::Sexp> {
+    let n = s_weights.len();
+    let p = targets.len();
+
+    if covs.len() != n * p {
+        return Err(savvy::Error::new(format!(
+            "covs has {} elements but n * p = {n} * {p} = {}",
+            covs.len(),
+            n * p
+        )));
+    }
+    if base_weights.len() != n {
+        return Err(savvy::Error::new("base_weights must have length n"));
+    }
+    if p == 0 || coefs.len() != p {
+        return Err(savvy::Error::new("coefs must have length p"));
+    }
+    require_finite(covs.as_slice(), "covs")?;
+    require_finite(base_weights.as_slice(), "base_weights")?;
+    require_finite(s_weights.as_slice(), "s_weights")?;
+
+    let inputs = EntropyInputs {
+        covs: covs.as_slice(),
+        n,
+        p,
+        targets: targets.as_slice(),
+        tols: &vec![0.0; p],
+        base: base_weights.as_slice(),
+        s: s_weights.as_slice(),
+        n_eff,
+        threads: 1,
+        max_iter: 0,
+        tol: 0.0,
+        solver: balancing_core::methods::entropy::EntropySolver::Newton,
+    };
+    let parts = balancing_core::methods::entropy::eval_parts_continuous(
+        &inputs,
+        coefs.as_slice(),
+        esteq_scale,
+    )
+    .map_err(savvy::Error::new)?;
+    entropy_parts_list(&parts, n, p)
 }
 
 /// Pack an inverse probability tilting result into its R list.

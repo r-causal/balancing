@@ -31,7 +31,7 @@ use rayon::slice::ParallelSliceMut;
 
 use crate::esteq::fista;
 use crate::esteq::{self, EsteqProblem, SolveOptions, Solver};
-use crate::threads::{deterministic_map_reduce, get_pool};
+use crate::threads::{REDUCE_CHUNK, deterministic_map_reduce, get_pool};
 
 /// Dual problem for a single group of units.
 ///
@@ -76,14 +76,35 @@ impl Accum {
     }
 }
 
-impl EntropyProblem<'_> {
-    /// Linear predictor `C_i . beta` for global unit `gi`.
-    fn lin(&self, gi: usize, beta: &[f64]) -> f64 {
-        let mut acc = 0.0;
-        for (j, &b) in beta.iter().enumerate() {
-            acc += self.covs[j * self.n + gi] * b;
+/// One pass over a group's units: the per-unit tilt and the totals it implies.
+struct TiltPass {
+    /// `q_i exp(-C_i . beta)` for each unit, in the group's own index order.
+    tilt: Vec<f64>,
+    /// The normalizer `sum_i s_i q_i exp(-C_i . beta)`.
+    z: f64,
+    /// The tilted constraint totals `sum_i s_i q_i exp(-C_i . beta) C_ij`, empty
+    /// when the caller did not ask for them.
+    m: Vec<f64>,
+}
+
+impl<'a> EntropyProblem<'a> {
+    /// The problem one group of an [`EntropyInputs`] poses.
+    fn for_group(
+        inputs: &EntropyInputs<'a>,
+        idx: &'a [usize],
+        pool: Arc<ThreadPool>,
+    ) -> EntropyProblem<'a> {
+        EntropyProblem {
+            covs: inputs.covs,
+            n: inputs.n,
+            p: inputs.p,
+            idx,
+            targets: inputs.targets,
+            base: inputs.base,
+            s: inputs.s,
+            n_eff: inputs.n_eff,
+            pool,
         }
-        acc
     }
 
     /// Fold the group's tilted contributions into `Accum`. Fills the second
@@ -130,20 +151,111 @@ impl EntropyProblem<'_> {
         )
     }
 
+    /// Walk the group once, retaining each unit's tilt alongside the totals.
+    ///
+    /// Everything a caller reads off a set of duals is a function of the tilt
+    /// and its normalizer: the weights are the tilt carried to `n_eff`, and the
+    /// estimating functions are those weights against the centered constraint
+    /// rows. Retaining the per-unit tilt here is therefore what holds the
+    /// exponentials at one per unit however many of those a caller wants. The
+    /// constraint totals `m` cost `p` fused multiply-adds per unit and only the
+    /// dual's own derivatives read them, so they are filled on request.
+    ///
+    /// The chunking and the merge order are [`deterministic_map_reduce`]'s, so
+    /// the totals are bit-for-bit what that fold produces and are independent of
+    /// the thread count.
+    fn tilt_pass(&self, beta: &[f64], want_moments: bool) -> TiltPass {
+        let p = self.p;
+        let moment_len = if want_moments { p } else { 0 };
+        let mut tilt = vec![0.0; self.idx.len()];
+        let partials: Vec<(f64, Vec<f64>)> = self.pool.install(|| {
+            tilt.par_chunks_mut(REDUCE_CHUNK)
+                .enumerate()
+                .map(|(chunk, out)| {
+                    let mut z = 0.0;
+                    let mut m = vec![0.0; moment_len];
+                    // The constraint matrix is column-major, so reading down a
+                    // unit strides by n; gathering the row once turns the moment
+                    // accumulation into unit-stride reads from this scratch.
+                    let mut crow = vec![0.0; p];
+                    let start = chunk * REDUCE_CHUNK;
+                    for (local, slot) in out.iter_mut().enumerate() {
+                        let gi = self.idx[start + local];
+                        for (j, c) in crow.iter_mut().enumerate() {
+                            *c = self.covs[j * self.n + gi];
+                        }
+                        let lin: f64 = crow.iter().zip(beta).map(|(c, b)| c * b).sum();
+                        let tilted = (-lin).exp();
+                        let e = self.s[gi] * self.base[gi] * tilted;
+                        z += e;
+                        *slot = self.base[gi] * tilted;
+                        for (mj, c) in m.iter_mut().zip(&crow) {
+                            *mj += e * c;
+                        }
+                    }
+                    (z, m)
+                })
+                .collect()
+        });
+
+        let mut z = 0.0;
+        let mut m = vec![0.0; moment_len];
+        let mut chunks = partials.into_iter();
+        if let Some((first_z, first_m)) = chunks.next() {
+            z = first_z;
+            m = first_m;
+        }
+        for (chunk_z, chunk_m) in chunks {
+            z += chunk_z;
+            for (mj, other) in m.iter_mut().zip(&chunk_m) {
+                *mj += other;
+            }
+        }
+        TiltPass { tilt, z, m }
+    }
+
+    /// Carry a group's tilt to the requested sampling-weighted total.
+    fn normalized(&self, pass: TiltPass) -> Vec<f64> {
+        let mut weights = pass.tilt;
+        for w in weights.iter_mut() {
+            *w = self.n_eff * *w / pass.z;
+        }
+        weights
+    }
+
     /// Per-unit weights and the achieved weighted means at `beta`.
     fn solution_parts(&self, beta: &[f64]) -> (Vec<f64>, Vec<f64>) {
-        let acc = self.accumulate(beta, false);
-        let z = acc.z;
-        let mbar: Vec<f64> = acc.m.iter().map(|mj| mj / z).collect();
-        let weights: Vec<f64> = self
-            .idx
-            .iter()
-            .map(|&gi| {
-                let tilt = self.base[gi] * (-self.lin(gi, beta)).exp();
-                self.n_eff * tilt / z
-            })
-            .collect();
-        (weights, mbar)
+        let pass = self.tilt_pass(beta, true);
+        let mbar: Vec<f64> = pass.m.iter().map(|mj| mj / pass.z).collect();
+        (self.normalized(pass), mbar)
+    }
+
+    /// Per-unit weights at `beta`, for a caller with no use for the means.
+    fn solution_weights(&self, beta: &[f64]) -> Vec<f64> {
+        let pass = self.tilt_pass(beta, false);
+        self.normalized(pass)
+    }
+
+    /// The group's weights at `beta`, carried to the reported scale by `scale`,
+    /// and the estimating functions they imply, written into `psi_block`.
+    ///
+    /// `psi_block` is the group's own `p` columns of the global `n` by `P`
+    /// matrix, so a unit occupies its global row within each column. The
+    /// estimating functions are the weights against the centered constraint
+    /// rows, one tilt away from the weights themselves, so a caller that wants
+    /// both pays for one pass rather than two.
+    fn scaled_parts(&self, beta: &[f64], scale: f64, psi_block: &mut [f64]) -> Vec<f64> {
+        let mut weights = self.solution_weights(beta);
+        for w in weights.iter_mut() {
+            *w *= scale;
+        }
+        for (local, &gi) in self.idx.iter().enumerate() {
+            let sw = self.s[gi] * weights[local];
+            for j in 0..self.p {
+                psi_block[j * self.n + gi] = sw * (self.covs[j * self.n + gi] - self.targets[j]);
+            }
+        }
+        weights
     }
 }
 
@@ -201,7 +313,7 @@ impl EsteqProblem for EntropyProblem<'_> {
     }
 
     fn psi(&self, beta: &[f64], mut out: MatMut<'_, f64>) {
-        let (weights, _mbar) = self.solution_parts(beta);
+        let weights = self.solution_weights(beta);
         for (local, &gi) in self.idx.iter().enumerate() {
             let sw = self.s[gi] * weights[local];
             for j in 0..self.p {
@@ -389,17 +501,7 @@ fn solve_groups(
         if idx.is_empty() {
             continue;
         }
-        let problem = EntropyProblem {
-            covs: inputs.covs,
-            n,
-            p,
-            idx,
-            targets: inputs.targets,
-            base: inputs.base,
-            s: inputs.s,
-            n_eff: inputs.n_eff,
-            pool: Arc::clone(&pool),
-        };
+        let problem = EntropyProblem::for_group(inputs, idx, Arc::clone(&pool));
         let mut beta = vec![0.0; p];
 
         if inexact {
@@ -702,24 +804,52 @@ fn tilt_weights(
             continue;
         }
         let beta = &coefs[g * p..g * p + p];
-        let problem = EntropyProblem {
-            covs: inputs.covs,
-            n: inputs.n,
-            p,
-            idx,
-            targets: inputs.targets,
-            base: inputs.base,
-            s: inputs.s,
-            n_eff: inputs.n_eff,
-            pool: Arc::clone(&pool),
-        };
-        let (group_weights, _mbar) = problem.solution_parts(beta);
+        let problem = EntropyProblem::for_group(inputs, idx, Arc::clone(&pool));
+        let group_weights = problem.solution_weights(beta);
         let scale = scales.get(g).copied().unwrap_or(1.0);
         for (&gi, w) in idx.iter().zip(group_weights) {
             weights[gi] = w * scale;
         }
     }
     weights
+}
+
+/// The per-unit weights and estimating functions a set of duals implies, from
+/// one tilt per group.
+///
+/// The two are the same tilt read twice, so they are built together: the
+/// weights are the tilt carried to the group's total and scaled to the reported
+/// scale, and the estimating functions are those weights against the centered
+/// constraint rows. The block for group `g` occupies columns `g * p` through
+/// `g * p + p` of the returned `psi`, and a unit in no group keeps a zero weight
+/// and a zero row, the values [`solve_groups`] leaves for the focal level a
+/// focal estimand omits.
+fn tilt_parts(
+    inputs: &EntropyInputs<'_>,
+    groups: &[Vec<usize>],
+    coefs: &[f64],
+    scales: &[f64],
+) -> EntropyParts {
+    let n = inputs.n;
+    let p = inputs.p;
+    let pool = get_pool(inputs.threads);
+    let mut weights = vec![0.0; n];
+    let mut psi = vec![0.0; n * groups.len() * p];
+    for (g, idx) in groups.iter().enumerate() {
+        if idx.is_empty() {
+            continue;
+        }
+        let beta = &coefs[g * p..g * p + p];
+        let problem = EntropyProblem::for_group(inputs, idx, Arc::clone(&pool));
+        let offset = g * p;
+        let scale = scales.get(g).copied().unwrap_or(1.0);
+        let group_weights =
+            problem.scaled_parts(beta, scale, &mut psi[offset * n..(offset + p) * n]);
+        for (&gi, w) in idx.iter().zip(group_weights) {
+            weights[gi] = w;
+        }
+    }
+    EntropyParts { weights, psi }
 }
 
 /// The per-unit estimating functions a set of duals implies, at the scale
@@ -734,24 +864,7 @@ fn tilt_psi(
     coefs: &[f64],
     scales: &[f64],
 ) -> Vec<f64> {
-    let n = inputs.n;
-    let p = inputs.p;
-
-    // The weights already carry the sampling weight's partner scale, so each
-    // unit's row is its sampling weight times its scaled weight times the
-    // centered constraint row.
-    let weights = tilt_weights(inputs, groups, coefs, scales);
-    let mut psi = vec![0.0; n * groups.len() * p];
-    for (g, idx) in groups.iter().enumerate() {
-        let offset = g * p;
-        for &gi in idx {
-            let sw = inputs.s[gi] * weights[gi];
-            for j in 0..p {
-                psi[(offset + j) * n + gi] = sw * (inputs.covs[j * n + gi] - inputs.targets[j]);
-            }
-        }
-    }
-    psi
+    tilt_parts(inputs, groups, coefs, scales).psi
 }
 
 /// Re-evaluate the discrete estimating functions at a supplied set of duals.
@@ -904,8 +1017,11 @@ pub fn eval_parts_discrete(
     coefs: &[f64],
     scales: &[f64],
 ) -> Result<EntropyParts, String> {
-    let _ = (inputs, group_idx, coefs, scales);
-    unimplemented!("the combined discrete re-evaluation is not written yet")
+    let n_groups = group_count(group_idx);
+    check_eval_dimensions(inputs)?;
+    check_discrete_args(inputs.p, n_groups, coefs, scales)?;
+    let groups = partition_groups(group_idx, n_groups);
+    Ok(tilt_parts(inputs, &groups, coefs, scales))
 }
 
 /// Re-evaluate the continuous weights and estimating functions at one set of
@@ -918,8 +1034,8 @@ pub fn eval_parts_continuous(
     coefs: &[f64],
     scale: f64,
 ) -> Result<EntropyParts, String> {
-    let _ = (inputs, coefs, scale);
-    unimplemented!("the combined continuous re-evaluation is not written yet")
+    check_continuous_args(inputs, coefs)?;
+    Ok(tilt_parts(inputs, &single_group(inputs.n), coefs, &[scale]))
 }
 
 #[cfg(test)]

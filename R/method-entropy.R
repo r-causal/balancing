@@ -387,12 +387,24 @@ fit_entropy_discrete <- function(method, prepared) {
     focal_idx,
     w
   )
+  parts_eval <- make_entropy_parts_eval(
+    z,
+    group_idx,
+    targets,
+    base,
+    s,
+    n_eff,
+    esteq_scale,
+    focal_idx,
+    w
+  )
 
   # The core applies the per-group scale before the matrices cross the boundary,
   # so the container stores the reported weights as its own weight scale and the
   # ratio the hook applies is one. Passing both vectors keeps the algebra the
   # same shape it has for the methods whose container stores the raw scale.
   weights_fn <- make_weights_fn(weights_eval, reported = w, weights_raw = w)
+  parts_fn <- make_parts_fn(parts_eval, reported = w, weights_raw = w)
 
   list(
     weights = w,
@@ -406,7 +418,8 @@ fit_entropy_discrete <- function(method, prepared) {
       result,
       w,
       psi_fn,
-      weights_fn
+      weights_fn,
+      parts_fn
     ),
     groups = groups
   )
@@ -499,6 +512,51 @@ make_entropy_weights_eval <- function(
       esteq_scale
     )
     overlay_focal_weights(w, reported, focal_idx)
+  }
+}
+
+# A closure re-evaluating the discrete weights and estimating functions
+# together, over the combined Rust eval entrypoint. The estimating functions are
+# the weights against the centered constraint columns, so one crossing computes
+# both where the two closures above compute one tilt each. What it returns is
+# what those two return at the same duals, the focal overlay included.
+make_entropy_parts_eval <- function(
+  z,
+  group_idx,
+  targets,
+  base,
+  s,
+  n_eff,
+  esteq_scale,
+  focal_idx,
+  reported
+) {
+  force(z)
+  force(group_idx)
+  force(targets)
+  force(base)
+  force(s)
+  force(n_eff)
+  force(esteq_scale)
+  force(focal_idx)
+  force(reported)
+  function(theta) {
+    parts <- eval_parts_entropy(
+      as.numeric(theta),
+      z,
+      as.integer(group_idx),
+      targets,
+      base,
+      s,
+      n_eff,
+      esteq_scale
+    )
+    parts$weights <- overlay_focal_weights(
+      parts$weights,
+      reported,
+      focal_idx
+    )
+    parts
   }
 }
 
@@ -630,12 +688,21 @@ fit_entropy_continuous <- function(method, prepared) {
     n_eff,
     esteq_scale
   )
+  parts_eval <- make_entropy_cont_parts_eval(
+    covs,
+    targets,
+    base,
+    s,
+    n_eff,
+    esteq_scale
+  )
 
   # The entrypoint normalizes the single group to the same total the reported
   # weights carry, so the ratio the hook applies is one. Passing both vectors
   # keeps the algebra the same shape it has for the methods whose container
   # stores the raw scale.
   weights_fn <- make_weights_fn(weights_eval, reported = w, weights_raw = w)
+  parts_fn <- make_parts_fn(parts_eval, reported = w, weights_raw = w)
 
   list(
     weights = w,
@@ -649,7 +716,8 @@ fit_entropy_continuous <- function(method, prepared) {
       result,
       w,
       psi_fn,
-      weights_fn
+      weights_fn,
+      parts_fn
     ),
     groups = NULL
   )
@@ -717,6 +785,36 @@ make_entropy_cont_weights_eval <- function(
   }
 }
 
+# A closure re-evaluating the continuous weights and estimating functions
+# together, the single-group case of the discrete combined closure and the same
+# saving: one crossing where the two closures above make one each.
+make_entropy_cont_parts_eval <- function(
+  covs,
+  targets,
+  base,
+  s,
+  n_eff,
+  esteq_scale
+) {
+  force(covs)
+  force(targets)
+  force(base)
+  force(s)
+  force(n_eff)
+  force(esteq_scale)
+  function(theta) {
+    eval_parts_entropy_cont(
+      as.numeric(theta),
+      covs,
+      targets,
+      base,
+      s,
+      n_eff,
+      esteq_scale
+    )
+  }
+}
+
 # The entropy objective is the achieved Kullback-Leibler divergence from the base
 # weights, summed over the reweighted units.
 entropy_objective <- function(s, w, base) {
@@ -734,7 +832,8 @@ estimating_equations_from_result <- function(
   result,
   weights_raw = NULL,
   psi_fn = NULL,
-  weights_fn = NULL
+  weights_fn = NULL,
+  parts_fn = NULL
 ) {
   psi <- result$psi
   jacobian <- result$jac
@@ -749,7 +848,8 @@ estimating_equations_from_result <- function(
     weight_jacobian = weight_jacobian,
     weights_raw = weights_raw,
     psi_fn = psi_fn,
-    weights_fn = weights_fn
+    weights_fn = weights_fn,
+    parts_fn = parts_fn
   )
 }
 

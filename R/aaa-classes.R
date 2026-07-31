@@ -344,6 +344,15 @@ balance_terms <- new_class(
 #'   parameters, so the function's derivative is `weight_jacobian` rescaled by
 #'   the ratio of the reported weights to `weights_raw`, which is the weight
 #'   coupling a stacked variance needs.
+#' @param parts_fn An optional function returning both of the above at one set
+#'   of parameters, a list with elements `weights` and `psi` holding exactly
+#'   what `weights_fn` and `psi_fn` return there. A method whose estimating
+#'   functions are a transformation of its own weights computes the pair
+#'   together for the price of one, and a consumer that needs both at every
+#'   parameter vector, as a stacked sandwich does, halves its work by asking for
+#'   them together. It is an optimization rather than a contract: a consumer
+#'   reads it when it is present and falls back to the two functions when it is
+#'   not, so a method supplies it only when the saving is real.
 #'
 #' @return A `balancing_estimating_equations` object.
 #' @keywords internal
@@ -357,7 +366,8 @@ balancing_estimating_equations <- new_class(
     weight_jacobian = class_double,
     weights_raw = NULL | class_double,
     psi_fn = NULL | class_function,
-    weights_fn = NULL | class_function
+    weights_fn = NULL | class_function,
+    parts_fn = NULL | class_function
   )
 )
 
