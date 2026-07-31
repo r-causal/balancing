@@ -88,9 +88,32 @@ coef(outcome_mod)[["exposure"]]
 #> [1] 1.131677
 ```
 
-For the estimating-equation methods with a binary exposure, `ipw()`
-returns effect estimates with standard errors that account for having
-estimated the weights.
+For the estimating-equation methods (entropy balancing, inverse
+probability tilting, and the covariate balancing propensity score), pass
+the fit and the weighted outcome model to `ipw()` to get effect
+estimates with standard errors that account for having estimated the
+weights. Binary, categorical, and continuous exposures are supported;
+with a continuous exposure the reported effect is the exposure
+coefficient of a weighted marginal structural model.
+
+``` r
+ipw(fit, outcome_mod)
+#> Inverse Probability Weight Estimator
+#> Estimand: ATT 
+#> 
+#> Weight Estimator:
+#>   Call: balance(.data = study, .exposure = exposure, .covariates = c(age, 
+#>     score), method = bw_entropy(), estimand = "att") 
+#> 
+#> Outcome Model:
+#>   Call: lm(formula = outcome ~ exposure, data = study, weights = w) 
+#> 
+#> Estimates:
+#>      estimate std.err      z ci.lower ci.upper conf.level   p.value    
+#> diff  1.13168 0.12345 9.1673  0.88972   1.3736       0.95 < 2.2e-16 ***
+#> ---
+#> Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+```
 
 ## How balancing relates to the other r-causal packages
 
