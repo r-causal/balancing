@@ -429,8 +429,18 @@ make_hooks_cache <- function(container, rescale, parameters) {
 # 1e-9 default sits far into the cancellation regime, where agreement with the
 # analytic bread is near 2e-7 rather than the 2e-10 a 1e-6 step reaches.
 #
-# A bread holding missing values is warned about and answered with `NULL` rather
-# than an error, which would otherwise surface much later as a complaint about
+# A bread the engine cannot invert is refused by the engine, under a class of its
+# own, from a frame no caller ever wrote. Translating that refusal here is what
+# keeps it readable: the caller meets the package's own classed refusal, reported
+# at the call they made, carrying the bootstrap route out that every
+# unsupported-variance refusal offers. The engine's own account of why it refused
+# is left behind rather than chained onto it, because following that account
+# means reading `compute_sandwich()`, which is not code the caller can go and act
+# on. Both of the engine's reasons, a bread that is not finite and a bread it
+# reads as singular, are named in the refusal instead.
+#
+# A bread holding missing values may also come back as a value rather than a
+# condition, which would otherwise surface much later as a complaint about
 # dimnames applied to a non-array. Name the real cause here instead, at the point
 # where it is still legible.
 stacked_covariance <- function(
@@ -439,14 +449,28 @@ stacked_covariance <- function(
   n,
   call = rlang::caller_env()
 ) {
-  covariance <- deli::compute_sandwich(
-    stacked_equations,
-    theta,
-    deriv_method = "capprox",
-    dx = 1e-6,
-    allow_pinv = FALSE
-  ) /
-    n
+  covariance <- rlang::try_fetch(
+    deli::compute_sandwich(
+      stacked_equations,
+      theta,
+      deriv_method = "capprox",
+      dx = 1e-6,
+      allow_pinv = FALSE
+    ) /
+      n,
+    deli_bread_not_invertible = function(cnd) {
+      abort(
+        c(
+          "The stacked variance could not be computed for this outcome model.",
+          x = "The stacked bread has no inverse at the fitted parameters.",
+          i = "Either the stacked estimating functions are not finite around the fit, or the stacked bread is singular there.",
+          i = "See the inference vignette for a bootstrap workflow."
+        ),
+        error_class = "balancing_ipw_unsupported_error",
+        call = call
+      )
+    }
+  )
 
   if (!is.matrix(covariance)) {
     abort(
