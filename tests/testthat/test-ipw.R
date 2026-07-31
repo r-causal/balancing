@@ -5291,6 +5291,49 @@ test_that("ipw_deli_sandwich() refuses a stack whose bread is not finite", {
   )
 })
 
+# The spec above reaches deli's refusal one way, through a bread that goes
+# missing. deli raises that refusal under a class of its own, and the reasons it
+# raises it are deli's to decide: a bread that is not finite and a bread it reads
+# as singular arrive under the same class today, and a later release may add
+# another. The translation is therefore pinned on the condition rather than on
+# any one route to it, so that whatever deli refuses to invert, the caller meets
+# the package's own classed refusal at the call they wrote rather than an engine
+# condition naming a function they never called. The condition is raised straight
+# from the engine binding here, with a message of no significance, because the
+# class is the whole of what the translation reads.
+test_that("ipw() translates deli's bread refusal into its own", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  testthat::local_mocked_bindings(
+    compute_sandwich = function(...) {
+      cli::cli_abort(
+        "The bread matrix has no inverse.",
+        class = "deli_bread_not_invertible"
+      )
+    },
+    .package = "deli"
+  )
+
+  expect_error(
+    ipw(fit, outcome_mod),
+    class = "balancing_ipw_unsupported_error"
+  )
+  cnd <- rlang::catch_cnd(
+    ipw(fit, outcome_mod),
+    classes = "balancing_ipw_unsupported_error"
+  )
+  expect_identical(rlang::call_name(conditionCall(cnd)), "ipw")
+})
+
 # Both refusals above are raised from inside the variance engine, which no caller
 # ever writes. Reached the way a caller reaches them, through `ipw()`, they must
 # report the call that was made rather than the internal frame the failure
