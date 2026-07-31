@@ -158,7 +158,7 @@ impl<'a> EntropyProblem<'a> {
     /// estimating functions are those weights against the centered constraint
     /// rows. Retaining the per-unit tilt here is therefore what holds the
     /// exponentials at one per unit however many of those a caller wants. The
-    /// constraint totals `m` cost `p` fused multiply-adds per unit and only the
+    /// constraint totals `m` cost `p` multiply-adds per unit and only the
     /// dual's own derivatives read them, so they are filled on request.
     ///
     /// The chunking and the merge order are [`deterministic_map_reduce`]'s, so
