@@ -37,7 +37,7 @@ Installing from source requires a Rust toolchain (`rustc` 1.85 or newer and Carg
 
 ## Usage
 
-`balance()` is the entry point. You give it a data frame, name the exposure and covariates with tidyselect, choose a method and an estimand, and it returns a fitted object carrying the weights and a balance table.
+You give `balance()` a data frame, name the exposure and covariates with tidyselect, choose a method and an estimand, and it returns a fitted object carrying the weights and a balance table.
 
 ```{r example}
 library(balancing)

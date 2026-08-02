@@ -1,7 +1,7 @@
 # balancing 0.0.0.9000
 
-* Added `balance()`, the entry point for fitting optimization-based balancing
-  weights to a data frame with tidyselect covariate selection.
+* Added `balance()`, which fits optimization-based balancing weights to a data
+  frame with tidyselect covariate selection.
 
 * Added six balancing methods, each a method specification passed to `balance()`:
   entropy balancing (`bw_entropy()`), inverse probability tilting (`bw_ipt()`),

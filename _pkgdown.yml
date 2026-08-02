@@ -13,7 +13,7 @@ articles:
 
 reference:
 - title: Estimate
-  desc: The entry point to the package.
+  desc: Estimate balancing weights from a data frame.
   contents:
   - balance
 - title: Method specifications

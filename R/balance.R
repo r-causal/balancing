@@ -6,11 +6,11 @@
 
 #' Estimate balancing weights
 #'
-#' `balance()` is the entry point to the package. It fits a balancing method to a
-#' data frame, returning weights that target covariate balance directly. The
-#' exposure and covariates are chosen with tidyselect, the method is one of the
-#' method specifications such as [bw_entropy()], and the estimand and
-#' constraints control what balance the weights achieve.
+#' `balance()` fits a balancing method to a data frame, returning weights that
+#' target covariate balance directly. The exposure and covariates are chosen with
+#' tidyselect, the method is one of the method specifications such as
+#' [bw_entropy()], and the estimand and constraints control what balance the
+#' weights achieve.
 #'
 #' @details
 #' The exposure type is detected automatically and announced through an
