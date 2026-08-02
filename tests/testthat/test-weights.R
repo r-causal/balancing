@@ -442,3 +442,84 @@ test_that("weights() carries the estimand and no fit metadata", {
   expect_identical(estimand(stats::weights(sampled)), "ate")
   expect_identical(vctrs::vec_size(stats::weights(plain)), nrow(data))
 })
+
+# ---- Weights as the weights= argument of a model call ----------------------
+
+# The documented workflow puts a fitted weight vector into the analysis data and
+# names that column in an outcome model, with no coercion step in between. Three
+# separate things have to hold for that to work: `model.frame()` has to resolve
+# and carry the column, `lm()` and `glm()` have to accept it where they demand a
+# numeric, and the value they store back has to be the same numbers as a plain
+# double. Nothing about the class asserts any of them, and a break would show up
+# only in a reader's own script, so each is pinned here: the bare fit reproduces
+# the coerced one exactly, and the weights it carries round-trip with nothing
+# left attached.
+
+# A binary-exposure study with a continuous and a binary outcome, carrying the
+# fitted weights twice: `w` as the bare `bw` the documented workflow assigns,
+# and `w_numeric` as the coerced comparison. Both live in the data so a model
+# call names a column rather than reaching into the calling environment.
+weighted_study <- function(n = 200) {
+  data <- sim_binary(n)
+  withr::with_seed(414, {
+    data$y <- 1 + 0.5 * data$exposure + 0.4 * data$x1 + stats::rnorm(n)
+    data$event <- stats::rbinom(
+      n,
+      1L,
+      stats::plogis(-0.2 + 0.5 * data$exposure)
+    )
+  })
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  data$w <- stats::weights(fit)
+  data$w_numeric <- as.numeric(data$w)
+  data
+}
+
+test_that("a bare bw column works as the weights argument to lm()", {
+  data <- weighted_study()
+  expect_true(is_bw(data$w))
+
+  bare <- expect_no_warning(stats::lm(y ~ exposure, data = data, weights = w))
+  coerced <- stats::lm(y ~ exposure, data = data, weights = w_numeric)
+
+  expect_s3_class(bare, "lm")
+  expect_identical(stats::coef(bare), stats::coef(coerced))
+  expect_identical(stats::weights(bare), data$w_numeric)
+})
+
+# `quasibinomial()` is the family the inference vignette reaches for on a binary
+# outcome, and unlike `binomial()` it raises no non-integer successes warning
+# under fractional weights. The neighboring specs wrap a weighted binomial fit
+# in `suppressWarnings()` for exactly that reason; here there is nothing to
+# suppress, so the absence of a warning is asserted instead.
+test_that("a bare bw column works as the weights argument to glm()", {
+  data <- weighted_study()
+
+  bare <- expect_no_warning(stats::glm(
+    event ~ exposure,
+    data = data,
+    family = stats::quasibinomial(),
+    weights = w
+  ))
+  coerced <- stats::glm(
+    event ~ exposure,
+    data = data,
+    family = stats::quasibinomial(),
+    weights = w_numeric
+  )
+
+  expect_s3_class(bare, "glm")
+  expect_identical(stats::coef(bare), stats::coef(coerced))
+  expect_identical(stats::weights(bare), stats::weights(coerced))
+  # `glm()` labels the prior weights with the model frame's row names, which
+  # neither vector going in carried, so the round-trip is read off the values.
+  # Dropping the names leaves the class in place, so a weight vector that
+  # reached the fitted object still wearing its `bw` class fails here.
+  expect_identical(unname(stats::weights(bare)), data$w_numeric)
+})
