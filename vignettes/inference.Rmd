@@ -46,7 +46,7 @@ fit <- balance(
   method = bw_entropy(),
   estimand = "ate"
 )
-study$w <- as.numeric(weights(fit))
+study$w <- weights(fit)
 
 outcome_mod <- glm(
   event ~ exposure,
@@ -125,7 +125,7 @@ arm_fit <- balance(
   method = bw_ipt(),
   estimand = "ate"
 )
-study$arm_w <- as.numeric(weights(arm_fit))
+study$arm_w <- weights(arm_fit)
 
 arm_mod <- glm(
   relapse ~ arm,
@@ -154,7 +154,7 @@ dose_fit <- balance(
   method = bw_entropy(),
   estimand = "ate"
 )
-study$dose_w <- as.numeric(weights(dose_fit))
+study$dose_w <- weights(dose_fit)
 
 dose_mod <- lm(response ~ dose, data = study, weights = dose_w)
 
@@ -220,7 +220,7 @@ fit_effect <- function(data) {
     method = bw_sbw(),
     constraints = balance_terms(tolerance = 0.02)
   )
-  data$w <- as.numeric(weights(fit))
+  data$w <- weights(fit)
   model <- glm(
     event ~ exposure,
     data = data,

@@ -245,7 +245,7 @@ y <- rbinom(n, 1, plogis(-0.5 + 0.8 * z + 0.3 * x1))
 df <- data.frame(exposure = z, x1 = x1, y = y)
 
 fit <- balance(df, exposure, x1, method = bw_entropy(), estimand = "ate")
-df$.wts <- as.numeric(weights(fit))
+df$.wts <- weights(fit)
 
 # quasibinomial() solves the same estimating equation as binomial() and does
 # not warn that weights are not counts.
@@ -290,7 +290,7 @@ df$relapse <- rbinom(
 )
 
 arm_fit <- balance(df, arm, x1, method = bw_ipt(), estimand = "ate")
-df$.arm_wts <- as.numeric(weights(arm_fit))
+df$.arm_wts <- weights(arm_fit)
 arm_mod <- glm(
   relapse ~ arm,
   data = df,
@@ -306,7 +306,7 @@ df$dose <- 0.7 * x1 + rnorm(n)
 df$score <- 2 + 0.5 * df$dose + 0.4 * x1 + rnorm(n)
 
 dose_fit <- balance(df, dose, x1, method = bw_entropy(), estimand = "ate")
-df$.dose_wts <- as.numeric(weights(dose_fit))
+df$.dose_wts <- weights(dose_fit)
 dose_mod <- lm(score ~ dose, data = df, weights = .dose_wts)
 
 ipw(dose_fit, dose_mod)

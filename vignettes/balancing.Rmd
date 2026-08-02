@@ -68,7 +68,7 @@ The print method summarizes the fit. It reports the method and the exposure type
 The balance table reports balance on the terms the weights were asked to balance. To assess balance more broadly, including statistics beyond the mean and variables the weights did not target, extract the weights with `weights()` and pass them to the [halfmoon](https://r-causal.github.io/halfmoon/) package.
 
 ```{r halfmoon-weights}
-study$w <- as.numeric(weights(fit))
+study$w <- weights(fit)
 ```
 
 `check_balance()` compares the weighting scheme against the unweighted sample across a set of covariates.
@@ -117,7 +117,7 @@ ate_fit <- balance(
   method = bw_entropy(),
   estimand = "ate"
 )
-study$w_ate <- as.numeric(weights(ate_fit))
+study$w_ate <- weights(ate_fit)
 
 event_mod <- glm(
   event ~ exposure,
