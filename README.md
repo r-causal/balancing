@@ -34,7 +34,8 @@ pak::pak("r-causal/balancing")
 ```
 
 Installing from source requires a Rust toolchain (`rustc` 1.85 or newer
-and Cargo).
+and Cargo); we recommend installing one with
+[rustup](https://rustup.rs/).
 
 ## Usage
 

@@ -33,7 +33,7 @@ You can install the development version of balancing from [GitHub](https://githu
 pak::pak("r-causal/balancing")
 ```
 
-Installing from source requires a Rust toolchain (`rustc` 1.85 or newer and Cargo).
+Installing from source requires a Rust toolchain (`rustc` 1.85 or newer and Cargo); we recommend installing one with [rustup](https://rustup.rs/).
 
 ## Usage
 
