@@ -68,7 +68,7 @@ The printed summary reports the solver status and the largest imbalance the weig
 The weights are a `bw` vector, a sibling of `propensity::psw`. Pass them to a weighted outcome model to estimate the effect.
 
 ```{r outcome}
-study$w <- as.numeric(weights(fit))
+study$w <- weights(fit)
 outcome_mod <- lm(outcome ~ exposure, data = study, weights = w)
 coef(outcome_mod)[["exposure"]]
 ```

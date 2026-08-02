@@ -36,7 +36,7 @@ The family a method belongs to is reflected in its class hierarchy: the estimati
 
 The methods differ in the exposure types and estimands they support. The table below is built from the methods themselves, so it always reflects what the installed version accepts.
 
-```{r support-matrix}
+```{r support-matrix, echo = FALSE}
 methods <- list(
   bw_entropy = bw_entropy(),
   bw_ipt = bw_ipt(),

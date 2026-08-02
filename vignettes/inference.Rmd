@@ -188,7 +188,7 @@ A model that leaves the exposure out has nothing to contrast, so it is refused r
 ipw(fit, glm(event ~ age + score, data = study, family = quasibinomial(), weights = w))
 ```
 
-Everything else takes the bootstrap. The quadratic-program methods (`bw_energy()`, `bw_cfd()`, and `bw_sbw()`) and an entropy fit at a positive tolerance solve inequality-constrained problems, whose solutions are characterized by which constraints bind at the optimum rather than by a smooth system set to zero. An over-identified `bw_cbps()` fit minimizes a generalized-method-of-moments criterion in more moment conditions than it has parameters, so its balancing conditions are not solved to zero either. None of these has an estimating-equation representation to stack, so the fit carries none and `ipw()` raises an error pointing here. Inverse probability tilting is the exception to the tolerance rule: it solves the same smooth estimating equations whatever tolerance is requested, so `ipw()` handles it at any tolerance.
+Everything else requires the bootstrap. The quadratic-program methods (`bw_energy()`, `bw_cfd()`, and `bw_sbw()`) and an entropy fit at a positive tolerance solve inequality-constrained problems, whose solutions are characterized by which constraints bind at the optimum rather than by a smooth system set to zero. An over-identified `bw_cbps()` fit minimizes a generalized-method-of-moments criterion in more moment conditions than it has parameters, so its balancing conditions are not solved to zero either. None of these has an estimating-equation representation to stack, so the fit carries none and `ipw()` raises an error pointing here. Inverse probability tilting is the exception to the tolerance rule: it solves the same smooth estimating equations whatever tolerance is requested, so `ipw()` handles it at any tolerance.
 
 ```{r unsupported, error = TRUE}
 sbw_fit <- balance(
@@ -204,6 +204,8 @@ ipw(sbw_fit, outcome_mod)
 ## Bootstrapping the other fits
 
 Where a fit carries no estimating equations, inference uses resampling instead. The recipe is a standard nonparametric bootstrap: resample the rows with replacement, refit the weights and the outcome model on each resample, and take the spread of the effect estimates across resamples as the standard error. The important detail is that the reweighting is refit inside the loop, so every source of variation, including the estimation of the weights, is captured. The example below uses `bw_sbw()`, but the recipe is the same for any fit and it also covers the cases `ipw()` declines for reasons other than the weights, such as an outcome model outside the supported families.
+
+We'll show a hand-rolled approach, but there are several tools for bootstrapping in R. See in particular the {boot} package and the {rsample} package. See also the appendix on the bootstrap in [Causal Inference in R](https://www.r-causal.org/appendices/a-bootstrap).
 
 We keep the example small so it runs quickly: a few hundred resamples on a modest sample.
 
@@ -253,7 +255,7 @@ data.frame(
 )
 ```
 
-A production analysis would use more resamples, typically at least one or two thousand, and might use the bias-corrected and accelerated interval rather than the percentile one. The structure stays the same: refit the weights inside every resample.
+A real analysis would use more resamples, typically at least one or two thousand, and might use the bias-corrected and accelerated interval rather than the percentile one. The structure stays the same: refit the weights inside every resample.
 
 ## Choosing an approach
 
