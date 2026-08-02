@@ -495,7 +495,7 @@ test_that("a bare bw column works as the weights argument to lm()", {
 
 # `quasibinomial()` is the family the inference vignette reaches for on a binary
 # outcome, and unlike `binomial()` it raises no non-integer successes warning
-# under fractional weights. The neighboring specs wrap a weighted binomial fit
+# under fractional weights. Elsewhere in the suite, weighted binomial fits wrap
 # in `suppressWarnings()` for exactly that reason; here there is nothing to
 # suppress, so the absence of a warning is asserted instead.
 test_that("a bare bw column works as the weights argument to glm()", {
