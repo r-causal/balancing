@@ -19,7 +19,7 @@ set.seed(2024)
 Balancing weights target covariate balance directly. Instead of fitting a model for the probability of exposure and deriving weights from it, a balancing method poses covariate balance as a convex optimization problem and solves for the weights that achieve it. This vignette walks through the core workflow for a binary exposure: fitting weights with `balance()`, reading the balance they achieve, checking that balance more broadly with halfmoon, and estimating a causal effect.
 
 ```{r setup, message = FALSE}
-# halfmoon provides the broader balance-assessment tools used later in this
+# halfmoon provides the balance-assessment tools used throughout this
 # vignette.
 library(halfmoon)
 library(balancing)
@@ -39,10 +39,10 @@ outcome <- 1 + 0.8 * exposure + 0.7 * age - 0.5 * score + rnorm(n)
 study <- data.frame(exposure, age, score, outcome)
 ```
 
-Before weighting, the exposed and unexposed groups differ on both confounders.
+Before weighting, the exposed and unexposed groups differ on both confounders. halfmoon's `check_balance()` summarizes that imbalance; the `observed` rows are the unweighted sample, where the standardized mean differences on `age` and `score` run to about half a standard deviation in opposite directions. The same call appears again later with the weights attached.
 
 ```{r imbalance}
-aggregate(cbind(age, score) ~ exposure, data = study, FUN = mean)
+check_balance(study, c(age, score), exposure)
 ```
 
 ## Fitting balancing weights
@@ -71,7 +71,7 @@ The balance table reports balance on the terms the weights were asked to balance
 study$w <- weights(fit)
 ```
 
-`check_balance()` compares the weighting scheme against the unweighted sample across a set of covariates.
+Passing the weights to the same `check_balance()` call compares the weighting scheme against the unweighted sample across a set of covariates.
 
 ```{r halfmoon}
 balance_check <- check_balance(
