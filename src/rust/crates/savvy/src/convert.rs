@@ -43,7 +43,7 @@ impl Default for EntropyOptions {
         Self {
             threads: balancing_core::available_threads().0,
             solver: EntropySolver::Newton,
-            max_iter: 200,
+            max_iter: 1000,
             tol: 1e-10,
             esteq_scale: None,
         }
@@ -134,15 +134,19 @@ pub struct IptOptions {
     pub tol: f64,
 }
 
-/// The tilting defaults the boundary resolves when the option list omits a value,
-/// reached by the same two routes as the entropy defaults above. They match those
-/// defaults so that two methods solving the same fit at the same tolerance are
-/// given the same budget to reach it.
+/// The defaults the boundary resolves when the option list omits a value, reached
+/// by the same two routes as the entropy defaults above.
+///
+/// This parser serves the covariate balancing propensity score entrypoints as well
+/// as the tilting ones, so the cap here is the budget for both families, and both
+/// R constructors leave `max_iterations` unset by default. It matches the entropy
+/// cap so that methods solving the same fit at the same tolerance are given the
+/// same budget to reach it.
 impl Default for IptOptions {
     fn default() -> Self {
         Self {
             threads: balancing_core::available_threads().0,
-            max_iter: 200,
+            max_iter: 1000,
             tol: 1e-10,
         }
     }
