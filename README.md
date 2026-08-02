@@ -38,10 +38,9 @@ and Cargo).
 
 ## Usage
 
-`balance()` is the entry point. You give it a data frame, name the
-exposure and covariates with tidyselect, choose a method and an
-estimand, and it returns a fitted object carrying the weights and a
-balance table.
+You give `balance()` a data frame, name the exposure and covariates with
+tidyselect, choose a method and an estimand, and it returns a fitted
+object carrying the weights and a balance table.
 
 ``` r
 library(balancing)
@@ -82,7 +81,7 @@ The weights are a `bw` vector, a sibling of `propensity::psw`. Pass them
 to a weighted outcome model to estimate the effect.
 
 ``` r
-study$w <- as.numeric(weights(fit))
+study$w <- weights(fit)
 outcome_mod <- lm(outcome ~ exposure, data = study, weights = w)
 coef(outcome_mod)[["exposure"]]
 #> [1] 1.131677
