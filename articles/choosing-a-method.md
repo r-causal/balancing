@@ -1,0 +1,369 @@
+# Choosing a balancing method
+
+balancing provides six methods. They fall into two families that differ
+in what they optimize and in the guarantees they offer. This article
+describes the families, the exposures and estimands each method
+supports, the difference between exact and tolerance-based balance, the
+constraint options in
+[`balance_terms()`](https://r-causal.github.io/balancing/reference/balance_terms.md),
+and the handling of continuous exposures.
+
+``` r
+
+library(balancing)
+```
+
+## Two families of methods
+
+Every method solves a convex optimization problem, but the problems come
+in two shapes.
+
+The **estimating-equation family** fits weights that solve smooth
+estimating equations.
+[`bw_entropy()`](https://r-causal.github.io/balancing/reference/bw_entropy.md)
+reweights to the maximum-entropy solution that matches the covariate
+targets;
+[`bw_ipt()`](https://r-causal.github.io/balancing/reference/bw_ipt.md)
+fits a propensity model through a tilted moment condition;
+[`bw_cbps()`](https://r-causal.github.io/balancing/reference/bw_cbps.md)
+chooses propensity parameters to satisfy covariate-balancing moment
+conditions. Because these weights solve estimating equations, their
+uncertainty can be propagated analytically into effect standard errors
+through
+[`ipw()`](https://r-causal.github.io/causalgenerics/reference/ipw.html).
+With mean balance and a logit link, all three produce the same ATT
+weights for a binary exposure.
+
+The **quadratic-program family** minimizes a dispersion or distance
+objective subject to balance constraints.
+[`bw_energy()`](https://r-causal.github.io/balancing/reference/bw_energy.md)
+minimizes the energy distance between the reweighted groups;
+[`bw_cfd()`](https://r-causal.github.io/balancing/reference/bw_cfd.md)
+minimizes a kernel distance;
+[`bw_sbw()`](https://r-causal.github.io/balancing/reference/bw_sbw.md)
+minimizes the weight dispersion subject to a balance tolerance. These
+methods do not carry estimating equations, so inference for them uses
+resampling rather than the M-estimation route
+[`ipw()`](https://r-causal.github.io/causalgenerics/reference/ipw.html)
+takes.
+
+The family a method belongs to is reflected in its class hierarchy: the
+estimating-equation methods subclass `estimating_equation_method` and
+the quadratic-program methods subclass `quadratic_program_method`.
+
+## Which exposures and estimands each method supports
+
+The methods differ in the exposure types and estimands they support. The
+table below is built from the methods themselves, so it always reflects
+what the installed version accepts.
+
+| method     | binary             | categorical | continuous |
+|:-----------|:-------------------|:------------|:-----------|
+| bw_entropy | ate, att, atu      | ate, att    | ate        |
+| bw_ipt     | ate, att, atu      | ate, att    | \-         |
+| bw_cbps    | ate, att, atu, ato | ate, att    | ate        |
+| bw_energy  | ate, att, atu      | ate, att    | ate        |
+| bw_cfd     | ate, att, atu      | ate, att    | \-         |
+| bw_sbw     | ate, att, atu      | ate, att    | ate        |
+
+A dash marks an unsupported exposure type. The estimand vocabulary
+follows propensity: `"ate"` (average treatment effect), `"att"` (average
+treatment effect on the treated), `"atu"` (on the untreated, accepted as
+`"atc"`), and `"ato"` (the overlap estimand). The overlap estimand is
+available only for
+[`bw_cbps()`](https://r-causal.github.io/balancing/reference/bw_cbps.md)
+with a binary exposure. Continuous exposures permit only `"ate"`.
+
+## Exact versus tolerance-based balance
+
+The families also differ in the balance they guarantee.
+
+The estimating-equation methods achieve **exact** balance on the
+requested moments. Their weighted covariate means equal the target means
+to solver precision, which is why the printed summary reports a largest
+imbalance at the level of numerical noise.
+
+``` r
+
+n <- 600
+age <- rnorm(n)
+score <- rnorm(n)
+exposure <- rbinom(n, 1, plogis(0.5 * age - 0.5 * score))
+study <- data.frame(exposure, age, score)
+
+exact <- balance(study, exposure, c(age, score), method = bw_entropy())
+exact
+#> 
+#> ── Entropy balancing ───────────────────────────────────────────────────────────
+#> Exposure: "exposure" (binary)
+#> Estimand: "ate"
+#> Observations: 600
+#> Solver: converged in 4 iterations
+#> Constraints: 2 terms (tolerance 0)
+#> Largest imbalance: 0.0000 (standardized mean difference)
+```
+
+Exact balance is not always achievable or desirable. When the groups
+overlap poorly, forcing exact balance can drive the weights to extremes
+and collapse the effective sample size. A **tolerance** relaxes the
+constraints: each weighted statistic is held within a band rather than
+pinned to a point. For entropy balancing, a positive tolerance selects
+an inexact problem that trades a little residual imbalance for less
+variable weights. The printed summary records the tolerance the fit used
+and the largest imbalance it leaves.
+
+``` r
+
+relaxed <- balance(
+  study,
+  exposure,
+  c(age, score),
+  method = bw_entropy(),
+  estimand = "att",
+  constraints = balance_terms(tolerance = 0.05)
+)
+relaxed
+#> 
+#> ── Entropy balancing ───────────────────────────────────────────────────────────
+#> Exposure: "exposure" (binary)
+#> Estimand: "att" (focal level "1")
+#> Observations: 600
+#> Solver: converged in 8 iterations
+#> Constraints: 2 terms (tolerance 0.05)
+#> Largest imbalance: 0.0500 (standardized mean difference)
+```
+
+For
+[`bw_sbw()`](https://r-causal.github.io/balancing/reference/bw_sbw.md)
+the tolerance is not optional. Stable balancing weights minimize weight
+dispersion subject to a balance band, so the tolerance is the method’s
+central tuning parameter and a fit without a positive tolerance is
+refused.
+
+``` r
+
+sbw_fit <- balance(
+  study,
+  exposure,
+  c(age, score),
+  method = bw_sbw(),
+  constraints = balance_terms(tolerance = 0.02)
+)
+sbw_fit
+#> 
+#> ── Stable balancing weights ────────────────────────────────────────────────────
+#> Exposure: "exposure" (binary)
+#> Estimand: "ate"
+#> Observations: 600
+#> Solver: converged in 75 iterations
+#> Constraints: 2 terms (tolerance 0.02)
+#> Largest imbalance: 0.0400 (standardized mean difference)
+```
+
+For
+[`bw_energy()`](https://r-causal.github.io/balancing/reference/bw_energy.md)
+and
+[`bw_cfd()`](https://r-causal.github.io/balancing/reference/bw_cfd.md),
+the objective itself drives balance, so the tolerance relaxes any moment
+constraints you add rather than selecting an inexact solver. A tolerance
+supplied without moment constraints has nothing to relax and is ignored
+with a warning.
+
+## Constraints in depth
+
+[`balance_terms()`](https://r-causal.github.io/balancing/reference/balance_terms.md)
+records which covariate functions a method should balance. It has four
+ingredients.
+
+**Moments** set the highest power of each numeric covariate to balance.
+A scalar applies to every covariate; a named integer vector sets powers
+per covariate.
+
+``` r
+
+# Balance means and variances of both covariates
+balance_terms(moments = 2)
+#> <balancing::balance_terms>
+#>  @ moments     : int 2
+#>  @ interactions: logi FALSE
+#>  @ quantiles   : NULL
+#>  @ tolerance   : num 0
+
+# Balance the mean of age but the mean and variance of score
+balance_terms(moments = c(age = 1, score = 2))
+#> <balancing::balance_terms>
+#>  @ moments     : int [1:2] 1 2
+#>  @ interactions: logi FALSE
+#>  @ quantiles   : NULL
+#>  @ tolerance   : num 0
+```
+
+Powers above one are ignored for binary indicator columns, since
+squaring a zero/one column reproduces it.
+
+**Interactions** add all pairwise products of the base columns when set
+to `TRUE`, excluding products of two indicators of the same factor. This
+balances the joint distribution of pairs of covariates, not just their
+marginals, and adds the product terms to the constraint count the
+printed summary reports.
+
+``` r
+
+with_interactions <- balance(
+  study,
+  exposure,
+  c(age, score),
+  method = bw_entropy(),
+  constraints = balance_terms(moments = 1, interactions = TRUE)
+)
+with_interactions
+#> 
+#> ── Entropy balancing ───────────────────────────────────────────────────────────
+#> Exposure: "exposure" (binary)
+#> Estimand: "ate"
+#> Observations: 600
+#> Solver: converged in 5 iterations
+#> Constraints: 3 terms (tolerance 0)
+#> Largest imbalance: 0.0000 (standardized mean difference)
+```
+
+**Quantiles** add an indicator column at each requested probability, so
+that mean balance on the indicator is quantile balance on the covariate.
+This targets the shape of the distribution rather than its moments, and
+each added indicator becomes another constraint term. Quantile
+constraints apply to discrete exposures only.
+
+``` r
+
+with_quantiles <- balance(
+  study,
+  exposure,
+  c(age, score),
+  method = bw_entropy(),
+  constraints = balance_terms(
+    moments = 1,
+    quantiles = c(0.25, 0.5, 0.75)
+  )
+)
+with_quantiles
+#> 
+#> ── Entropy balancing ───────────────────────────────────────────────────────────
+#> Exposure: "exposure" (binary)
+#> Estimand: "ate"
+#> Observations: 600
+#> Solver: converged in 4 iterations
+#> Constraints: 8 terms (tolerance 0)
+#> Largest imbalance: 0.0000 (standardized mean difference)
+```
+
+**Tolerance** sets the per-constraint balance band, as described above.
+It can be a scalar or a named vector giving a different tolerance per
+source covariate, with derived columns inheriting their source’s
+tolerance.
+
+``` r
+
+balance_terms(tolerance = c(age = 0.01, score = 0.1))
+#> <balancing::balance_terms>
+#>  @ moments     : NULL
+#>  @ interactions: logi FALSE
+#>  @ quantiles   : NULL
+#>  @ tolerance   : Named num [1:2] 0.01 0.1
+#>  .. - attr(*, "names")= chr [1:2] "age" "score"
+```
+
+When `constraints` is left at its default, the estimating-equation
+methods and stable balancing weights balance first moments, while energy
+and characteristic function distance balancing add no moment constraints
+and let their objective drive balance.
+
+## Continuous exposures
+
+For a continuous exposure there are no groups to balance against one
+another. Instead, the target is independence between the exposure and
+the covariates: the weighted exposure-covariate correlations should be
+zero.
+[`bw_entropy()`](https://r-causal.github.io/balancing/reference/bw_entropy.md),
+[`bw_cbps()`](https://r-causal.github.io/balancing/reference/bw_cbps.md),
+[`bw_energy()`](https://r-causal.github.io/balancing/reference/bw_energy.md),
+and
+[`bw_sbw()`](https://r-causal.github.io/balancing/reference/bw_sbw.md)
+support continuous exposures; the estimand is always `"ate"`.
+
+``` r
+
+dose <- 0.7 * age - 0.5 * score + rnorm(n)
+dose_study <- data.frame(dose, age, score)
+
+dose_fit <- balance(
+  dose_study,
+  dose,
+  c(age, score),
+  method = bw_entropy()
+)
+dose_fit
+#> 
+#> ── Entropy balancing ───────────────────────────────────────────────────────────
+#> Exposure: "dose" (continuous)
+#> Estimand: "ate"
+#> Observations: 600
+#> Solver: converged in 6 iterations
+#> Constraints: 2 terms (tolerance 0)
+#> Largest imbalance: 0.0000 (correlation)
+```
+
+For a continuous exposure the printed summary reports the largest
+weighted exposure-covariate correlation rather than a standardized mean
+difference.
+
+For
+[`bw_entropy()`](https://r-causal.github.io/balancing/reference/bw_entropy.md)
+and
+[`bw_energy()`](https://r-causal.github.io/balancing/reference/bw_energy.md),
+the `distribution_moments` argument on the method constructor sets how
+many moments of the exposure and covariate marginals are held equal to
+the sample, extending the identifying conditions beyond the correlation
+constraints. Both measure that sample under the base measure: any
+sampling weights, times the `base_weights` of
+[`bw_entropy()`](https://r-causal.github.io/balancing/reference/bw_entropy.md),
+which
+[`bw_energy()`](https://r-causal.github.io/balancing/reference/bw_energy.md)
+does not carry. With neither in play the marginals are held equal to the
+unweighted sample. It is raised automatically to at least the moments
+the constraints require.
+
+``` r
+
+dose_moments <- balance(
+  dose_study,
+  dose,
+  c(age, score),
+  method = bw_entropy(distribution_moments = 2, convergence_tolerance = 1e-8)
+)
+dose_moments
+#> 
+#> ── Entropy balancing ───────────────────────────────────────────────────────────
+#> Exposure: "dose" (continuous)
+#> Estimand: "ate"
+#> Observations: 600
+#> Solver: converged in 5 iterations
+#> Constraints: 2 terms (tolerance 0)
+#> Largest imbalance: 0.0000 (correlation)
+```
+
+The marginal-moment conditions are enforced inside the solver rather
+than added to the balance table, so they leave the constraint count in
+the printed summary unchanged. They also make the problem stiffer, so
+this fit relaxes the `convergence_tolerance` to a looser value to reach
+the requested balance.
+
+## A note on solvers
+
+Each method has a default numerical backend: the estimating-equation
+family uses a damped Newton solver, and the quadratic-program family
+uses an operator-splitting solver, with stable balancing weights falling
+back automatically to an interior-point solver when the default
+certifies a problem infeasible. The backend that produced a fit is
+recorded on the result. These defaults are set to be reliable across a
+wide range of problems, so a typical analysis does not need to change
+them.

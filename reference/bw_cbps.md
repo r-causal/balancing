@@ -1,0 +1,153 @@
+# Covariate balancing propensity score
+
+`bw_cbps()` specifies the covariate balancing propensity score for
+[`balance()`](https://r-causal.github.io/balancing/reference/balance.md).
+A propensity model is fit so that its parameters satisfy covariate
+balancing moment conditions rather than the maximum-likelihood score
+alone. In the just-identified form the moment conditions equal the
+parameter count, so balance on the requested moments is exact by
+construction and the weights solve smooth estimating equations. The
+covariate balancing propensity score supports binary, categorical, and
+continuous exposures, and is the only method that supports the overlap
+estimand `"ato"` for a binary exposure.
+
+## Usage
+
+``` r
+bw_cbps(
+  ...,
+  over_identified = FALSE,
+  two_step = TRUE,
+  link = c("logit", "probit", "cloglog"),
+  convergence_tolerance = 1e-10,
+  max_iterations = NULL
+)
+```
+
+## Arguments
+
+- ...:
+
+  Reserved for future extensions; must be empty. Tuning parameters must
+  be passed by name.
+
+- over_identified:
+
+  Whether to add the response-residual moments and minimize the
+  generalized-method-of-moments criterion. `FALSE` fits the
+  just-identified form, whose balance is exact. Binary exposures only;
+  ignored, with a warning, for a categorical or continuous exposure.
+
+- two_step:
+
+  Whether to use the two-step weighting matrix for the over-identified
+  criterion, rather than the continuously updating criterion. Ignored,
+  with a warning, whenever the fit is not over-identified.
+
+- link:
+
+  The propensity link, one of `"logit"`, `"probit"`, or `"cloglog"`.
+  Binary and categorical exposures both fit a propensity model and
+  consume it. A continuous exposure fits none, so the setting is
+  ignored, with a warning, there.
+
+- convergence_tolerance:
+
+  The solver convergence tolerance.
+
+- max_iterations:
+
+  The maximum solver iterations, or `NULL` for the core default.
+
+## Value
+
+A `bw_cbps` specification, a
+[balance_method](https://r-causal.github.io/balancing/reference/balance_method.md).
+
+## Details
+
+For a binary exposure the just-identified fit weights a unit by a
+function of its modeled propensity determined by the estimand: the
+inverse propensity for the average treatment effect, the inverse odds
+for the average treatment effect on the treated, and the overlap factor
+for the overlap estimand. With mean balance and the logit link the
+just-identified average-treatment- effect-on-the-treated fit solves the
+same treated-target moment conditions as entropy balancing and inverse
+probability tilting, so the three methods produce the same weights.
+
+Setting `over_identified = TRUE` stacks the response-residual moments
+`sum(s * (t - p) * x)` onto the balancing conditions and minimizes a
+generalized-method-of-moments criterion. Those moments are the
+propensity model's own score only under the canonical logit link. Under
+a probit or complementary log-log link they stay a valid moment
+condition, since the response residual has mean zero at the true
+parameters whatever the link, but they are not that model's score and
+the fit is not a likelihood-augmented one. Balance is then approximate,
+the fit records the criterion value on its objective, and it supplies no
+estimating equations. The recorded criterion carries no units from the
+sampling weights: the mean moment and the moment covariance the
+weighting matrix inverts are each divided by the average sampling
+weight, so the same design expressed in survey-expansion units reports
+the same criterion and meets `convergence_tolerance` at the same fit. A
+converged verdict on that criterion does not always mean the gradient
+reached `convergence_tolerance`: the solver also certifies convergence
+when a full Newton step's predicted decrease falls at or below the
+objective's own floating-point resolution, which is the numerical
+minimum whatever the gradient reads. A squared criterion reaches that
+floor with a gradient near the square root of the arithmetic's
+precision, so this is the ordinary outcome rather than an exception.
+That criterion is defined for a binary exposure alone: a categorical or
+continuous exposure has no over-identified form, so the request is
+warned and ignored and the fit balances its moment conditions exactly.
+`two_step` selects the two-step weighting matrix for that criterion; it
+has no effect on a fit that is not over-identified and is warned and
+ignored there. Every just-identified discrete fit, the overlap estimand
+included, supplies estimating equations; only the binary over-identified
+form and a continuous exposure do not.
+
+For a continuous exposure the covariate balancing conditions require the
+weighted exposure mean to match the sample mean and the weighted
+covariance between the exposure and every covariate to vanish. The
+weights that meet these conditions with the least departure from
+uniformity are the minimum-divergence exponential tilt, the same
+reweighting the continuous form of entropy balancing uses. This is the
+nonparametric reading of covariate balancing for a continuous exposure
+and departs from the parametric generalized propensity score of the
+Fong, Hazlett, and Imai reference, which derives the weights from a
+Gaussian density ratio and can be unstable; the two share the balancing
+conditions but not the weight family.
+
+## References
+
+Imai, K. and Ratkovic, M. (2014). Covariate balancing propensity score.
+*Journal of the Royal Statistical Society: Series B (Statistical
+Methodology)*, 76(1), 243-263.
+
+Fong, C., Hazlett, C., and Imai, K. (2018). Covariate balancing
+propensity score for a continuous treatment: Application to the efficacy
+of political advertisements. *The Annals of Applied Statistics*, 12(1),
+156-177.
+
+## Examples
+
+``` r
+n <- 200
+x1 <- rnorm(n)
+x2 <- rnorm(n)
+df <- data.frame(
+  exposure = rbinom(n, 1, plogis(0.5 * x1 - 0.5 * x2)),
+  x1 = x1,
+  x2 = x2
+)
+fit <- balance(df, exposure, c(x1, x2), method = bw_cbps())
+#> ℹ Treating `.exposure` as binary.
+fit
+#> 
+#> ── Covariate balancing propensity score ────────────────────────────────────────
+#> Exposure: "exposure" (binary)
+#> Estimand: "ate"
+#> Observations: 200
+#> Solver: converged in 3 iterations
+#> Constraints: 2 terms (tolerance 0)
+#> Largest imbalance: 0.0000 (standardized mean difference)
+```
