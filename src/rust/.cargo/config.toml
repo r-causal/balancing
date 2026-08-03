@@ -10,23 +10,28 @@
 # the test harness and an executable does not export them, so ld64's -dead_strip
 # and GNU ld's --gc-sections discard them and every reference to R that they
 # carry. The linked test binary on macOS holds no savvy entry point and no
-# undefined R symbol at all, and Linux links by the same route, which is why its
-# job gets as far as running the tests.
+# undefined R symbol at all, and Linux links by the same route.
 #
-# Windows cannot take that route. PE/COFF resolves every symbol at link time,
-# with no equivalent of leaving one undefined for the loader to supply, and both
-# Windows linkers keep the entry points rather than collecting them, so the R
-# references reach the final link and fail it. Each linker has to be told to let
-# them go, in its own spelling: link.exe takes /FORCE:UNRESOLVED, and the GNU
-# toolchain's ld takes --unresolved-symbols=ignore-all. Both are declared because
-# a target stanza is read only for the exact triple being built, and the CI
-# matrix builds Windows with the gnu toolchain, which never reads the msvc one.
+# Windows cannot take that route, and on the GNU toolchain it cannot be talked
+# out of it either. PE/COFF resolves every symbol at link time, with no
+# equivalent of leaving one undefined for the loader to supply. Asking mingw's ld
+# to ignore them was tried and does not work: with
+# `-Wl,--unresolved-symbols=ignore-all` on the link command line it fails all the
+# same, because the references arrive as refptr pseudo-relocations
+# (.rdata$.refptr.R_DimSymbol and its siblings) whose addresses have to be
+# resolved before the image can be laid out at all. No GNU ld flag produces that
+# image, so CI stops asking for one: the Windows entry of the test matrix in
+# .github/workflows/rust.yaml passes `--exclude balancing-savvy`. What that gives
+# up is small. The crate's unit tests are option-list parsing and input
+# validation with no R call in them, and they still run on Linux, on macOS, and
+# locally.
+#
+# link.exe is the exception, and the stanza below stays for it. It accepts
+# /FORCE:UNRESOLVED and produces a working test binary, so a local msvc toolchain
+# can still cover the savvy crate on Windows if that is ever wanted.
 #
 # All of this is for `cargo test` alone. `R CMD check` links the staticlib into a
 # real R session that supplies every one of these symbols, and this directory is
 # Rbuildignored so it never reaches the built package.
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "link-arg=/FORCE:UNRESOLVED"]
-
-[target.x86_64-pc-windows-gnu]
-rustflags = ["-C", "link-arg=-Wl,--unresolved-symbols=ignore-all"]
