@@ -561,10 +561,10 @@ pub fn require_binary_treat(treat: &[i32]) -> savvy::Result<()> {
 pub fn require_dense_levels(treat: &[i32], n_levels: usize) -> savvy::Result<()> {
     let mut present = vec![false; n_levels];
     for &t in treat {
-        if let Ok(level) = usize::try_from(t) {
-            if level < n_levels {
-                present[level] = true;
-            }
+        if let Ok(level) = usize::try_from(t)
+            && level < n_levels
+        {
+            present[level] = true;
         }
     }
     if let Some(level) = present.iter().position(|&seen| !seen) {

@@ -1400,7 +1400,7 @@ fn energy_dims(
     targets: &RealSexp,
     tols: &RealSexp,
 ) -> savvy::Result<(usize, usize)> {
-    if n == 0 || covs.len() % n != 0 {
+    if n == 0 || !covs.len().is_multiple_of(n) {
         return Err(savvy::Error::new(format!(
             "covs has {} elements but is not a multiple of n = {n}",
             covs.len()
@@ -1619,7 +1619,7 @@ fn solve_energy_cont(
     options: ListSexp,
 ) -> savvy::Result<savvy::Sexp> {
     let n = s_weights.len();
-    if n == 0 || covs.len() % n != 0 {
+    if n == 0 || !covs.len().is_multiple_of(n) {
         return Err(savvy::Error::new(format!(
             "covs has {} elements but is not a multiple of n = {n}",
             covs.len()
@@ -1961,7 +1961,7 @@ fn kernel_draw_count(kernel: Kernel, t_proj: &RealSexp, p: usize) -> savvy::Resu
             "the t kernel requires at least one covariate column",
         ));
     }
-    if t_proj.len() % p != 0 {
+    if !t_proj.len().is_multiple_of(p) {
         return Err(savvy::Error::new(
             "t_proj must be a matrix with one row per covariate column",
         ));
@@ -2200,7 +2200,7 @@ fn kernel_matrix(
     options: ListSexp,
 ) -> savvy::Result<savvy::Sexp> {
     let n = s_weights.len();
-    if n == 0 || covs.len() % n != 0 {
+    if n == 0 || !covs.len().is_multiple_of(n) {
         return Err(savvy::Error::new(format!(
             "covs has {} elements but is not a multiple of n = {n}",
             covs.len()
