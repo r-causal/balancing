@@ -215,7 +215,7 @@ pub fn build_kernel(
     threads: usize,
 ) -> Vec<f64> {
     let z = transform::transform(covs, n, p, Distance::ScaledEuclidean, s, threads);
-    let pt = if n == 0 { 0 } else { z.len() / n };
+    let pt = z.len().checked_div(n).unwrap_or(0);
 
     if params.kernel == Kernel::T {
         return t_kernel(&z, n, pt, params, threads);
