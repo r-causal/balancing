@@ -1,7 +1,32 @@
-# On Windows, link.exe fails when the artifact contains unresolved symbols
-# (R's API, which cannot be resolved without a real R session). This flag makes
-# the linker ignore that, which is needed only for `cargo test`, not for
-# `R CMD check`. The directory is Rbuildignored so it does not reach the built
-# package.
+# `cargo test` links the savvy crate's test harness, and no R session stands
+# behind that harness: R's API symbols (SET_VECTOR_ELT, Rf_setAttrib,
+# R_CheckUserInterrupt, and savvy's own unwind_protect_impl) are declared but
+# never supplied. savvy's build script compiles its unwind-protect shim only when
+# R_INCLUDE_DIR is set, and it never emits a link directive for libR, so nothing
+# resolves those symbols at test time on any platform. What differs between
+# platforms is what the linker does about it.
+#
+# macOS and Linux need nothing. The `#[savvy]` entry points are unreachable from
+# the test harness and an executable does not export them, so ld64's -dead_strip
+# and GNU ld's --gc-sections discard them and every reference to R that they
+# carry. The linked test binary on macOS holds no savvy entry point and no
+# undefined R symbol at all, and Linux links by the same route, which is why its
+# job gets as far as running the tests.
+#
+# Windows cannot take that route. PE/COFF resolves every symbol at link time,
+# with no equivalent of leaving one undefined for the loader to supply, and both
+# Windows linkers keep the entry points rather than collecting them, so the R
+# references reach the final link and fail it. Each linker has to be told to let
+# them go, in its own spelling: link.exe takes /FORCE:UNRESOLVED, and the GNU
+# toolchain's ld takes --unresolved-symbols=ignore-all. Both are declared because
+# a target stanza is read only for the exact triple being built, and the CI
+# matrix builds Windows with the gnu toolchain, which never reads the msvc one.
+#
+# All of this is for `cargo test` alone. `R CMD check` links the staticlib into a
+# real R session that supplies every one of these symbols, and this directory is
+# Rbuildignored so it never reaches the built package.
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "link-arg=/FORCE:UNRESOLVED"]
+
+[target.x86_64-pc-windows-gnu]
+rustflags = ["-C", "link-arg=-Wl,--unresolved-symbols=ignore-all"]
