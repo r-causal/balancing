@@ -11,6 +11,12 @@ const ARMIJO_C: f64 = 1e-4;
 const MAX_BACKTRACKS: usize = 30;
 /// Maximum ridge escalations before an iteration is abandoned.
 const MAX_ESCALATIONS: usize = 12;
+/// How many multiples of the objective's resolution an accepted step may buy and
+/// still count as having bought nothing. See [`solve_with_min_iter`] for why the
+/// factor is loose and why that costs nothing.
+const UNPRODUCTIVE_DECREASE_FACTOR: f64 = 64.0;
+/// How many consecutive unproductive accepted steps certify the iterate.
+const UNPRODUCTIVE_STEPS: usize = 2;
 
 fn dot(a: &[f64], b: &[f64]) -> f64 {
     a.iter().zip(b).map(|(x, y)| x * y).sum()
@@ -135,6 +141,7 @@ fn solve_with_min_iter<P: EsteqProblem>(
     let mut iterations = 0;
     let mut converged = false;
     let mut interrupted = false;
+    let mut unproductive = 0_usize;
 
     for iter in 0..opts.max_iter {
         if interrupt() {
@@ -229,6 +236,7 @@ fn solve_with_min_iter<P: EsteqProblem>(
 
         let mut step = 1.0;
         let mut accepted = false;
+        let mut accepted_value = base;
         for _ in 0..MAX_BACKTRACKS {
             for k in 0..p {
                 beta_trial[k] = beta[k] + step * dir[k];
@@ -243,6 +251,7 @@ fn solve_with_min_iter<P: EsteqProblem>(
             };
             if trial <= base + ARMIJO_C * step * dderiv {
                 accepted = true;
+                accepted_value = trial;
                 break;
             }
             step *= 0.5;
@@ -287,6 +296,61 @@ fn solve_with_min_iter<P: EsteqProblem>(
         // that ran out of its budget. Every other exit leaves the loop before
         // moving the iterate, so those counts are unchanged.
         iterations = iter + 1;
+
+        // What the step actually bought, read after the fact, as against what the
+        // model predicted it would buy before it was taken. Consecutive steps that
+        // buy nothing the objective can tell apart from its own rounding certify
+        // the iterate: the solve is grinding at the resolution floor, and the
+        // passes that follow only shuffle the parameters inside it.
+        //
+        // This route exists because the predicted decrease cannot decide the
+        // question on its own. At a numerical minimizer the predicted decrease and
+        // the resolution it is compared against are the same order of magnitude,
+        // so a criterion sitting a hair above the bar is refused and the identical
+        // fit on another machine, or from another draw of the same design, is
+        // certified. What a step achieved is the sturdier reading, and it is read
+        // over consecutive steps because one unproductive step is a coincidence a
+        // wandering iterate can produce while real progress is still available.
+        // Two in a row is not: the measured stalls run four steps and longer, so
+        // waiting for the second costs one pass and rules the coincidence out.
+        //
+        // The factor is loose on purpose, and it costs nothing because the two
+        // populations are nine orders of magnitude apart. An unproductive step in
+        // the runs measured buys between a half and fourteen times the resolution;
+        // a productive one, in every fixture here, buys upwards of two billion
+        // times it. Sixty-four sits between them, though nowhere near the middle:
+        // it clears the unproductive steps by about a factor of four and stays some
+        // seven decades below the productive ones. The narrow side is the one to
+        // respect. Lowering the factor past fourteen would stop the measured stalls
+        // counting as unproductive and lose the verdict this route exists to reach,
+        // where raising it has decades of slack before it could swallow real
+        // progress. The exact bar of the predicted-decrease route, by contrast,
+        // sits at the top edge of the first population with no room at all.
+        //
+        // Only accepted steps are evidence, which is what keeps this away from the
+        // stall. A rejected trial step says the objective declined to move in the
+        // direction offered, and an objective too coarse to register its own
+        // improvement declines in exactly the same way as one already at its
+        // optimum. A stall therefore keeps the predicted-decrease reading it always
+        // had, and a solve that stalls before taking a single step, which is what
+        // an unreadable objective does, never reaches this route at all. The
+        // exclusions the predicted-decrease certificate carries apply here for the
+        // same reasons: a root-finding merit has no objective of its own to resolve
+        // against, an exact Hessian goes on sharpening the parameters after the
+        // value has stopped moving, and the polish takes the step it promises
+        // before any verdict.
+        if smooth && iter >= min_iter && !problem.hessian_is_exact() {
+            let bought = (base - accepted_value).abs();
+            if bought <= UNPRODUCTIVE_DECREASE_FACTOR * value_resolution(base) {
+                unproductive += 1;
+            } else {
+                unproductive = 0;
+            }
+            if unproductive >= UNPRODUCTIVE_STEPS {
+                converged = true;
+                break;
+            }
+        }
     }
 
     // Report the gradient and objective at the returned parameters. The reported
