@@ -10,7 +10,7 @@ test_that("print() of a binary ate fit is stable", {
     method = bw_entropy(),
     estimand = "ate"
   )
-  expect_snapshot(print(fit))
+  expect_balancing_snapshot(print(fit))
 })
 
 test_that("summary() of a binary ate fit is stable", {
@@ -22,7 +22,7 @@ test_that("summary() of a binary ate fit is stable", {
     method = bw_entropy(),
     estimand = "ate"
   )
-  expect_snapshot(summary(fit))
+  expect_balancing_snapshot(summary(fit))
 })
 
 test_that("print() of a binary att fit renders the focal level", {
@@ -34,7 +34,7 @@ test_that("print() of a binary att fit renders the focal level", {
     method = bw_entropy(),
     estimand = "att"
   )
-  expect_snapshot(print(fit))
+  expect_balancing_snapshot(print(fit))
 })
 
 test_that("print() of a continuous ate fit is stable", {
@@ -46,7 +46,7 @@ test_that("print() of a continuous ate fit is stable", {
     method = bw_entropy(),
     estimand = "ate"
   )
-  expect_snapshot(print(fit))
+  expect_balancing_snapshot(print(fit))
 })
 
 test_that("the balance table carries one row per constraint term", {
@@ -85,7 +85,7 @@ test_that("print() of a categorical ate fit lists every level", {
     method = bw_entropy(),
     estimand = "ate"
   )
-  expect_snapshot(print(fit))
+  expect_balancing_snapshot(print(fit))
 })
 
 # The quadratic-program family reports a solver backend and a minimum-weight
@@ -100,7 +100,7 @@ test_that("print() of an energy fit is stable", {
     method = bw_energy(),
     estimand = "ate"
   )
-  expect_snapshot(print(fit))
+  expect_balancing_snapshot(print(fit))
 })
 
 test_that("summary() of an energy fit reports the weight floor count", {
@@ -112,7 +112,7 @@ test_that("summary() of an energy fit reports the weight floor count", {
     method = bw_energy(),
     estimand = "ate"
   )
-  expect_snapshot(summary(fit))
+  expect_balancing_snapshot(summary(fit))
 })
 
 test_that("summary() of a stable balancing fit reports the weight floor count", {
@@ -125,7 +125,7 @@ test_that("summary() of a stable balancing fit reports the weight floor count", 
     estimand = "ate",
     constraints = balance_terms(tolerance = 0.05)
   )
-  expect_snapshot(summary(fit))
+  expect_balancing_snapshot(summary(fit))
 })
 
 test_that("summary() of a cfd fit reports the weight floor count", {
@@ -137,7 +137,15 @@ test_that("summary() of a cfd fit reports the weight floor count", {
     method = bw_cfd(),
     estimand = "ate"
   )
-  expect_snapshot(summary(fit))
+  expect_balancing_snapshot(summary(fit))
+  # The snapshot scrubs the count, which moves with the solver's floating-point
+  # path, so the claim that this fixture puts weights on the floor at all is made
+  # here instead. Recomputed with the rule the summary method applies, on the
+  # same reported-weight scale. The count itself is not asserted: that is the
+  # platform-volatile number.
+  floor <- fit@method@min_weight
+  at_floor <- sum(as.numeric(fit@weights) <= floor * (1 + 1e-6) + 1e-12)
+  expect_gt(at_floor, 0)
 })
 
 # ---- An imbalance that was never measured ----------------------------------

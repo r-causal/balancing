@@ -349,14 +349,12 @@ fn solve_auto(
     let certificate = osqp_solution.status == QpStatus::PrimalInfeasible
         && spec.convexity != Convexity::Indefinite
         && !osqp_solution.interrupted;
-    if certificate {
-        if let Ok(clarabel_solution) = clarabel::Clarabel.solve(spec, opts, interrupt) {
-            return Ok(RoutedSolution {
-                solution: clarabel_solution,
-                backend: "clarabel",
-                fell_back: true,
-            });
-        }
+    if certificate && let Ok(clarabel_solution) = clarabel::Clarabel.solve(spec, opts, interrupt) {
+        return Ok(RoutedSolution {
+            solution: clarabel_solution,
+            backend: "clarabel",
+            fell_back: true,
+        });
     }
     Ok(RoutedSolution {
         solution: osqp_solution,

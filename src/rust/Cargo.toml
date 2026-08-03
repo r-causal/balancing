@@ -4,7 +4,7 @@ members = ["crates/core", "crates/savvy"]
 
 [workspace.package]
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 version = "0.0.0"
 
 # Shared dependency versions. Crates opt in with `{ workspace = true }` so a

@@ -613,12 +613,19 @@ test_that("a distance-based kernel is invariant to a uniform covariate rescaling
   scaled <- data
   scaled$x1 <- data$x1 * 100
   scaled$x2 <- data$x2 * 100
+  # Both solves are tightened well past the 1e-8 solver default so that each one
+  # settles inside its own tolerance ball rather than wherever its iteration path
+  # happened to stop. At the default the two agree only to about 4e-5, the same
+  # order as the assertion below, so the comparison was reading solver
+  # reproducibility rather than the kernel identity it is about. At 2e-11 they
+  # agree to about 5e-7. Tighter is possible but not by much: this problem stops
+  # converging below roughly 1e-11, and a fit that gives up warns.
   fit <- function(df) {
     balance(
       df,
       exposure,
       c(x1, x2),
-      method = bw_cfd(kernel = "gaussian"),
+      method = bw_cfd(kernel = "gaussian", convergence_tolerance = 2e-11),
       estimand = "ate"
     )
   }
@@ -969,7 +976,7 @@ test_that("the ato estimand raises balancing_estimand_error for a categorical ex
 test_that("a kernel balancing fit prints its summary block", {
   # Records on the first successful run once the fit path exists.
   data <- sim_binary()
-  expect_snapshot({
+  expect_balancing_snapshot({
     fit <- balance(
       data,
       exposure,

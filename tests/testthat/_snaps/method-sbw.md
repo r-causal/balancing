@@ -33,12 +33,11 @@
       constraints = balance_terms(tolerance = 0.05))
       fit
     Output
-      
       -- Stable balancing weights ----------------------------------------------------
       Exposure: "exposure" (binary)
       Estimand: "ate"
       Observations: 500
-      Solver: converged in 100 iterations
+      Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0.05)
       Largest imbalance: 0.1000 (standardized mean difference)
 

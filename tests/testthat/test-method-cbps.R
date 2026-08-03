@@ -1502,7 +1502,7 @@ test_that("over-identified bw_cbps meets the design objective tolerance against 
 test_that("a bw_cbps fit prints its summary block", {
   # Records on the first successful run once the fit path exists.
   data <- sim_binary()
-  expect_snapshot({
+  expect_balancing_snapshot({
     fit <- balance(
       data,
       exposure,

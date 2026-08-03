@@ -56,9 +56,14 @@ jobs:
       fail-fast: false
       matrix:
         config:
-          - {os: ubuntu-latest,  toolchain: stable}
-          - {os: macos-latest,   toolchain: stable}
-          - {os: windows-latest, toolchain: stable-x86_64-pc-windows-gnu}
+          # `test_args` narrows the run where a platform cannot link everything.
+          # The savvy crate's test binary cannot be linked by the GNU Windows
+          # toolchain at all, for the reason recorded in
+          # src/rust/.cargo/config.toml, so Windows tests the core crate and
+          # leaves savvy to the other two platforms.
+          - {os: ubuntu-latest,  toolchain: stable, test_args: ''}
+          - {os: macos-latest,   toolchain: stable, test_args: ''}
+          - {os: windows-latest, toolchain: stable-x86_64-pc-windows-gnu, test_args: '--exclude balancing-savvy'}
 
     steps:
       - uses: actions/checkout@v6
@@ -68,10 +73,10 @@ jobs:
           toolchain: ${{ matrix.config.toolchain }}
 
       - name: Test with default features
-        run: cargo test --workspace
+        run: cargo test --workspace ${{ matrix.config.test_args }}
 
       - name: Test without default features
-        run: cargo test --workspace --no-default-features
+        run: cargo test --workspace --no-default-features ${{ matrix.config.test_args }}
 
   bench:
     runs-on: ubuntu-latest

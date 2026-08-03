@@ -1238,7 +1238,7 @@ test_that("stable balancing weights meet the objective tolerance against optweig
 test_that("a stable balancing fit prints its summary block", {
   # Records on the first successful run once the fit path exists.
   data <- sim_binary()
-  expect_snapshot({
+  expect_balancing_snapshot({
     fit <- balance(
       data,
       exposure,

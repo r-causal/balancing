@@ -2375,7 +2375,14 @@ mod tests {
     /// that has arrived at the numerical minimizer still reads a gradient far above
     /// the tolerance. The sixteen-unit fixtures above are too small to show it.
     fn confounded_binary_design(n: usize) -> (Vec<f64>, Vec<i32>, Vec<f64>) {
-        let mut state: u64 = 0x2545F4914F6CDD1D;
+        confounded_binary_design_seeded(n, 0x2545F4914F6CDD1D)
+    }
+
+    /// The same design drawn from any seed. Which seed is drawn decides nothing
+    /// about the estimator and everything about the path the solver walks to it,
+    /// so a test that is about the path names its own.
+    fn confounded_binary_design_seeded(n: usize, seed: u64) -> (Vec<f64>, Vec<i32>, Vec<f64>) {
+        let mut state: u64 = seed;
         let mut next = || {
             state = state
                 .wrapping_mul(6364136223846793005)
@@ -2450,6 +2457,82 @@ mod tests {
                 "two_step = {twostep} burnt its cap"
             );
         }
+    }
+
+    // The sibling above is certified on the design's own seed. This one pins the
+    // verdict where the certificate refuses it. Drawing the same design from seed
+    // 0xd puts the continuously-updating policy in exactly the state the
+    // certificate exists to recognize and gets nothing for it: the polish reaches
+    // the numerical minimizer and then spends pass after pass with the predicted
+    // decrease at 1.08 to 1.1 times the objective's resolution, always just above
+    // the bar it has to fall below, and gives up after thirteen iterations
+    // reporting that it did not converge.
+    //
+    // Nothing about that is particular to this seed or this machine. The
+    // predicted decrease at a numerical minimizer and the resolution it is
+    // compared against are the same order of magnitude by construction, so which
+    // side of the comparison a run lands on is decided by its last bits. The seed
+    // is how the coin is flipped deterministically here; on the design's own seed
+    // it is flipped by the platform, and CI fails on Linux where a development
+    // machine passes.
+    //
+    // The objective is the evidence that the solve arrived. Fourteen times the
+    // iteration budget buys not one bit of it, so no progress is left for the
+    // extra passes to make and the verdict is the only thing in question. A solve
+    // whose accepted steps have stopped moving the objective by more than the
+    // objective can resolve is standing on the minimizer, and that is what has to
+    // be certified.
+    #[test]
+    fn a_stalled_minimizer_is_certified_converged() {
+        let n = 500;
+        let (covs, treat, s) = confounded_binary_design_seeded(n, 0xd);
+        let solve_with = |max_iter: usize| {
+            let inputs = CbpsInputs {
+                covs_mod: &covs,
+                covs_bal: &covs,
+                n,
+                p_mod: 3,
+                p_bal: 3,
+                treat: &treat,
+                s: &s,
+                link: Link::Logit,
+                estimand: CbpsEstimand::Ate,
+                over: true,
+                twostep: false,
+                threads: 1,
+                max_iter,
+                tol: 1e-10,
+            };
+            solve(&inputs, &no_interrupt())
+        };
+        let tight = solve_with(14);
+        let generous = solve_with(200);
+
+        // The premise, asserted rather than assumed: the run stops on its own
+        // terms well short of the cap, and the criterion is bit identical whether
+        // it is given fourteen iterations or two hundred.
+        assert!(
+            generous.iterations < 200,
+            "the scenario needs a solve that stops short of its cap, not one \
+             that burns it, and this one ran {} iterations",
+            generous.iterations
+        );
+        assert_eq!(
+            tight.gmm_obj.unwrap().to_bits(),
+            generous.gmm_obj.unwrap().to_bits(),
+            "the criterion moved between a cap of fourteen and a cap of two \
+             hundred, so this solve still had progress to make and is not the \
+             stalled minimizer the test is about"
+        );
+
+        assert!(
+            generous.converged,
+            "the solve stopped after {} iterations at a criterion of {} that \
+             more than fourteen times the budget cannot improve, and reported \
+             that it did not converge",
+            generous.iterations,
+            generous.gmm_obj.unwrap()
+        );
     }
 
     // ---- Categorical --------------------------------------------------------

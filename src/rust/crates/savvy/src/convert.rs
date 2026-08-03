@@ -26,6 +26,30 @@ pub struct EntropyOptions {
     pub esteq_scale: Option<Vec<f64>>,
 }
 
+/// The entropy defaults the boundary resolves when the option list omits a value.
+///
+/// The two solver fields are reached by different routes. `max_iterations` has no
+/// R-side default, so it is absent from the option list on every fit whose caller
+/// has not named one, which makes the cap here the budget every default entropy
+/// fit runs under. `convergence_tolerance` does carry an R-side default and is
+/// forwarded whenever it is non-NULL, so the tolerance here applies only to a
+/// caller who passes NULL explicitly.
+///
+/// Both are deliberately separate from `SolveOptions::default()`, which serves
+/// direct core callers and is stricter on the gradient while allowing fewer
+/// iterations to reach it.
+impl Default for EntropyOptions {
+    fn default() -> Self {
+        Self {
+            threads: balancing_core::available_threads().0,
+            solver: EntropySolver::Newton,
+            max_iter: 1000,
+            tol: 1e-10,
+            esteq_scale: None,
+        }
+    }
+}
+
 /// Read a scalar option as an `f64`, accepting either an integer or a double.
 fn option_f64(value: Sexp, name: &str) -> savvy::Result<f64> {
     if value.is_integer() {
@@ -69,13 +93,7 @@ pub fn parse_entropy_options(options: ListSexp) -> savvy::Result<EntropyOptions>
         }
     }
 
-    let mut resolved = EntropyOptions {
-        threads: balancing_core::available_threads().0,
-        solver: EntropySolver::Newton,
-        max_iter: 200,
-        tol: 1e-10,
-        esteq_scale: None,
-    };
+    let mut resolved = EntropyOptions::default();
 
     if let Some(value) = options.get("threads") {
         resolved.threads = option_usize(value, "threads")?.max(1);
@@ -116,6 +134,24 @@ pub struct IptOptions {
     pub tol: f64,
 }
 
+/// The defaults the boundary resolves when the option list omits a value, reached
+/// by the same two routes as the entropy defaults above.
+///
+/// This parser serves the covariate balancing propensity score entrypoints as well
+/// as the tilting ones, so the cap here is the budget for both families, and both
+/// R constructors leave `max_iterations` unset by default. It matches the entropy
+/// cap so that methods solving the same fit at the same tolerance are given the
+/// same budget to reach it.
+impl Default for IptOptions {
+    fn default() -> Self {
+        Self {
+            threads: balancing_core::available_threads().0,
+            max_iter: 1000,
+            tol: 1e-10,
+        }
+    }
+}
+
 /// Parse the option list for an inverse probability tilting solve, rejecting
 /// unknown names. The link and estimand cross the boundary as their own
 /// arguments, so the option list carries only the solver tuning.
@@ -131,11 +167,7 @@ pub fn parse_ipt_options(options: ListSexp) -> savvy::Result<IptOptions> {
         }
     }
 
-    let mut resolved = IptOptions {
-        threads: balancing_core::available_threads().0,
-        max_iter: 200,
-        tol: 1e-10,
-    };
+    let mut resolved = IptOptions::default();
 
     if let Some(value) = options.get("threads") {
         resolved.threads = option_usize(value, "threads")?.max(1);
@@ -529,10 +561,10 @@ pub fn require_binary_treat(treat: &[i32]) -> savvy::Result<()> {
 pub fn require_dense_levels(treat: &[i32], n_levels: usize) -> savvy::Result<()> {
     let mut present = vec![false; n_levels];
     for &t in treat {
-        if let Ok(level) = usize::try_from(t) {
-            if level < n_levels {
-                present[level] = true;
-            }
+        if let Ok(level) = usize::try_from(t)
+            && level < n_levels
+        {
+            present[level] = true;
         }
     }
     if let Some(level) = present.iter().position(|&seen| !seen) {
@@ -562,6 +594,24 @@ pub fn real_vector(data: &[f64]) -> savvy::Result<OwnedRealSexp> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The iteration cap the boundary resolves is a portability contract rather
+    // than a tuning preference, so it is pinned here. An option list arriving
+    // without `max_iterations` leaves the parser at these values, and an entropy
+    // or tilting fit that needs more iterations than the cap allows stops short
+    // of its tolerance and warns. The solvers walk a different floating-point
+    // path on each platform, so a cap tight enough that a fit converges just
+    // under it on one platform leaves the same fit warning on another. The cap
+    // has to be wide enough that the platform spread sits well inside it.
+    #[test]
+    fn the_entropy_default_iteration_cap_absorbs_platform_spread() {
+        assert_eq!(EntropyOptions::default().max_iter, 1000);
+    }
+
+    #[test]
+    fn the_tilting_default_iteration_cap_absorbs_platform_spread() {
+        assert_eq!(IptOptions::default().max_iter, 1000);
+    }
 
     #[test]
     fn parse_smoothness_resolves_the_supported_half_integers() {
