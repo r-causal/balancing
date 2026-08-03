@@ -8,12 +8,11 @@
       The solver did not reach its convergence tolerance.
       i Increase `max_iterations` or loosen `convergence_tolerance` in `balancing::bw_entropy()`.
     Output
-      
       -- Entropy balancing -----------------------------------------------------------
       Exposure: "exposure" (binary)
       Estimand: "ate"
       Observations: 500
-      Solver: did not converge in 3 iterations
+      Solver: did not converge in <n> iterations
       Constraints: 2 terms (tolerance 0)
       Largest imbalance: 0.0000 (standardized mean difference)
 
@@ -28,12 +27,11 @@
       x The largest imbalance is 0.1751.
       i Raise `tolerance` in `balance_terms()`, lower the moments, or drop interactions.
     Output
-      
       -- Entropy balancing -----------------------------------------------------------
       Exposure: "exposure" (continuous)
       Estimand: "ate"
       Observations: 500
-      Solver: converged in 30 iterations
+      Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0.1)
       Largest imbalance: 0.1751 (correlation)
 
@@ -47,12 +45,11 @@
       `two_step` applies only to the over-identified fit and is ignored.
       i The two-step weighting matrix belongs to the over-identified criterion, which `bw_cbps()` fits for a binary exposure with `over_identified = TRUE`.
     Output
-      
       -- Covariate balancing propensity score ----------------------------------------
       Exposure: "exposure" (binary)
       Estimand: "ate"
       Observations: 500
-      Solver: converged in 4 iterations
+      Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
       Largest imbalance: 0.0000 (standardized mean difference)
 
@@ -66,12 +63,11 @@
       `over_identified` applies only to a binary exposure and is ignored.
       i A categorical exposure has no over-identified criterion, so the fit balances its moment conditions exactly.
     Output
-      
       -- Covariate balancing propensity score ----------------------------------------
       Exposure: "exposure" (categorical)
       Estimand: "ate"
       Observations: 500
-      Solver: converged in 4 iterations
+      Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
       Largest imbalance: 0.0000 (standardized mean difference)
 
@@ -85,12 +81,11 @@
       `over_identified` applies only to a binary exposure and is ignored.
       i A continuous exposure has no over-identified criterion, so the fit balances its moment conditions exactly.
     Output
-      
       -- Covariate balancing propensity score ----------------------------------------
       Exposure: "exposure" (continuous)
       Estimand: "ate"
       Observations: 500
-      Solver: converged in 6 iterations
+      Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
       Largest imbalance: 0.0000 (correlation)
 
@@ -103,12 +98,11 @@
       `link` applies only to a discrete exposure and is ignored.
       i A continuous exposure balances the exposure-covariate covariance through an exponential tilt, which fits no propensity model to link.
     Output
-      
       -- Covariate balancing propensity score ----------------------------------------
       Exposure: "exposure" (continuous)
       Estimand: "ate"
       Observations: 500
-      Solver: converged in 6 iterations
+      Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
       Largest imbalance: 0.0000 (correlation)
 
@@ -125,12 +119,11 @@
       `two_step` applies only to the over-identified fit and is ignored.
       i The two-step weighting matrix belongs to the over-identified criterion, which `bw_cbps()` fits for a binary exposure with `over_identified = TRUE`.
     Output
-      
       -- Covariate balancing propensity score ----------------------------------------
       Exposure: "exposure" (categorical)
       Estimand: "ate"
       Observations: 500
-      Solver: converged in 4 iterations
+      Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
       Largest imbalance: 0.0000 (standardized mean difference)
 
@@ -145,12 +138,11 @@
       x The energy kernel's quadratic form is indefinite, and the interior-point backend solves only positive-semidefinite forms.
       i The fit used "osqp" instead, which `@solver_status` records.
     Output
-      
       -- Characteristic function distance balancing ----------------------------------
       Exposure: "exposure" (binary)
       Estimand: "ate"
       Observations: 500
-      Solver: converged in 75 iterations
+      Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
       Largest imbalance: 0.0118 (standardized mean difference)
 
@@ -164,12 +156,11 @@
       x The energy objective's quadratic form is indefinite, and the interior-point backend solves only positive-semidefinite forms.
       i The fit used "osqp" instead, which `@solver_status` records.
     Output
-      
       -- Energy balancing ------------------------------------------------------------
       Exposure: "exposure" (binary)
       Estimand: "ate"
       Observations: 500
-      Solver: converged in 75 iterations
+      Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
       Largest imbalance: 0.0118 (standardized mean difference)
 
@@ -183,12 +174,11 @@
       `focal_level` applies to the "att" and "atc" estimands and is ignored.
       i The "ate" estimand reweights every exposure group rather than holding one fixed.
     Output
-      
       -- Entropy balancing -----------------------------------------------------------
       Exposure: "exposure" (binary)
       Estimand: "ate"
       Observations: 500
-      Solver: converged in 6 iterations
+      Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
       Largest imbalance: 0.0000 (standardized mean difference)
 

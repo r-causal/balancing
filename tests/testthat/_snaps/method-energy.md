@@ -8,12 +8,11 @@
       `tolerance` relaxes added moment constraints, but this fit has none to relax.
       i Drop `tolerance` from `balance_terms()`, or add moment constraints with `moments`, `quantiles`, or `interactions` for a discrete exposure.
     Output
-      
       -- Energy balancing ------------------------------------------------------------
       Exposure: "exposure" (binary)
       Estimand: "ate"
       Observations: 150
-      Solver: converged in 75 iterations
+      Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0.1)
       Largest imbalance: 0.0437 (standardized mean difference)
 
@@ -27,12 +26,11 @@
       `tolerance` relaxes added moment constraints, but this fit has none to relax.
       i Drop `tolerance` from `balance_terms()`, or add moment constraints with `moments`, `quantiles`, or `interactions` for a discrete exposure.
     Output
-      
       -- Energy balancing ------------------------------------------------------------
       Exposure: "exposure" (continuous)
       Estimand: "ate"
       Observations: 500
-      Solver: converged in 75 iterations
+      Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0.1)
       Largest imbalance: 0.1882 (correlation)
 
@@ -53,12 +51,11 @@
       fit <- balance(data, exposure, c(x1, x2), method = bw_energy(), estimand = "ate")
       fit
     Output
-      
       -- Energy balancing ------------------------------------------------------------
       Exposure: "exposure" (binary)
       Estimand: "ate"
       Observations: 500
-      Solver: converged in 75 iterations
+      Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
       Largest imbalance: 0.0118 (standardized mean difference)
 

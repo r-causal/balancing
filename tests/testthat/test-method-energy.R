@@ -1171,7 +1171,7 @@ test_that("energy weights meet the objective tolerance against WeightIt for a bi
 test_that("an energy fit prints its summary block", {
   # Records on the first successful run once the fit path exists.
   data <- sim_binary()
-  expect_snapshot({
+  expect_balancing_snapshot({
     fit <- balance(
       data,
       exposure,

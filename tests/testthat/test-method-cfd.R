@@ -969,7 +969,7 @@ test_that("the ato estimand raises balancing_estimand_error for a categorical ex
 test_that("a kernel balancing fit prints its summary block", {
   # Records on the first successful run once the fit path exists.
   data <- sim_binary()
-  expect_snapshot({
+  expect_balancing_snapshot({
     fit <- balance(
       data,
       exposure,
