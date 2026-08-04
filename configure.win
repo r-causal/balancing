@@ -41,6 +41,66 @@ if [ -n "${MSRV}" ]; then
   fi
 fi
 
+# The Rust target cannot be hardcoded to x86_64-pc-windows-gnu. R's Windows arm64
+# builds use the LLVM gnullvm ABI, and a static library built for the mingw ABI
+# does not belong in one of those installs. Ask R which architecture it is rather
+# than guessing. R CMD INSTALL exports R_HOME and also puts R's bin directory on
+# PATH, so try both spellings before giving up: a wrong answer here means
+# building for the wrong ABI.
+#
+# The probe runs with --vanilla so that no startup file is read and nothing can
+# be printed ahead of the answer. The last line of output is taken as well, which
+# costs nothing and still covers a front-end wrapper that writes to stdout on its
+# own account; it is no longer the only thing keeping profile output out of the
+# answer.
+ARCH=""
+if [ -n "${R_HOME}" ]; then
+  ARCH="$("${R_HOME}/bin/Rscript" --vanilla -e 'cat(R.version$arch)' 2>/dev/null | tail -n 1)"
+fi
+if [ -z "${ARCH}" ]; then
+  ARCH="$(Rscript --vanilla -e 'cat(R.version$arch)' 2>/dev/null | tail -n 1)"
+fi
+
+case "${ARCH}" in
+  aarch64 | arm64)
+    ARCH_PREFIX="aarch64"
+    TARGET="aarch64-pc-windows-gnullvm"
+    ;;
+  x86_64)
+    ARCH_PREFIX="x86_64"
+    TARGET="x86_64-pc-windows-gnu"
+    ;;
+  *)
+    ARCH_PREFIX="x86_64"
+    TARGET="x86_64-pc-windows-gnu"
+    echo "could not read an architecture from R (got '${ARCH}'), assuming x86_64"
+    ;;
+esac
+
+# r-universe's arm64 Windows runners put a shim ahead of cargo on PATH that drops
+# --target and builds whatever CARGO_BUILD_TARGET names instead. Follow that
+# variable so that LIBDIR points at the directory cargo actually writes to, but
+# only when it names a GNU target for the architecture chosen above.
+#
+# The agreement test matters because a real cargo takes the --target on the
+# command line over the variable, so LIBDIR is right either way there, and
+# following a disagreeing value would name a build that is not happening: a
+# developer who leaves CARGO_BUILD_TARGET set from another project would build one
+# ABI and try to link the other. The shim's value agrees with R's architecture,
+# which is the case this exists for. A non-GNU value is ignored for the same
+# reason it always was: R's Windows toolchain links GNU objects only.
+case "${CARGO_BUILD_TARGET}" in
+  "") ;;
+  "${ARCH_PREFIX}-pc-windows-gnu" | "${ARCH_PREFIX}-pc-windows-gnullvm")
+    TARGET="${CARGO_BUILD_TARGET}"
+    ;;
+  *)
+    echo "ignoring CARGO_BUILD_TARGET '${CARGO_BUILD_TARGET}': it is not a GNU target for ${ARCH_PREFIX}, the architecture this build is for"
+    ;;
+esac
+
+echo "using Rust target: '${TARGET}'"
+
 # allow overriding profile externally (e.g. on CI)
 if [ -n "${SAVVY_PROFILE}" ]; then
   PROFILE="${SAVVY_PROFILE}"
@@ -56,8 +116,251 @@ if [ -n "${SAVVY_FEATURES}" ]; then
   FEATURE_FLAGS="--features '${SAVVY_FEATURES}'"
 fi
 
+# Choose where cargo builds.
+#
+# Windows caps a path at 260 characters. osqp-sys, a hard dependency of
+# balancing-core because the energy and cfd methods need OSQP, builds OSQP
+# through cmake, and cmake writes its compiler probes and object files as much as
+# 173 characters below the cargo target directory. So the target directory itself
+# has to stay short. Installing from a source tarball unpacks the sources under
+# the temporary directory, which leaves the in-package tree near 100 characters
+# and puts cmake past the limit; that is why the same sources build from a short
+# checkout and fail on r-universe.
+#
+# Keep the tree inside the package while it fits, because pkgbuild::compile_dll()
+# and repeated load_all() reuse the cargo cache and a fresh directory per run
+# would rebuild the Rust core from scratch every time. Relocate it into the
+# temporary directory otherwise; clean_intermediate removes it for every profile
+# but dev.
+#
+# What a relocated tree is named depends on the profile, because the two profiles
+# want opposite things from the name.
+#
+# An install needs a name no other install can arrive at. The relocated tree is
+# not scoped to anything else: R exports R_SESSION_TMPDIR on Unix only, so on
+# Windows the roots below name the temporary directory itself and not a
+# per-session directory inside it, and nothing removes what is left there when R
+# exits. A shared name would then let one install inherit another's tree:
+# $(STATLIB) has no prerequisites, so make skips cargo whenever that file already
+# exists, and an install interrupted after cargo wrote the archive but before
+# clean_intermediate removed it would leave a staticlib for the next install of
+# any version to link. Two concurrent installs would also race, the first to
+# finish removing the tree the other is building in. The process id settles all of
+# that, at the cost of leaving an interrupted install's tree behind: the name it
+# would be recognised by is gone with the shell that chose it, but nothing can
+# link that tree either and temporary-directory cleaning collects it.
+#
+# A development build needs the opposite. pkgbuild::compile_dll() sets DEBUG=true
+# and installs from the checkout, so a contributor whose checkout is deeper than
+# 60 characters relocates on every load_all(); a name unique per run would rebuild
+# OSQP and the whole dependency graph each time and leave every tree behind, since
+# clean_intermediate keeps the tree for dev. That is the cache loss this whole
+# block exists to avoid. A checksum of the package directory gives a name that is
+# stable from one run to the next and still distinct per checkout, which matters
+# because this project is developed in git worktrees and two checkouts on one
+# machine must not build in the same tree.
+#
+# The staleness that the per-install name guards against does not follow the
+# checksum name into the dev profile. A dev tree can only be inherited by a later
+# build of the same checkout, never by an install of another version, and
+# clean_intermediate removes the staticlib for every profile, so the next dev
+# build re-runs cargo and cargo decides for itself what to reuse. What remains is
+# a dev build interrupted between cargo writing the archive and that removal,
+# which is the exposure the in-package dev tree already carries.
+#
+# cksum is in POSIX and Rtools carries it, but nothing here depends on that: when
+# it answers with no checksum the per-run name is used instead and the build still
+# runs. That fallback is reported because it costs more than the cache. A dev build
+# then carries the per-run name, and clean_intermediate keeps a dev tree, so every
+# load_all() rebuilds the whole dependency graph and leaves another cargo tree in
+# the temporary directory that nothing later goes back for.
+#
+# The budget is the one for aarch64-pc-windows-gnullvm, the deeper of the two
+# Windows targets. cmake reaches 146 characters below the target directory before
+# the longest name it appends, the 27-character CMakeCXXCompilerABI.cpp.obj, so
+# clearing cmake's own CMAKE_OBJECT_PATH_MAX warning threshold of 250 allows 77
+# characters here and clearing the roughly 259 the OS turns out to enforce allows
+# 85. 76 is under the stricter of the two.
+#
+# The margin against 85 earns its keep, because the length measured below is only
+# an estimate of the length that matters. The limit applies to the path after
+# Windows canonicalizes it, and an 8.3 component such as RUNNER~1 grows by three
+# characters once cmake resolves it to runneradmin. Rtools' sh also reports a
+# drive-letter path in msys form, which happens to be the same length as the
+# Windows form make will use, but would not be for a path under the msys root.
+TARGET_DIR_MAX=76
+
+# make runs in src/, one level below the directory this script runs in.
+IN_PACKAGE_TARGET_DIR="$(pwd)/src/rust/target"
+RELOCATED_TARGET_DIR=""
+
+if [ "${#IN_PACKAGE_TARGET_DIR}" -gt "${TARGET_DIR_MAX}" ]; then
+  # The name stays terse, because the whole point of this block is the character
+  # budget. The d marks a checksum, which keeps the two schemes from ever naming
+  # the same directory: a process id is digits alone.
+  TARGET_DIR_TAG="$$"
+  if [ "${PROFILE}" = "dev" ]; then
+    # The first run of digits in cksum's answer, which keeps the checksum and
+    # leaves behind the byte count beside it and any padding around either.
+    PKG_DIGEST="$(printf '%s' "$(pwd)" | cksum 2>/dev/null | sed -n 's/^[^0-9]*\([0-9][0-9]*\).*$/\1/p')"
+    if [ -n "${PKG_DIGEST}" ]; then
+      TARGET_DIR_TAG="d${PKG_DIGEST}"
+    else
+      echo "cksum reported no checksum of this directory, so the build tree is named for this run alone: no cargo cache will carry over to the next run, and each run will leave its own tree behind in the temporary directory"
+    fi
+  fi
+
+  # Only the roots the environment names, and no /tmp behind them. /tmp is the one
+  # root the length test below cannot measure: under Rtools' sh it is the msys root's
+  # own tmp directory, C:/rtools45/tmp, so the string measured here comes out short by
+  # the whole msys root, where every other root's msys spelling measures the same as
+  # the Windows form the tools end up using. A build tree inside the toolchain
+  # installation is also not what a temporary directory is for, since nothing ever
+  # collects what is left there. The in-package tree is already the fallback. None of
+  # this is about where a value came from: TEMP or TMP can still name /tmp, and for
+  # such a root the length reported below is the msys one.
+  for TMP_ROOT in "${TMPDIR}" "${TEMP}" "${TMP}"; do
+    if [ -z "${TMP_ROOT}" ]; then
+      continue
+    fi
+
+    # TEMP and TMP arrive with backslashes. Cargo, cmake and make all take forward
+    # slashes, and make would read a backslash as an escape. Normalise before the
+    # test below, so that a separator is not taken for one of the characters that
+    # test refuses.
+    CANDIDATE_ROOT="$(printf '%s' "${TMP_ROOT}" | LC_ALL=C tr '\\' '/')"
+
+    # Refuse a root holding a character that make or the shell would read as
+    # something other than text, and try the next root instead. Windows allows far
+    # more than this in a directory name and a local account is enough to produce it:
+    # an account named "Jane Doe" gives a TEMP with a space in it, and one named
+    # "A&B" a TEMP with an ampersand.
+    #
+    # An allowlist rather than a list of the characters known to break something,
+    # because the value reaches the generated makefile as TARGET_DIR and make
+    # expands it unquoted into PKG_LIBS and into the prerequisites of $(SHLIB),
+    # where anything make or the shell reads as a separator or an operator splits
+    # it. $ is worse still, since make expands it before any quoting can apply, so
+    # rm -Rf "$(TARGET_DIR)" could name a directory that nothing here created. The
+    # allowlist covers each of those at once, and covers the next use site that
+    # nobody thinks to audit.
+    #
+    # What the allowlist leaves out is a closed set, which is what makes it
+    # auditable rather than a guess: the ASCII whitespace and punctuation, less the
+    # six characters a Windows path needs, : / . - _ ~. So the refused characters
+    # are space, tab, newline and the other ASCII control characters, delete, and
+    # ! " # $ % & ' ( ) * + , ; < = > ? @ [ \ ] ^ ` { | }.
+    #
+    # Everything above ASCII is accepted, and tr strikes those bytes before the test
+    # so that the test judges only what it was written to judge. An account named
+    # "José" gives a TEMP with an é in it, and é is not a character make or the shell
+    # reads as a separator or an operator, which is the whole criterion here. A
+    # refusal is no longer free either: the roots below this one are tried and the
+    # in-package tree is the fallback, which builds and warns rather than failing,
+    # but that fallback is the path-limit bug this block exists to avoid, so every
+    # needless refusal reinstates it. R draws its own line in the same place,
+    # shortening a temporary directory with whitespace in it to the 8.3 form and
+    # aborting when it cannot, and saying nothing about non-ASCII. LC_ALL=C is there
+    # so that the high byte range means bytes under every tr this can meet.
+    CANDIDATE_ASCII="$(printf '%s' "${CANDIDATE_ROOT}" | LC_ALL=C tr -d '\200-\377')"
+    case "${CANDIDATE_ASCII}" in
+      *[!A-Za-z0-9_:/.~-]*)
+        echo "skipping temporary directory '${TMP_ROOT}': it holds a character that a make variable cannot carry safely"
+        continue
+        ;;
+    esac
+
+    CANDIDATE="${CANDIDATE_ROOT%/}/rt-${TARGET_DIR_TAG}"
+
+    # Take the candidate only when moving there helps. The comparison is against
+    # the in-package length rather than the budget on purpose: when nothing on
+    # offer is short enough, the shortest option is still the best one available.
+    if [ "${#CANDIDATE}" -ge "${#IN_PACKAGE_TARGET_DIR}" ]; then
+      continue
+    fi
+
+    # mkdir without -p, so a root that does not exist is refused here rather than
+    # created, and so an install takes the directory only when it is the one that
+    # created it. Process ids are reused, so a tree an interrupted install left
+    # behind could carry the name a later install picks, and inheriting a stale
+    # cargo tree is what the per-install name exists to prevent.
+    if MKDIR_MESSAGE="$(mkdir "${CANDIDATE}" 2>&1)"; then
+      RELOCATED_TARGET_DIR="${CANDIDATE}"
+      break
+    fi
+
+    # A dev name is chosen to be the name the last dev build of this checkout
+    # chose, so a directory already standing there is that build tree and reusing
+    # it is the point of the name. Writability is part of the test, because cargo
+    # writes into this directory: adopting one it cannot write to would fail inside
+    # the recipe, where the loop that could have tried the next root is long gone.
+    # A refusal on writability says as much in its own words, because all mkdir
+    # reported for this candidate is that the name exists, which is just as true of
+    # the tree that does get adopted.
+    if [ "${PROFILE}" = "dev" ] && [ -d "${CANDIDATE}" ]; then
+      if [ -w "${CANDIDATE}" ]; then
+        RELOCATED_TARGET_DIR="${CANDIDATE}"
+        echo "reusing the cargo target directory an earlier development build left at '${CANDIDATE}'"
+        break
+      fi
+      echo "skipping cargo target directory '${CANDIDATE}': a development build tree is already there and it is not writable"
+      continue
+    fi
+
+    # Say what mkdir said rather than discarding it. A root that is gone, a root
+    # that refuses writes, and a name taken by something the branch above does not
+    # adopt, meaning a name taken outside the dev profile or taken under it by
+    # something that is not a directory, all end in the same fallback, and a log that
+    # does not say which of them happened leaves no way to tell a leftover directory
+    # apart from a misconfigured machine.
+    echo "skipping cargo target directory '${CANDIDATE}': ${MKDIR_MESSAGE:-mkdir gave no reason}"
+  done
+fi
+
+if [ -n "${RELOCATED_TARGET_DIR}" ]; then
+  TARGET_DIR="${RELOCATED_TARGET_DIR}"
+  echo "using cargo target directory: '${TARGET_DIR}' (${#TARGET_DIR} characters)"
+  echo "moved out of the package tree, where it would be ${#IN_PACKAGE_TARGET_DIR} characters, over the ${TARGET_DIR_MAX} that cmake leaves room for"
+  if [ "${#TARGET_DIR}" -gt "${TARGET_DIR_MAX}" ]; then
+    echo "this is still over ${TARGET_DIR_MAX}, so cmake may run past the Windows path limit"
+  fi
+else
+  TARGET_DIR='$(CURDIR)/rust/target'
+  echo "using cargo target directory: '${IN_PACKAGE_TARGET_DIR}' (${#IN_PACKAGE_TARGET_DIR} characters)"
+  if [ "${#IN_PACKAGE_TARGET_DIR}" -gt "${TARGET_DIR_MAX}" ]; then
+    echo "no shorter directory was available, so cmake may run past the Windows path limit"
+  fi
+fi
+
+# Rtools does not have the linker in the location that cargo expects, so we need
+# to overwrite it via configuration. The variable naming the linker is target
+# specific and the driver it names serves x86_64 only, so set it for that target
+# alone and leave any other target to cargo's own default linker.
+if [ "${TARGET}" = "x86_64-pc-windows-gnu" ]; then
+  BEFORE_CARGO_BUILD="${BEFORE_CARGO_BUILD}"' export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="x86_64-w64-mingw32.static.posix-gcc.exe" \&\&'
+fi
+
+# sed reads & on the replacement side as the text that matched and \ as an escape,
+# so a value carrying either would make the generated makefile say something other
+# than what this script decided. Neither reaches here as the script stands: the
+# allowlist above refuses a temporary root holding either character, and TARGET is
+# one of the four fixed strings its own case admits. The escaping stays anyway, so
+# that this step is correct on its own terms rather than on the strictness of a
+# test written for another reason further up. Escape the backslashes first, so the
+# ones added for the ampersands are not doubled in turn.
+escape_sed_replacement() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/&/\\&/g'
+}
+
+TARGET_SED="$(escape_sed_replacement "${TARGET}")"
+TARGET_DIR_SED="$(escape_sed_replacement "${TARGET_DIR}")"
+
+# | is the delimiter for every value that can hold a path, since a Windows path
+# cannot contain one.
 sed \
-  -e "s/@TARGET@/x86_64-pc-windows-gnu/" \
+  -e "s|@TARGET@|${TARGET_SED}|" \
   -e "s/@PROFILE@/${PROFILE}/" \
   -e "s/@FEATURE_FLAGS@/${FEATURE_FLAGS}/" \
+  -e "s|@TARGET_DIR@|${TARGET_DIR_SED}|" \
+  -e "s|@BEFORE_CARGO_BUILD@|${BEFORE_CARGO_BUILD}|" \
   src/Makevars.win.in > src/Makevars.win
