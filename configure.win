@@ -219,7 +219,18 @@ if [ "${#IN_PACKAGE_TARGET_DIR}" -gt "${TARGET_DIR_MAX}" ]; then
   # collects what is left there. The in-package tree is already the fallback. None of
   # this is about where a value came from: TEMP or TMP can still name /tmp, and for
   # such a root the length reported below is the msys one.
-  for TMP_ROOT in "${TMPDIR}" "${TEMP}" "${TMP}"; do
+  #
+  # ORIGINAL_TEMP and ORIGINAL_TMP come ahead of TEMP and TMP rather than behind
+  # them, which is the opposite of how this was first written down. msys2's
+  # /etc/profile, which Rtools inherits unchanged, overrides TEMP and TMP to /tmp
+  # and exports the values it replaced under those names. So they are set only when
+  # TEMP and TMP have already been overridden, and a root behind an overridden TEMP
+  # would never be reached: /tmp exists, is writable, and is short, so the loop
+  # takes it and stops. Ahead of them, a build started from an Rtools shell puts its
+  # tree in a real temporary directory instead of inside the toolchain
+  # installation, and a build started anywhere else does not set them and is
+  # unaffected.
+  for TMP_ROOT in "${TMPDIR}" "${ORIGINAL_TEMP}" "${ORIGINAL_TMP}" "${TEMP}" "${TMP}"; do
     if [ -z "${TMP_ROOT}" ]; then
       continue
     fi
