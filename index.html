@@ -74,13 +74,7 @@
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/utils/install.packages.html" class="external-link">install.packages</a></span><span class="op">(</span></span>
 <span>  <span class="st">"balancing"</span>,</span>
 <span>  repos <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"https://r-causal.r-universe.dev"</span>, <span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">getOption</a></span><span class="op">(</span><span class="st">"repos"</span><span class="op">)</span><span class="op">)</span></span>
-<span><span class="op">)</span></span>
-<span><span class="co">#&gt; Installing package into '/private/var/folders/8v/gwyh3s5x5h7ddt4yj1m4p1440000gn/T/RtmpeePYuo/temp_libpath2054180af1bf'</span></span>
-<span><span class="co">#&gt; (as 'lib' is unspecified)</span></span>
-<span><span class="co">#&gt; package 'balancing' successfully unpacked and SHA256 sums checked</span></span>
-<span><span class="co">#&gt; </span></span>
-<span><span class="co">#&gt; The downloaded binary packages are in</span></span>
-<span><span class="co">#&gt;  /var/folders/8v/gwyh3s5x5h7ddt4yj1m4p1440000gn/T//RtmpQp3XOE/downloaded_packages</span></span></code></pre></div>
+<span><span class="op">)</span></span></code></pre></div>
 <p>You can also install the development version of balancing from source from <a href="https://github.com/r-causal/balancing" class="external-link">GitHub</a> with:</p>
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="co"># install.packages("pak")</span></span>
@@ -93,7 +87,6 @@
 <p>You give <code><a href="reference/balance.html">balance()</a></code> a data frame, name the exposure and covariates with tidyselect, choose a method and an estimand, and it returns a fitted object carrying the weights and a balance table.</p>
 <div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://r-causal.github.io/balancing/">balancing</a></span><span class="op">)</span></span>
-<span><span class="co">#&gt; Warning: package 'balancing' was built under R version 4.6.1</span></span>
 <span></span>
 <span><span class="co"># Simulate data with two confounders and a binary exposure</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed</a></span><span class="op">(</span><span class="fl">1</span><span class="op">)</span></span>
