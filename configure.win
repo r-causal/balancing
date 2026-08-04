@@ -41,6 +41,66 @@ if [ -n "${MSRV}" ]; then
   fi
 fi
 
+# The Rust target cannot be hardcoded to x86_64-pc-windows-gnu. R's Windows arm64
+# builds use the LLVM gnullvm ABI, and a static library built for the mingw ABI
+# does not belong in one of those installs. Ask R which architecture it is rather
+# than guessing. R CMD INSTALL exports R_HOME and also puts R's bin directory on
+# PATH, so try both spellings before giving up: a wrong answer here means
+# building for the wrong ABI.
+#
+# The probe runs with --vanilla so that no startup file is read and nothing can
+# be printed ahead of the answer. The last line of output is taken as well, which
+# costs nothing and still covers a front-end wrapper that writes to stdout on its
+# own account; it is no longer the only thing keeping profile output out of the
+# answer.
+ARCH=""
+if [ -n "${R_HOME}" ]; then
+  ARCH="$("${R_HOME}/bin/Rscript" --vanilla -e 'cat(R.version$arch)' 2>/dev/null | tail -n 1)"
+fi
+if [ -z "${ARCH}" ]; then
+  ARCH="$(Rscript --vanilla -e 'cat(R.version$arch)' 2>/dev/null | tail -n 1)"
+fi
+
+case "${ARCH}" in
+  aarch64 | arm64)
+    ARCH_PREFIX="aarch64"
+    TARGET="aarch64-pc-windows-gnullvm"
+    ;;
+  x86_64)
+    ARCH_PREFIX="x86_64"
+    TARGET="x86_64-pc-windows-gnu"
+    ;;
+  *)
+    ARCH_PREFIX="x86_64"
+    TARGET="x86_64-pc-windows-gnu"
+    echo "could not read an architecture from R (got '${ARCH}'), assuming x86_64"
+    ;;
+esac
+
+# r-universe's arm64 Windows runners put a shim ahead of cargo on PATH that drops
+# --target and builds whatever CARGO_BUILD_TARGET names instead. Follow that
+# variable so that LIBDIR points at the directory cargo actually writes to, but
+# only when it names a GNU target for the architecture chosen above.
+#
+# The agreement test matters because a real cargo takes the --target on the
+# command line over the variable, so LIBDIR is right either way there, and
+# following a disagreeing value would name a build that is not happening: a
+# developer who leaves CARGO_BUILD_TARGET set from another project would build one
+# ABI and try to link the other. The shim's value agrees with R's architecture,
+# which is the case this exists for. A non-GNU value is ignored for the same
+# reason it always was: R's Windows toolchain links GNU objects only.
+case "${CARGO_BUILD_TARGET}" in
+  "") ;;
+  "${ARCH_PREFIX}-pc-windows-gnu" | "${ARCH_PREFIX}-pc-windows-gnullvm")
+    TARGET="${CARGO_BUILD_TARGET}"
+    ;;
+  *)
+    echo "ignoring CARGO_BUILD_TARGET '${CARGO_BUILD_TARGET}': it is not a GNU target for ${ARCH_PREFIX}, the architecture this build is for"
+    ;;
+esac
+
+echo "using Rust target: '${TARGET}'"
+
 # allow overriding profile externally (e.g. on CI)
 if [ -n "${SAVVY_PROFILE}" ]; then
   PROFILE="${SAVVY_PROFILE}"
@@ -56,8 +116,74 @@ if [ -n "${SAVVY_FEATURES}" ]; then
   FEATURE_FLAGS="--features '${SAVVY_FEATURES}'"
 fi
 
+# Choose where cargo builds. The decision lives in tools/win-target-dir.sh so
+# that tools/test-win-target-dir.sh can drive it directly; that file carries the
+# reasoning and sets TARGET_DIR. tools/ is deliberately absent from
+# .Rbuildignore, which is what carries it into the source tarball alongside
+# tools/config.toml and tools/msrv.txt.
+#
+# Refuse to guess if it is missing. Sourcing a file that is not there leaves
+# TARGET_DIR unset, and an unset TARGET_DIR substitutes an empty string into the
+# makefile, where the cargo target directory becomes the root of the current
+# drive and clean_intermediate would be asked to remove it.
+if [ ! -f ./tools/win-target-dir.sh ]; then
+  echo "-------------- ERROR: CONFIGURATION FAILED --------------------"
+  echo ""
+  echo "tools/win-target-dir.sh is missing. It decides where cargo builds,"
+  echo "and this package cannot be configured on Windows without it."
+  echo ""
+  echo "---------------------------------------------------------------"
+  exit 1
+fi
+
+. ./tools/win-target-dir.sh
+
+select_target_dir "$(pwd)" "${PROFILE}"
+
+# Rtools does not have the linker in the location that cargo expects, so we need
+# to overwrite it via configuration. The variable naming the linker is target
+# specific and the driver it names serves x86_64 only, so set it for that target
+# alone and leave any other target to cargo's own default linker.
+if [ "${TARGET}" = "x86_64-pc-windows-gnu" ]; then
+  BEFORE_CARGO_BUILD="${BEFORE_CARGO_BUILD}"' export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="x86_64-w64-mingw32.static.posix-gcc.exe" &&'
+fi
+
+# sed reads & on the replacement side as the text that matched and \ as an escape,
+# so a value carrying either would make the generated makefile say something other
+# than what this script decided. Little of it reaches here as the script stands:
+# the allowlist refuses a temporary root holding either character, and TARGET is
+# one of the four fixed strings its own case admits. The rest is environment the
+# script never inspects, SAVVY_FEATURES through FEATURE_FLAGS, SAVVY_PROFILE
+# through PROFILE, and whatever BEFORE_CARGO_BUILD was already set to, which this
+# appends to. None of that is reachable by accident, since each is a knob whose
+# setter already controls the build, but every value substituted below should be
+# substituted correctly on its own terms rather than on the strictness of a test
+# written for another reason. Escape the backslashes first, so the ones added for
+# the ampersands are not doubled in turn.
+escape_sed_replacement() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/&/\\&/g'
+}
+
+# The && that ends a BEFORE_CARGO_BUILD clause is written literally above and
+# escaped here, rather than pre-escaped where it is written. That way the value
+# means what it says at every point in this script and only the substitution step
+# knows anything about sed.
+TARGET_SED="$(escape_sed_replacement "${TARGET}")"
+TARGET_DIR_SED="$(escape_sed_replacement "${TARGET_DIR}")"
+PROFILE_SED="$(escape_sed_replacement "${PROFILE}")"
+FEATURE_FLAGS_SED="$(escape_sed_replacement "${FEATURE_FLAGS}")"
+BEFORE_CARGO_BUILD_SED="$(escape_sed_replacement "${BEFORE_CARGO_BUILD}")"
+
+# | is the delimiter throughout, because the values that can hold a path cannot
+# hold a pipe: a Windows path cannot contain one. That is not true of the rest of
+# them, as the Unix configure notes at the same point. A pipe in SAVVY_FEATURES
+# makes sed abort on an unknown option, which leaves a truncated makefile and a
+# non-zero status out of this script, so R CMD INSTALL stops there rather than
+# building something unintended.
 sed \
-  -e "s/@TARGET@/x86_64-pc-windows-gnu/" \
-  -e "s/@PROFILE@/${PROFILE}/" \
-  -e "s/@FEATURE_FLAGS@/${FEATURE_FLAGS}/" \
+  -e "s|@TARGET@|${TARGET_SED}|" \
+  -e "s|@PROFILE@|${PROFILE_SED}|" \
+  -e "s|@FEATURE_FLAGS@|${FEATURE_FLAGS_SED}|" \
+  -e "s|@TARGET_DIR@|${TARGET_DIR_SED}|" \
+  -e "s|@BEFORE_CARGO_BUILD@|${BEFORE_CARGO_BUILD_SED}|" \
   src/Makevars.win.in > src/Makevars.win

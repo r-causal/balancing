@@ -15,10 +15,28 @@
 ^README\.Rmd$
 ^codecov\.yml$
 
+# The rest of tools/ travels in the tarball, because configure.win sources
+# win-target-dir.sh from it and the install recipe copies config.toml out of it.
+# This one only tests the first of those and has no business in a release.
+^tools/test-win-target-dir\.sh$
+
 ^tests/testthat/_problems$
 ^tests/testthat/testthat-problems\.rds$
 
+# The Rust core's integration tests and their golden fixtures, which are a third
+# of the source tarball on their own: about forty JSON files, 8.9 MB unpacked and
+# 3.8 MB of the built tarball. Nothing that runs at install time reads them.
+# `cargo build --lib -p balancing-savvy` is the whole of what the recipe runs, and
+# R CMD check runs the testthat suite, never `cargo test`. Integration tests are
+# autodiscovered, so removing the directory removes the targets with it.
+#
+# Deliberately not extended to src/rust/crates/core/benches: those targets are
+# declared explicitly as [[bench]] entries in that crate's Cargo.toml, so cargo
+# fails to load the manifest when their sources are missing, and they are 20 KB.
+^src/rust/crates/core/tests$
 ^src/rust/\.cargo$
+^src/rust/\.cargo-vendor$
+^src/rust/vendor$
 ^src/rust/target$
 ^src/Makevars$
 ^src/Makevars\.win$

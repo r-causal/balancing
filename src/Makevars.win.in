@@ -6,46 +6,100 @@ FEATURE_FLAGS = @FEATURE_FLAGS@
 # Add flags if necessary
 RUSTFLAGS =
 
-TARGET_DIR = $(CURDIR)/rust/target
+# tools/win-target-dir.sh picks this directory and configure.win substitutes what
+# it chose: the in-package tree while it fits, and otherwise a directory in the
+# temporary directory. It cannot be hardcoded, because Windows caps a path at 260
+# characters, osqp-sys builds OSQP through cmake, and cmake writes object files
+# deep enough below this directory that an install from a source tarball, which
+# unpacks under the temporary directory, runs past the limit.
+# A relocated tree for any profile but dev belongs to one install and no other:
+# clean_intermediate below removes it, and no later run can find it by name. A
+# relocated dev tree is named for the checkout instead, so that repeated load_all()
+# reuses one cargo cache; clean_intermediate keeps it for the same reason it keeps
+# an in-package dev tree.
+TARGET_DIR = @TARGET_DIR@
 LIBDIR = $(TARGET_DIR)/$(TARGET)/$(subst dev,debug,$(PROFILE))
 STATLIB = $(LIBDIR)/libbalancing_savvy.a
 PKG_LIBS = -L$(LIBDIR) -lbalancing_savvy -lws2_32 -ladvapi32 -luserenv -lbcrypt -lntdll
 
-# Rtools doesn't have the linker in the location that cargo expects, so we need
-# to overwrite it via configuration.
-CARGO_LINKER = x86_64-w64-mingw32.static.posix-gcc.exe
+# Cargo home for the vendored build, as in Makevars.in and for the same reasons.
+# It stays inside the package rather than following TARGET_DIR, because it holds
+# one small file and nothing below it approaches the Windows path limit.
+CARGO_HOME_DIR = $(CURDIR)/rust/.cargo-vendor
 
-CARGO_BUILD_ARGS = --target $(TARGET) --lib -p balancing-savvy --profile $(PROFILE) $(FEATURE_FLAGS) --manifest-path ./rust/Cargo.toml --target-dir $(TARGET_DIR)
+# The manifest path is two arguments here rather than the --manifest-path=... of
+# savvy's template, and that spelling is load-bearing. r-universe's arm64 Windows
+# shim reads the manifest path out of the = form only, and without it the shim
+# skips the step where it copies its own build products back into the package
+# tree. That is what keeps a gnullvm staticlib from appearing under ./rust/target
+# while LIBDIR names the directory cargo really wrote to.
+CARGO_BUILD_ARGS = --target $(TARGET) --lib -p balancing-savvy --profile $(PROFILE) $(FEATURE_FLAGS) --manifest-path ./rust/Cargo.toml --target-dir "$(TARGET_DIR)"
 
 all: $(SHLIB) clean_intermediate
 
 $(SHLIB): $(STATLIB)
 
-$(STATLIB):
+# FORCE, as in Makevars.in and for the same reason: the recipe cannot name its
+# real prerequisites, so without one make skips it whenever the staticlib is
+# already there and links whatever wrote that file. A relocated tree for a
+# non-dev profile is closed to that by construction, since tools/win-target-dir.sh
+# creates it with an exclusive mkdir under a name no other install arrives at, but
+# the in-package tree, which a short checkout and every dev build use, is not.
+$(STATLIB): FORCE
+	# When the vendored source archive is present (CRAN releases), extract it and
+	# redirect cargo to build offline against the vendored crates. Development and
+	# CI builds have no archive and resolve dependencies from the registry. This is
+	# the same stanza as in Makevars.in, and it works the same way for the same
+	# reasons: the redirect is the config file of a cargo home this build owns,
+	# CARGO_HOME is exported below only in this branch, and a cargo home is read
+	# wherever cargo is invoked from, unlike a config file beside the sources, which
+	# cargo finds only by walking up from its working directory.
+	if [ -f ./rust/vendor.tar.xz ]; then \
+	  "$(TAR)" --extract --xz --file=./rust/vendor.tar.xz --directory=./rust && \
+	  mkdir -p "$(CARGO_HOME_DIR)" && \
+	  cp ../tools/config.toml "$(CARGO_HOME_DIR)/config.toml"; \
+	fi
+
 	# When the GNU toolchain is used (i.e. on CRAN), -lgcc_eh is specified for
 	# building proc-macro2, but Rtools doesn't contain libgcc_eh. This isn't used
 	# in actual, but we need this tweak to please the compiler.
-	mkdir -p $(LIBDIR)/libgcc_mock && touch $(LIBDIR)/libgcc_mock/libgcc_eh.a
+	mkdir -p "$(LIBDIR)/libgcc_mock" && touch "$(LIBDIR)/libgcc_mock/libgcc_eh.a"
 
-	export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="$(CARGO_LINKER)" && \
-	  export LIBRARY_PATH="$${LIBRARY_PATH};$(LIBDIR)/libgcc_mock" && \
+	export LIBRARY_PATH="$${LIBRARY_PATH};$(LIBDIR)/libgcc_mock" && \
 	  export CC="$(CC)" && \
 	  export CFLAGS="$(CFLAGS)" && \
 	  export RUSTFLAGS="$(RUSTFLAGS)" && \
 	  export R_INCLUDE_DIR="$${R_INCLUDE_DIR:-$(R_HOME)/include}" && \
-	  cargo build -j 2 $(CARGO_BUILD_ARGS)
+	  if [ -f ./rust/vendor.tar.xz ]; then \
+	    export CARGO_HOME="$(CARGO_HOME_DIR)" && OFFLINE="--offline"; \
+	  else \
+	    OFFLINE=""; \
+	  fi && \
+	  @BEFORE_CARGO_BUILD@ \
+	  cargo build -j 2 $(CARGO_BUILD_ARGS) $${OFFLINE}
 
 clean_intermediate: $(SHLIB)
-	rm -f $(STATLIB)
-	# Remove the cargo build tree from the package sources once linking is
-	# complete. Release installs, including R CMD check, must leave no build
-	# artifacts behind: the subdirectory checks would otherwise flag the
-	# version-control directories and generated files that cargo writes under
-	# target. The development profile keeps the tree so repeated load_all() and
-	# local rebuilds reuse the cached compilation.
-	if [ "$(PROFILE)" != "dev" ]; then rm -Rf $(TARGET_DIR); fi
+	rm -f "$(STATLIB)"
+	# Remove the cargo build tree once linking is complete, wherever configure.win
+	# put it. Release installs, including R CMD check, must leave no build artifacts
+	# behind: the subdirectory checks would otherwise flag the version-control
+	# directories and generated files that cargo writes under target. The
+	# build-owned cargo home goes with it, since nothing reads the redirect once
+	# cargo has run, and so does the directory the vendored archive extracted to,
+	# for the reason Makevars.in gives: R CMD check reads the source directory after
+	# installing it, so crates left there are reported as the package's own. The
+	# development profile keeps all three, so that repeated load_all() and local
+	# rebuilds reuse the cached compilation.
+	if [ "$(PROFILE)" != "dev" ]; then rm -Rf "$(TARGET_DIR)" "$(CARGO_HOME_DIR)" ./rust/vendor; fi
 
 clean:
-	rm -Rf $(SHLIB) $(OBJECTS) $(STATLIB) ./rust/target
+	# $(TARGET_DIR) may sit outside the package, and ./rust/target catches a tree
+	# that an earlier build left in place. The two paths that can come from
+	# configure.win are quoted, so that a directory name no one expected cannot turn
+	# this into the removal of something else.
+	rm -Rf $(SHLIB) $(OBJECTS) "$(STATLIB)" "$(TARGET_DIR)" ./rust/target ./rust/vendor ./rust/.cargo-vendor
 
-.PHONY: all clean_intermediate clean
+# As in Makevars.in.
+FORCE:
+
+.PHONY: all clean_intermediate clean FORCE

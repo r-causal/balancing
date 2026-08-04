@@ -1,3 +1,11 @@
+# The filter below covers every file the vendored build rests on: the sources and
+# the makefile templates, the configure scripts that generate them, everything in
+# tools/, and DESCRIPTION for the dependency set, plus .Rbuildignore, which decides
+# what of all that reaches the source tarball. tools/ is deliberately absent from
+# .Rbuildignore, and that is what carries tools/config.toml into the tarball for
+# the recipe to copy. The two files in there have separate jobs and neither writes
+# the other: vendor.sh produces src/rust/vendor.tar.xz, and config.toml is a
+# tracked file that the Makevars recipe copies into the build-owned cargo home.
 on:
   push:
     branches: [main, master]
@@ -7,6 +15,7 @@ on:
       - 'configure'
       - 'configure.win'
       - 'DESCRIPTION'
+      - '.Rbuildignore'
       - '.github/workflows/cran-vendor.yaml'
   pull_request:
     paths:
@@ -15,6 +24,7 @@ on:
       - 'configure'
       - 'configure.win'
       - 'DESCRIPTION'
+      - '.Rbuildignore'
       - '.github/workflows/cran-vendor.yaml'
   workflow_dispatch:
 
@@ -23,8 +33,61 @@ name: cran-vendor.yaml
 permissions: read-all
 
 jobs:
-  vendored-offline-check:
+  # Vendoring is its own job so that neither job below has run cargo before its
+  # offline build. That separation is what makes those builds a test. Vendoring in
+  # the same job would leave every locked crate in that runner's registry cache,
+  # because cargo vendor downloads them all, and an offline build then resolves
+  # from the cache and passes whether or not it can read the vendored directory.
+  # This job's own registry goes with the runner when it finishes.
+  #
+  # No R here: tools/vendor.sh needs cargo, cargo-vendor-filterer and xz, and
+  # nothing else.
+  vendor:
+    name: Produce the vendored archive
     runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Without this the archive these jobs prove offline would not be the archive
+      # a release carries. vendor.sh used to fall back to plain `cargo vendor` when
+      # the filterer was absent, and since nothing here installed it, the fallback
+      # was the only path CI ever took: an unfiltered 13 MB archive, where a
+      # release would have shipped a filtered 7 MB one built by a code path no job
+      # had run. vendor.sh now refuses to produce an archive without the filterer,
+      # so this step is what lets that job succeed rather than an optimisation.
+      - name: Install cargo-vendor-filterer
+        run: cargo install cargo-vendor-filterer --locked
+
+      - name: Vendor the Rust dependencies
+        run: ./tools/vendor.sh
+
+      # Both jobs below consume this archive rather than producing their own, which
+      # is also the arrangement a CRAN release has: the maintainer runs
+      # tools/vendor.sh once and the archive travels inside the source tarball. On
+      # Windows that is the only arrangement the package supports, since producing
+      # the archive there would additionally rest on the runner's tar being able to
+      # compress xz. The archive is a hand-off between the jobs of one run and is
+      # worth nothing afterwards, hence the short retention.
+      - name: Upload the vendored archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: vendored-sources
+          path: src/rust/vendor.tar.xz
+          if-no-files-found: error
+          retention-days: 1
+
+  # What this job proves is that a CRAN Unix build reads the vendored crates. The
+  # archive arrives from the job above, so this runner's registry cache holds only
+  # whatever the image shipped, and CARGO_NET_OFFLINE denies cargo the network. The
+  # crates therefore come from the vendored directory or the build fails.
+  vendored-offline-check:
+    name: Unix offline vendored check
+    runs-on: ubuntu-latest
+
+    needs: vendor
 
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
@@ -47,13 +110,43 @@ jobs:
           extra-packages: any::rcmdcheck
           needs: check
 
-      - name: Vendor the Rust dependencies
-        run: ./tools/vendor.sh
+      # src/rust is where Makevars looks for the archive, so the download leaves it
+      # exactly where an unpacked CRAN tarball would have it.
+      - name: Download the vendored archive
+        uses: actions/download-artifact@v7
+        with:
+          name: vendored-sources
+          path: src/rust
+
+      # Leave nothing in the registry cache for the offline build to resolve from.
+      # An artifact of the runner image is still an artifact: what this job asks is
+      # whether the vendored directory is read, and a crate that happens to be
+      # cached answers a different question. Removing the cache makes the answer
+      # independent of what the image ships. Only the registry goes: the rustup
+      # proxies in the same cargo home are untouched.
+      #
+      # The cargo home is named as cargo names it rather than assumed to be
+      # ~/.cargo, so that an image that relocates it has its registry emptied too.
+      # The assumption would fail silently, since removing a path that is not there
+      # succeeds and leaves the real cache for the build to resolve from.
+      - name: Empty the cargo registry cache
+        run: rm -rf "${CARGO_HOME:-$HOME/.cargo}/registry"
 
       - name: Build and check with the network disabled
         env:
           CARGO_NET_OFFLINE: 'true'
         run: |
+          # Fail on a misplaced archive here rather than in the compile. The
+          # download step above fails outright when the artifact never arrived, so
+          # what is left to catch is an archive that landed somewhere other than
+          # src/rust, which the recipe would not find and would build from the
+          # registry instead. Offline and with an empty cache that shows up as
+          # cargo failing to reach crates.io, which is also how a build that read
+          # no archive at all would look.
+          if (!file.exists("src/rust/vendor.tar.xz")) {
+            stop("src/rust/vendor.tar.xz is missing, so nothing here tests the vendored path")
+          }
+
           rcmdcheck::rcmdcheck(
             args = c("--no-manual", "--ignore-vignettes"),
             build_args = c("--no-build-vignettes", "--no-manual"),
@@ -68,3 +161,81 @@ jobs:
         with:
           name: vendored-offline-check-results
           path: check
+
+  # The job above says nothing about Windows. The Windows makefile template is
+  # separate code with its own handling of the archive, so a Unix build that reads
+  # the vendored crates leaves open whether a CRAN Windows build reads them or
+  # reaches for crates.io. This job is what says it.
+  #
+  # It depends on the vendoring job rather than on the Unix job, so the two read the
+  # same archive independently and in parallel. A broken archive then fails both and
+  # says so twice, rather than failing one and leaving the other unrun.
+  #
+  # Install only, no check: extracting the archive and pointing cargo at it either
+  # works or the compile fails, and a check would add minutes to learn nothing
+  # further about vendoring.
+  windows-vendored-offline-install:
+    name: Windows offline vendored install
+    runs-on: windows-latest
+
+    needs: vendor
+
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+      R_KEEP_PKG_SOURCE: yes
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: release
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          needs: check
+
+      # src/rust is where Makevars.win looks for the archive, so the download
+      # leaves it exactly where an unpacked CRAN tarball would have it.
+      - name: Download the vendored archive
+        uses: actions/download-artifact@v7
+        with:
+          name: vendored-sources
+          path: src/rust
+
+      # As in the job above, and named the same way for the same reason.
+      - name: Empty the cargo registry cache
+        shell: bash
+        run: rm -rf "${CARGO_HOME:-$HOME/.cargo}/registry"
+
+      - name: Install with the network disabled
+        env:
+          CARGO_NET_OFFLINE: 'true'
+        shell: bash
+        run: |
+          # Fail on a misplaced archive here rather than in the compile. The
+          # download step above fails outright when the artifact never arrived, so
+          # what is left to catch is an archive that landed somewhere other than
+          # src/rust, which the recipe would not find and would build from the
+          # registry instead. Offline and with an empty cache that shows up as
+          # cargo failing to reach crates.io, which is also how a build that read
+          # no archive at all would look.
+          if [ ! -f src/rust/vendor.tar.xz ]; then
+            echo "src/rust/vendor.tar.xz is missing, so nothing here tests the vendored path" >&2
+            exit 1
+          fi
+
+          # An install from the checkout rather than from a source tarball. The
+          # checkout is short enough that the cargo target directory stays inside
+          # the package, so nothing in the log is about relocating that directory
+          # and everything in it is about where cargo resolved its dependencies
+          # from. Which of the two the target directory does has no bearing on
+          # that question; the deep-path job in windows-build-path.yaml covers the
+          # other one.
+          #
+          # CARGO_NET_OFFLINE is what makes this a test: without the vendored
+          # crates in place cargo has to reach crates.io, and offline it fails
+          # there instead of quietly succeeding on a warm registry cache.
+          R CMD INSTALL .

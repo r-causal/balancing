@@ -1,0 +1,189 @@
+# Everything that decides where the Rust build writes on Windows, and nothing
+# else. The path limit is a property of the build system rather than of the R
+# code, so this fires only for the files that settle it: the sources and makefile
+# templates, all of tools/ (configure.win sources win-target-dir.sh from there),
+# configure.win itself, DESCRIPTION for the dependency set, and .Rbuildignore,
+# which decides what reaches the tarball the second job installs.
+#
+# The deep-path job ran on every push and pull request while the fix was being
+# written, which was right then and is waste now: a Windows dependency install and
+# a release Rust build, to exercise a property no change outside these paths can
+# affect. The Unix configure is deliberately absent from the list, since R CMD
+# INSTALL on Windows never runs it.
+#
+# The list is written out twice rather than shared through a YAML anchor, as in
+# cran-vendor.yaml and for the same reason: GitHub Actions does not resolve
+# anchors and aliases.
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'src/**'
+      - 'tools/**'
+      - 'configure.win'
+      - 'DESCRIPTION'
+      - '.Rbuildignore'
+      - '.github/workflows/windows-build-path.yaml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tools/**'
+      - 'configure.win'
+      - 'DESCRIPTION'
+      - '.Rbuildignore'
+      - '.github/workflows/windows-build-path.yaml'
+  workflow_dispatch:
+
+name: windows-build-path.yaml
+
+permissions: read-all
+
+jobs:
+  # The unit test for the decision itself. It runs on Linux although its subject
+  # is Windows-only, because the decision is string and directory handling that
+  # behaves the same everywhere, and because the two cases about permissions want
+  # a filesystem where chmod means what it says. What it covers is every branch
+  # the job below reaches exactly one of per run: both naming schemes, the
+  # character allowlist, the candidate chain, and the fall-through to the
+  # in-package tree.
+  target-dir-selection:
+    name: ubuntu-latest (target directory selection)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      # dash rather than the runner's bash, since configure.win is read by
+      # Rtools' sh and nothing here may rest on a bash extension.
+      - name: Exercise the target directory decision
+        run: dash tools/test-win-target-dir.sh
+
+  # r-universe installs from a source tarball, so R CMD INSTALL unpacks the
+  # sources under the session temp directory and the cargo target tree starts
+  # about 97 characters deep. cmake's compiler probe for osqp-sys then runs past
+  # the 260-character Windows path limit and the build fails. The windows-latest
+  # entry of the R-CMD-check matrix cannot see that class of failure, because
+  # GitHub checks the repository out to D:/a/balancing/balancing and every path
+  # the build derives from it has room to spare. This job points TMPDIR at a
+  # directory deep enough that R's session temp directory beneath it comes out as
+  # long as r-universe's, plus a few characters of headroom, and installs the
+  # tarball from there, which puts the build back at the depth where it breaks.
+  # Install only, no check: the compile is the failure point.
+  windows-deep-path-install:
+    runs-on: windows-latest
+
+    name: windows-latest (deep temp path install)
+
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+      R_KEEP_PKG_SOURCE: yes
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: release
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          needs: check
+
+      - name: Build the source tarball
+        shell: bash
+        run: R CMD build --no-build-vignettes --no-manual .
+
+      - name: Install the tarball from an r-universe-length temp directory
+        shell: bash
+        run: |
+          # R chooses its session temp directory by appending "/Rtmpxxxxxx", a
+          # fixed eleven characters, to the first of TMPDIR, TMP and TEMP that
+          # names a directory, so a 39-character TMPDIR would reproduce exactly the
+          # 50-character path r-universe reported,
+          # C:/Users/runneradmin/AppData/Local/Temp/Rtmpwxnk3X.
+          #
+          # This asks for three characters more than that, because matching
+          # r-universe exactly is not reliably deep enough. The one component of
+          # the failing path whose length varies is the R.INSTALL directory that
+          # R CMD INSTALL names from the process id and a random number, both in
+          # hexadecimal: across the five failing r-universe jobs it drew eleven or
+          # twelve hex digits. In the three x86_64 jobs, a draw of that length put
+          # cmake's compiler probe object at 261 or 262 characters, and the same run
+          # compiled a 257-character object successfully, so the effective limit
+          # sits just below 261. A shorter draw at 39 would slip back under it and
+          # let the reproduction pass with the bug still present, while at 42 the
+          # probe stays at or past 261 for any suffix of eight digits or more.
+          #
+          # Every length in the paragraph above is an x86_64 one. The two arm64
+          # jobs build for aarch64-pc-windows-gnullvm, five characters longer than
+          # x86_64-pc-windows-gnu, which puts the same probe object at 266 and 267,
+          # and one of those jobs failed earlier still, on cmake being unable to
+          # create a build.make temporary at 262 characters. An arm64 log
+          # therefore gives the span below the session temp directory as 216 where
+          # an x86_64 log gives 211, and re-deriving the numbers above from one
+          # will look like a contradiction. Sizing for x86_64 is the conservative
+          # choice: the longer triple reaches the limit from a shallower temp
+          # directory, not a deeper one.
+          #
+          # Overshooting costs nothing: once the fix puts the cargo target
+          # directory near 60 characters, every path the build derives from it
+          # clears both the 260-character limit and cmake's own 250-character
+          # warning threshold by a wide margin.
+          #
+          # RUNNER_TEMP arrives with Windows separators; forward slashes keep the
+          # path the same length and match what R and cargo print. The repeated
+          # word in the directory name is padding whose only job is to reach the
+          # target.
+          target_len=42
+          root="${RUNNER_TEMP//\\//}"
+
+          # Every length here means the length after Windows canonicalizes the
+          # path, not the length of the string handed to cargo, and the two differ
+          # wherever a component is an 8.3 alias: r-universe's session temp
+          # directory measured 47 characters as C:\Users\RUNNER~1\..., and the 50
+          # that broke the limit appeared only once cmake expanded RUNNER~1 back to
+          # runneradmin. RUNNER_TEMP is D:\a\_temp today, with nothing aliased, so
+          # measuring the string is measuring the canonical path. Reject a tilde so
+          # that this stops being a silent assumption and fails loudly instead if
+          # GitHub ever moves RUNNER_TEMP under a short-named directory.
+          case "$root" in
+            *"~"*)
+              echo "Temp root contains an 8.3 alias, so its canonical length is not the ${#root} characters measured here: $root" >&2
+              exit 1
+              ;;
+          esac
+
+          pad_len=$((target_len - ${#root} - 1))
+          if [ "$pad_len" -lt 1 ]; then
+            echo "No room for a $target_len character path under $root" >&2
+            exit 1
+          fi
+          pad=""
+          while [ "${#pad}" -lt "$pad_len" ]; do
+            pad="${pad}deep"
+          done
+          deep="$root/${pad:0:pad_len}"
+          mkdir -p "$deep"
+
+          # Assert the depth twice, so that a short path cannot make the
+          # reproduction pass for the wrong reason: once on the path constructed
+          # above, and once on the directory R itself settles on, which also
+          # confirms R honoured TMPDIR. R adds the fixed eleven characters of
+          # "/Rtmpxxxxxx", so the length to expect from R follows from target_len
+          # and travels to the assertion in the environment rather than being
+          # restated as a literal that a later edit of target_len would leave
+          # behind.
+          if [ "${#deep}" -ne "$target_len" ]; then
+            echo "Temp directory is ${#deep} characters, expected $target_len: $deep" >&2
+            exit 1
+          fi
+          export TMPDIR="$deep"
+          export EXPECTED_TEMPDIR_LEN=$((target_len + 11))
+          Rscript \
+            -e 'expected <- as.integer(Sys.getenv("EXPECTED_TEMPDIR_LEN"))' \
+            -e 'if (nchar(tempdir()) < expected) stop("session temp directory is ", nchar(tempdir()), " characters, need ", expected, " to reproduce r-universe: ", tempdir())' \
+            -e 'cat("Session temp directory:", tempdir(), "-", nchar(tempdir()), "characters\n")'
+
+          R CMD INSTALL balancing_*.tar.gz
