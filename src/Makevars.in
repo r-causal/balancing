@@ -85,14 +85,18 @@ $(STATLIB): FORCE
 
 clean_intermediate: $(SHLIB)
 	rm -f $(STATLIB)
-	# Remove the cargo build tree from the package sources once linking is
+	# Remove what the build wrote into the package sources once linking is
 	# complete. Release installs, including R CMD check, must leave no build
 	# artifacts behind: the subdirectory checks would otherwise flag the
 	# version-control directories and generated files that cargo writes under
 	# target. The build-owned cargo home goes with it, since nothing reads the
-	# redirect once cargo has run. The development profile keeps both so repeated
-	# load_all() and local rebuilds reuse the cached compilation.
-	if [ "$(PROFILE)" != "dev" ]; then rm -Rf $(TARGET_DIR) $(CARGO_HOME_DIR); fi
+	# redirect once cargo has run, and so does the directory the vendored archive
+	# extracted to: R CMD check reads the source directory after installing it, so
+	# crates left there are reported as the package's own, which for the vendored
+	# copy of OSQP means CITATION files in a non-standard place and CRLF line
+	# endings in C sources and in a Makefile. The development profile keeps all
+	# three so repeated load_all() and local rebuilds reuse the cached compilation.
+	if [ "$(PROFILE)" != "dev" ]; then rm -Rf $(TARGET_DIR) $(CARGO_HOME_DIR) ./rust/vendor; fi
 
 clean:
 	rm -Rf $(SHLIB) $(OBJECTS) $(STATLIB) ./rust/target ./rust/vendor ./rust/.cargo-vendor

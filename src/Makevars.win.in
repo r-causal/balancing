@@ -84,9 +84,12 @@ clean_intermediate: $(SHLIB)
 	# behind: the subdirectory checks would otherwise flag the version-control
 	# directories and generated files that cargo writes under target. The
 	# build-owned cargo home goes with it, since nothing reads the redirect once
-	# cargo has run. The development profile keeps both, so that repeated load_all()
-	# and local rebuilds reuse the cached compilation.
-	if [ "$(PROFILE)" != "dev" ]; then rm -Rf "$(TARGET_DIR)" "$(CARGO_HOME_DIR)"; fi
+	# cargo has run, and so does the directory the vendored archive extracted to,
+	# for the reason Makevars.in gives: R CMD check reads the source directory after
+	# installing it, so crates left there are reported as the package's own. The
+	# development profile keeps all three, so that repeated load_all() and local
+	# rebuilds reuse the cached compilation.
+	if [ "$(PROFILE)" != "dev" ]; then rm -Rf "$(TARGET_DIR)" "$(CARGO_HOME_DIR)" ./rust/vendor; fi
 
 clean:
 	# $(TARGET_DIR) may sit outside the package, and ./rust/target catches a tree
