@@ -1,9 +1,11 @@
 # The filter below covers every file the vendored build rests on: the sources and
-# the makefile templates, the configure scripts that generate them, the vendoring
-# script and the redirect it writes, DESCRIPTION for the dependency set, and
-# .Rbuildignore, which decides what of all that reaches the source tarball. tools/
-# is deliberately absent from .Rbuildignore, and that is what carries
-# tools/config.toml into the tarball for the recipe to copy.
+# the makefile templates, the configure scripts that generate them, everything in
+# tools/, and DESCRIPTION for the dependency set, plus .Rbuildignore, which decides
+# what of all that reaches the source tarball. tools/ is deliberately absent from
+# .Rbuildignore, and that is what carries tools/config.toml into the tarball for
+# the recipe to copy. The two files in there have separate jobs and neither writes
+# the other: vendor.sh produces src/rust/vendor.tar.xz, and config.toml is a
+# tracked file that the Makevars recipe copies into the build-owned cargo home.
 on:
   push:
     branches: [main, master]
@@ -230,8 +232,8 @@ jobs:
           # the package, so nothing in the log is about relocating that directory
           # and everything in it is about where cargo resolved its dependencies
           # from. Which of the two the target directory does has no bearing on
-          # that question; the deep-path job in R-CMD-check.yaml covers the other
-          # one.
+          # that question; the deep-path job in windows-build-path.yaml covers the
+          # other one.
           #
           # CARGO_NET_OFFLINE is what makes this a test: without the vendored
           # crates in place cargo has to reach crates.io, and offline it fails
