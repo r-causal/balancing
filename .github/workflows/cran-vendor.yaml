@@ -38,7 +38,8 @@ jobs:
   # from the cache and passes whether or not it can read the vendored directory.
   # This job's own registry goes with the runner when it finishes.
   #
-  # No R here: tools/vendor.sh needs cargo and xz and nothing else.
+  # No R here: tools/vendor.sh needs cargo, cargo-vendor-filterer and xz, and
+  # nothing else.
   vendor:
     name: Produce the vendored archive
     runs-on: ubuntu-latest
@@ -47,6 +48,16 @@ jobs:
       - uses: actions/checkout@v6
 
       - uses: dtolnay/rust-toolchain@stable
+
+      # Without this the archive these jobs prove offline would not be the archive
+      # a release carries. vendor.sh used to fall back to plain `cargo vendor` when
+      # the filterer was absent, and since nothing here installed it, the fallback
+      # was the only path CI ever took: an unfiltered 13 MB archive, where a
+      # release would have shipped a filtered 7 MB one built by a code path no job
+      # had run. vendor.sh now refuses to produce an archive without the filterer,
+      # so this step is what lets that job succeed rather than an optimisation.
+      - name: Install cargo-vendor-filterer
+        run: cargo install cargo-vendor-filterer --locked
 
       - name: Vendor the Rust dependencies
         run: ./tools/vendor.sh
