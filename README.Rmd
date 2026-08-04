@@ -29,7 +29,7 @@ balancing calculates optimization-based balancing weights for causal inference. 
 
 You can install the development version of balancing from [r-causal.r-universe.dev](https://r-causal.r-universe.dev/) with:
 
-```{r}
+``` r
 install.packages(
   "balancing",
   repos = c("https://r-causal.r-universe.dev", getOption("repos"))

@@ -35,12 +35,6 @@ install.packages(
   "balancing",
   repos = c("https://r-causal.r-universe.dev", getOption("repos"))
 )
-#> Installing package into '/private/var/folders/8v/gwyh3s5x5h7ddt4yj1m4p1440000gn/T/RtmpeePYuo/temp_libpath2054180af1bf'
-#> (as 'lib' is unspecified)
-#> package 'balancing' successfully unpacked and SHA256 sums checked
-#> 
-#> The downloaded binary packages are in
-#>  /var/folders/8v/gwyh3s5x5h7ddt4yj1m4p1440000gn/T//RtmpQp3XOE/downloaded_packages
 ```
 
 You can also install the development version of balancing from source
@@ -63,7 +57,6 @@ object carrying the weights and a balance table.
 
 ``` r
 library(balancing)
-#> Warning: package 'balancing' was built under R version 4.6.1
 
 # Simulate data with two confounders and a binary exposure
 set.seed(1)
