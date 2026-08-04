@@ -1,17 +1,19 @@
-# Copied to src/.cargo/config.toml by the Makevars recipe when the vendored source
-# archive is present, so that cargo resolves the locked dependencies from the
-# extracted directory instead of from crates.io.
+# Copied by the Makevars recipe, when the vendored source archive is present, to
+# the config file of a cargo home the build owns, src/rust/.cargo-vendor, so that
+# cargo resolves the locked dependencies from the extracted directory instead of
+# from crates.io.
 #
-# src/.cargo, and not src/rust/.cargo beside the workspace manifest, because cargo
-# looks for a config file by walking up from its working directory and never from
-# the manifest that --manifest-path names. make runs the recipe in src, so a config
-# file written under src/rust is never read.
+# A cargo home rather than a .cargo directory beside the sources, because cargo
+# finds .cargo/config.toml by walking up from its working directory and never from
+# the manifest that --manifest-path names, while it reads its cargo home wherever
+# it was invoked from. The recipe exports CARGO_HOME for the vendored build only.
 #
-# The directory below is relative to src, the directory holding the .cargo
-# directory this file is copied into. That is how cargo resolves a relative path in
-# a config file, whichever directory cargo was invoked from.
+# Cargo resolves a relative directory in a config file against the grandparent of
+# the file, the directory that would hold the .cargo directory. For the cargo home
+# above that grandparent is src/rust, which is where the archive extracts vendor,
+# so the path below is a bare vendor and stays right wherever cargo runs from.
 [source.crates-io]
 replace-with = "vendored-sources"
 
 [source.vendored-sources]
-directory = "rust/vendor"
+directory = "vendor"

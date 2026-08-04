@@ -11,6 +11,12 @@ LIBDIR = $(TARGET_DIR)/$(TARGET)/$(subst dev,debug,$(PROFILE))
 STATLIB = $(LIBDIR)/libbalancing_savvy.a
 PKG_LIBS = -L$(LIBDIR) -lbalancing_savvy
 
+# Cargo home for the vendored build, created and used by this build alone. The
+# recipe writes the crates-io redirect here and exports CARGO_HOME only in the
+# branch that extracted the vendored archive. tools/config.toml records how cargo
+# resolves the vendored directory that file names, which depends on this location.
+CARGO_HOME_DIR = $(CURDIR)/rust/.cargo-vendor
+
 CARGO_BUILD_ARGS = --lib -p balancing-savvy --profile $(PROFILE) $(FEATURE_FLAGS) --manifest-path=./rust/Cargo.toml --target-dir $(TARGET_DIR)
 
 all: $(SHLIB) clean_intermediate
@@ -22,25 +28,26 @@ $(STATLIB):
 	# redirect cargo to build offline against the vendored crates. Development and
 	# CI builds have no archive and resolve dependencies from the registry.
 	#
-	# The redirect is written to ./.cargo, not to ./rust/.cargo beside the workspace
-	# manifest, because cargo looks for a config file by walking up from its working
-	# directory and never from the manifest that --manifest-path names. make runs
-	# this recipe in src, so a config file under ./rust is never read: the redirect
-	# then silently does not apply, and cargo is left resolving from the registry
-	# that --offline has just denied it. tools/config.toml names the vendored
-	# directory relative to this directory for the same reason.
+	# The redirect is the config file of a cargo home this build owns, and
+	# CARGO_HOME is exported below only in the branch that extracted the archive.
+	# A config file beside the sources would be read or ignored depending on where
+	# the recipe ran cargo from, since cargo discovers .cargo/config.toml by
+	# walking up from its working directory and never from the manifest that
+	# --manifest-path names, and a redirect that is silently not read leaves cargo
+	# resolving from crates.io. A cargo home is read wherever cargo is invoked
+	# from. Nothing outside the build-owned directory is written, so the user's own
+	# cargo home keeps its configuration, and no file left behind can redirect a
+	# later build that has no vendored directory to be redirected to.
 	#
-	# The file is removed when no archive is present, so that its presence always
-	# matches the archive's. It is build output rather than configuration, and a
-	# redirect left behind by an earlier vendored build would otherwise be read by
-	# every later build in the same tree, pointing at a vendored directory that
-	# clean has since removed.
+	# The same condition passes --offline, which turns a redirect that failed to
+	# apply into an error rather than a quiet download from crates.io.
+	#
+	# TAR is the archiver R chose for itself, and naming the codec keeps the
+	# extraction from resting on the archiver detecting it.
 	if [ -f ./rust/vendor.tar.xz ]; then \
-	  tar xf ./rust/vendor.tar.xz -C ./rust && \
-	  mkdir -p ./.cargo && \
-	  cp ../tools/config.toml ./.cargo/config.toml; \
-	else \
-	  rm -f ./.cargo/config.toml; \
+	  "$(TAR)" --extract --xz --file=./rust/vendor.tar.xz --directory=./rust && \
+	  mkdir -p "$(CARGO_HOME_DIR)" && \
+	  cp ../tools/config.toml "$(CARGO_HOME_DIR)/config.toml"; \
 	fi
 
 	# In some environments, ~/.cargo/bin might not be included in PATH, so we need
@@ -51,7 +58,11 @@ $(STATLIB):
 	  export CFLAGS="$(CFLAGS)" && \
 	  export RUSTFLAGS="$(RUSTFLAGS)" && \
 	  export R_INCLUDE_DIR="$${R_INCLUDE_DIR:-$(R_HOME)/include}" && \
-	  if [ -f ./rust/vendor.tar.xz ]; then OFFLINE="--offline"; else OFFLINE=""; fi && \
+	  if [ -f ./rust/vendor.tar.xz ]; then \
+	    export CARGO_HOME="$(CARGO_HOME_DIR)" && OFFLINE="--offline"; \
+	  else \
+	    OFFLINE=""; \
+	  fi && \
 	  @BEFORE_CARGO_BUILD@ \
 	  if [ "$(TARGET)" != "wasm32-unknown-emscripten" ]; then \
 	    cargo build -j 2 $(CARGO_BUILD_ARGS) $${OFFLINE}; \
@@ -59,7 +70,7 @@ $(STATLIB):
 	    export CARGO_PROFILE_DEV_PANIC="abort" && \
 	    export CARGO_PROFILE_RELEASE_PANIC="abort" && \
 	    export RUSTFLAGS="$(RUSTFLAGS) -Zdefault-visibility=hidden" && \
-	    cargo +nightly build -j 2 $(CARGO_BUILD_ARGS) --target $(TARGET) -Zbuild-std=panic_abort,std; \
+	    cargo +nightly build -j 2 $(CARGO_BUILD_ARGS) --target $(TARGET) -Zbuild-std=panic_abort,std $${OFFLINE}; \
 	  fi
 
 clean_intermediate: $(SHLIB)
@@ -68,11 +79,12 @@ clean_intermediate: $(SHLIB)
 	# complete. Release installs, including R CMD check, must leave no build
 	# artifacts behind: the subdirectory checks would otherwise flag the
 	# version-control directories and generated files that cargo writes under
-	# target. The development profile keeps the tree so repeated load_all() and
-	# local rebuilds reuse the cached compilation.
-	if [ "$(PROFILE)" != "dev" ]; then rm -Rf $(TARGET_DIR); fi
+	# target. The build-owned cargo home goes with it, since nothing reads the
+	# redirect once cargo has run. The development profile keeps both so repeated
+	# load_all() and local rebuilds reuse the cached compilation.
+	if [ "$(PROFILE)" != "dev" ]; then rm -Rf $(TARGET_DIR) $(CARGO_HOME_DIR); fi
 
 clean:
-	rm -Rf $(SHLIB) $(OBJECTS) $(STATLIB) ./rust/target ./rust/vendor ./.cargo
+	rm -Rf $(SHLIB) $(OBJECTS) $(STATLIB) ./rust/target ./rust/vendor ./rust/.cargo-vendor
 
 .PHONY: all clean_intermediate clean

@@ -18,8 +18,9 @@
 ^tests/testthat/_problems$
 ^tests/testthat/testthat-problems\.rds$
 
-^src/\.cargo$
 ^src/rust/\.cargo$
+^src/rust/\.cargo-vendor$
+^src/rust/vendor$
 ^src/rust/target$
 ^src/Makevars$
 ^src/Makevars\.win$

@@ -1,3 +1,9 @@
+# The filter below covers every file the vendored build rests on: the sources and
+# the makefile templates, the configure scripts that generate them, the vendoring
+# script and the redirect it writes, DESCRIPTION for the dependency set, and
+# .Rbuildignore, which decides what of all that reaches the source tarball. tools/
+# is deliberately absent from .Rbuildignore, and that is what carries
+# tools/config.toml into the tarball for the recipe to copy.
 on:
   push:
     branches: [main, master]
@@ -7,6 +13,7 @@ on:
       - 'configure'
       - 'configure.win'
       - 'DESCRIPTION'
+      - '.Rbuildignore'
       - '.github/workflows/cran-vendor.yaml'
   pull_request:
     paths:
@@ -15,6 +22,7 @@ on:
       - 'configure'
       - 'configure.win'
       - 'DESCRIPTION'
+      - '.Rbuildignore'
       - '.github/workflows/cran-vendor.yaml'
   workflow_dispatch:
 
@@ -101,10 +109,15 @@ jobs:
       # An artifact of the runner image is still an artifact: what this job asks is
       # whether the vendored directory is read, and a crate that happens to be
       # cached answers a different question. Removing the cache makes the answer
-      # independent of what the image ships. The rustup proxies live in
-      # ~/.cargo/bin and are untouched.
+      # independent of what the image ships. Only the registry goes: the rustup
+      # proxies in the same cargo home are untouched.
+      #
+      # The cargo home is named as cargo names it rather than assumed to be
+      # ~/.cargo, so that an image that relocates it has its registry emptied too.
+      # The assumption would fail silently, since removing a path that is not there
+      # succeeds and leaves the real cache for the build to resolve from.
       - name: Empty the cargo registry cache
-        run: rm -rf ~/.cargo/registry
+        run: rm -rf "${CARGO_HOME:-$HOME/.cargo}/registry"
 
       - name: Build and check with the network disabled
         env:
@@ -179,9 +192,10 @@ jobs:
           name: vendored-sources
           path: src/rust
 
+      # As in the job above, and named the same way for the same reason.
       - name: Empty the cargo registry cache
         shell: bash
-        run: rm -rf ~/.cargo/registry
+        run: rm -rf "${CARGO_HOME:-$HOME/.cargo}/registry"
 
       - name: Install with the network disabled
         env:

@@ -21,6 +21,11 @@ LIBDIR = $(TARGET_DIR)/$(TARGET)/$(subst dev,debug,$(PROFILE))
 STATLIB = $(LIBDIR)/libbalancing_savvy.a
 PKG_LIBS = -L$(LIBDIR) -lbalancing_savvy -lws2_32 -ladvapi32 -luserenv -lbcrypt -lntdll
 
+# Cargo home for the vendored build, as in Makevars.in and for the same reasons.
+# It stays inside the package rather than following TARGET_DIR, because it holds
+# one small file and nothing below it approaches the Windows path limit.
+CARGO_HOME_DIR = $(CURDIR)/rust/.cargo-vendor
+
 # The manifest path is two arguments here rather than the --manifest-path=... of
 # savvy's template, and that spelling is load-bearing. r-universe's arm64 Windows
 # shim reads the manifest path out of the = form only, and without it the shim
@@ -37,24 +42,15 @@ $(STATLIB):
 	# When the vendored source archive is present (CRAN releases), extract it and
 	# redirect cargo to build offline against the vendored crates. Development and
 	# CI builds have no archive and resolve dependencies from the registry. This is
-	# the same stanza as in Makevars.in, and the redirect goes to the same place for
-	# the same reason. Cargo looks for a config file by walking up from its working
-	# directory and never from the manifest that --manifest-path names, and make runs
-	# this recipe in src, so a config file under ./rust is never read and the
-	# redirect silently does not apply. tools/config.toml names the vendored
-	# directory relative to src accordingly.
-	#
-	# The file is removed when no archive is present, so that its presence always
-	# matches the archive's. It is build output rather than configuration, and a
-	# redirect left behind by an earlier vendored build would otherwise be read by
-	# every later build in the same tree, pointing at a vendored directory that
-	# clean has since removed.
+	# the same stanza as in Makevars.in, and it works the same way for the same
+	# reasons: the redirect is the config file of a cargo home this build owns,
+	# CARGO_HOME is exported below only in this branch, and a cargo home is read
+	# wherever cargo is invoked from, unlike a config file beside the sources, which
+	# cargo finds only by walking up from its working directory.
 	if [ -f ./rust/vendor.tar.xz ]; then \
-	  tar xf ./rust/vendor.tar.xz -C ./rust && \
-	  mkdir -p ./.cargo && \
-	  cp ../tools/config.toml ./.cargo/config.toml; \
-	else \
-	  rm -f ./.cargo/config.toml; \
+	  "$(TAR)" --extract --xz --file=./rust/vendor.tar.xz --directory=./rust && \
+	  mkdir -p "$(CARGO_HOME_DIR)" && \
+	  cp ../tools/config.toml "$(CARGO_HOME_DIR)/config.toml"; \
 	fi
 
 	# When the GNU toolchain is used (i.e. on CRAN), -lgcc_eh is specified for
@@ -67,7 +63,11 @@ $(STATLIB):
 	  export CFLAGS="$(CFLAGS)" && \
 	  export RUSTFLAGS="$(RUSTFLAGS)" && \
 	  export R_INCLUDE_DIR="$${R_INCLUDE_DIR:-$(R_HOME)/include}" && \
-	  if [ -f ./rust/vendor.tar.xz ]; then OFFLINE="--offline"; else OFFLINE=""; fi && \
+	  if [ -f ./rust/vendor.tar.xz ]; then \
+	    export CARGO_HOME="$(CARGO_HOME_DIR)" && OFFLINE="--offline"; \
+	  else \
+	    OFFLINE=""; \
+	  fi && \
 	  @BEFORE_CARGO_BUILD@ \
 	  cargo build -j 2 $(CARGO_BUILD_ARGS) $${OFFLINE}
 
@@ -77,15 +77,16 @@ clean_intermediate: $(SHLIB)
 	# put it. Release installs, including R CMD check, must leave no build artifacts
 	# behind: the subdirectory checks would otherwise flag the version-control
 	# directories and generated files that cargo writes under target. The
-	# development profile keeps the tree, so that repeated load_all() and local
-	# rebuilds reuse its cached compilation.
-	if [ "$(PROFILE)" != "dev" ]; then rm -Rf "$(TARGET_DIR)"; fi
+	# build-owned cargo home goes with it, since nothing reads the redirect once
+	# cargo has run. The development profile keeps both, so that repeated load_all()
+	# and local rebuilds reuse the cached compilation.
+	if [ "$(PROFILE)" != "dev" ]; then rm -Rf "$(TARGET_DIR)" "$(CARGO_HOME_DIR)"; fi
 
 clean:
 	# $(TARGET_DIR) may sit outside the package, and ./rust/target catches a tree
 	# that an earlier build left in place. The two paths that can come from
 	# configure.win are quoted, so that a directory name no one expected cannot turn
 	# this into the removal of something else.
-	rm -Rf $(SHLIB) $(OBJECTS) "$(STATLIB)" "$(TARGET_DIR)" ./rust/target ./rust/vendor ./.cargo
+	rm -Rf $(SHLIB) $(OBJECTS) "$(STATLIB)" "$(TARGET_DIR)" ./rust/target ./rust/vendor ./rust/.cargo-vendor
 
 .PHONY: all clean_intermediate clean
