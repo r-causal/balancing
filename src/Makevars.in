@@ -52,6 +52,14 @@ $(STATLIB): FORCE
 	# The same condition passes --offline, which turns a redirect that failed to
 	# apply into an error rather than a quiet download from crates.io.
 	#
+	# Both apply to the ordinary build alone, which is why they are exported inside
+	# that branch below rather than here. The emscripten branch builds the standard
+	# library from source with -Zbuild-std, and source replacement is global: it
+	# would send the standard library's own crates.io dependencies, compiler_builtins
+	# and rustc-std-workspace-core among them, to a directory holding this package's
+	# dependency graph and nothing else. That build resolves from crates.io instead,
+	# and the extracted directory simply goes unused there.
+	#
 	# TAR is the archiver R chose for itself, and naming the codec keeps the
 	# extraction from resting on the archiver detecting it.
 	if [ -f ./rust/vendor.tar.xz ]; then \
@@ -68,19 +76,19 @@ $(STATLIB): FORCE
 	  export CFLAGS="$(CFLAGS)" && \
 	  export RUSTFLAGS="$(RUSTFLAGS)" && \
 	  export R_INCLUDE_DIR="$${R_INCLUDE_DIR:-$(R_HOME)/include}" && \
-	  if [ -f ./rust/vendor.tar.xz ]; then \
-	    export CARGO_HOME="$(CARGO_HOME_DIR)" && OFFLINE="--offline"; \
-	  else \
-	    OFFLINE=""; \
-	  fi && \
 	  @BEFORE_CARGO_BUILD@ \
 	  if [ "$(TARGET)" != "wasm32-unknown-emscripten" ]; then \
+	    if [ -f ./rust/vendor.tar.xz ]; then \
+	      export CARGO_HOME="$(CARGO_HOME_DIR)" && OFFLINE="--offline"; \
+	    else \
+	      OFFLINE=""; \
+	    fi && \
 	    cargo build -j 2 $(CARGO_BUILD_ARGS) $${OFFLINE}; \
 	  else \
 	    export CARGO_PROFILE_DEV_PANIC="abort" && \
 	    export CARGO_PROFILE_RELEASE_PANIC="abort" && \
 	    export RUSTFLAGS="$(RUSTFLAGS) -Zdefault-visibility=hidden" && \
-	    cargo +nightly build -j 2 $(CARGO_BUILD_ARGS) --target $(TARGET) -Zbuild-std=panic_abort,std $${OFFLINE}; \
+	    cargo +nightly build -j 2 $(CARGO_BUILD_ARGS) --target $(TARGET) -Zbuild-std=panic_abort,std; \
 	  fi
 
 clean_intermediate: $(SHLIB)
