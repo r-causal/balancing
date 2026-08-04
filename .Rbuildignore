@@ -15,6 +15,11 @@
 ^README\.Rmd$
 ^codecov\.yml$
 
+# The rest of tools/ travels in the tarball, because configure.win sources
+# win-target-dir.sh from it and the install recipe copies config.toml out of it.
+# This one only tests the first of those and has no business in a release.
+^tools/test-win-target-dir\.sh$
+
 ^tests/testthat/_problems$
 ^tests/testthat/testthat-problems\.rds$
 
