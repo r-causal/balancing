@@ -38,7 +38,13 @@ all: $(SHLIB) clean_intermediate
 
 $(SHLIB): $(STATLIB)
 
-$(STATLIB):
+# FORCE, as in Makevars.in and for the same reason: the recipe cannot name its
+# real prerequisites, so without one make skips it whenever the staticlib is
+# already there and links whatever wrote that file. A relocated tree for a
+# non-dev profile is closed to that by construction, since configure.win creates
+# it with an exclusive mkdir under a name no other install arrives at, but the
+# in-package tree, which a short checkout and every dev build use, is not.
+$(STATLIB): FORCE
 	# When the vendored source archive is present (CRAN releases), extract it and
 	# redirect cargo to build offline against the vendored crates. Development and
 	# CI builds have no archive and resolve dependencies from the registry. This is
@@ -89,4 +95,7 @@ clean:
 	# this into the removal of something else.
 	rm -Rf $(SHLIB) $(OBJECTS) "$(STATLIB)" "$(TARGET_DIR)" ./rust/target ./rust/vendor ./rust/.cargo-vendor
 
-.PHONY: all clean_intermediate clean
+# As in Makevars.in.
+FORCE:
+
+.PHONY: all clean_intermediate clean FORCE

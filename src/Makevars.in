@@ -23,7 +23,17 @@ all: $(SHLIB) clean_intermediate
 
 $(SHLIB): $(STATLIB)
 
-$(STATLIB):
+# FORCE, because the recipe below has no way to say what it depends on. Its real
+# prerequisites are every Rust source and manifest under ./rust and the resolved
+# dependency graph, and cargo is what knows that set. Without a prerequisite make
+# compares nothing and skips the recipe whenever the staticlib is already there,
+# which links whatever wrote that file. clean_intermediate removes it after every
+# successful link, so what this closes is the install interrupted between cargo
+# writing the archive and that removal: the next install of any version finds the
+# file, skips cargo, and links a staticlib built from sources it never saw.
+# Re-running cargo costs one no-op invocation, since cargo is itself the cache and
+# decides for itself what to rebuild.
+$(STATLIB): FORCE
 	# When the vendored source archive is present (CRAN releases), extract it and
 	# redirect cargo to build offline against the vendored crates. Development and
 	# CI builds have no archive and resolve dependencies from the registry.
@@ -87,4 +97,9 @@ clean_intermediate: $(SHLIB)
 clean:
 	rm -Rf $(SHLIB) $(OBJECTS) $(STATLIB) ./rust/target ./rust/vendor ./rust/.cargo-vendor
 
-.PHONY: all clean_intermediate clean
+# An empty rule with no prerequisites, which make therefore treats as out of date
+# on every run, so that every target naming it is remade. .PHONY as well, so that
+# a file of this name in the package could not make it up to date.
+FORCE:
+
+.PHONY: all clean_intermediate clean FORCE
