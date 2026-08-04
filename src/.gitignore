@@ -5,3 +5,13 @@ target
 
 Makevars
 Makevars.win
+
+# What the vendored build makes of the sources, none of it belonging in git.
+# tools/vendor.sh writes the archive at release time and it travels inside the
+# source tarball, which is why it is deliberately absent from .Rbuildignore and
+# present here; a routine `git add -A` after running that script would otherwise
+# commit several megabytes that change with every dependency bump. The other two
+# are what the install recipe makes of the archive.
+rust/vendor.tar.xz
+rust/vendor/
+rust/.cargo-vendor/
