@@ -337,30 +337,41 @@ fi
 # specific and the driver it names serves x86_64 only, so set it for that target
 # alone and leave any other target to cargo's own default linker.
 if [ "${TARGET}" = "x86_64-pc-windows-gnu" ]; then
-  BEFORE_CARGO_BUILD="${BEFORE_CARGO_BUILD}"' export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="x86_64-w64-mingw32.static.posix-gcc.exe" \&\&'
+  BEFORE_CARGO_BUILD="${BEFORE_CARGO_BUILD}"' export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="x86_64-w64-mingw32.static.posix-gcc.exe" &&'
 fi
 
 # sed reads & on the replacement side as the text that matched and \ as an escape,
 # so a value carrying either would make the generated makefile say something other
-# than what this script decided. Neither reaches here as the script stands: the
-# allowlist above refuses a temporary root holding either character, and TARGET is
-# one of the four fixed strings its own case admits. The escaping stays anyway, so
-# that this step is correct on its own terms rather than on the strictness of a
-# test written for another reason further up. Escape the backslashes first, so the
-# ones added for the ampersands are not doubled in turn.
+# than what this script decided. Little of it reaches here as the script stands:
+# the allowlist refuses a temporary root holding either character, and TARGET is
+# one of the four fixed strings its own case admits. The rest is environment the
+# script never inspects, SAVVY_FEATURES through FEATURE_FLAGS, SAVVY_PROFILE
+# through PROFILE, and whatever BEFORE_CARGO_BUILD was already set to, which this
+# appends to. None of that is reachable by accident, since each is a knob whose
+# setter already controls the build, but every value substituted below should be
+# substituted correctly on its own terms rather than on the strictness of a test
+# written for another reason. Escape the backslashes first, so the ones added for
+# the ampersands are not doubled in turn.
 escape_sed_replacement() {
   printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/&/\\&/g'
 }
 
+# The && that ends a BEFORE_CARGO_BUILD clause is written literally above and
+# escaped here, rather than pre-escaped where it is written. That way the value
+# means what it says at every point in this script and only the substitution step
+# knows anything about sed.
 TARGET_SED="$(escape_sed_replacement "${TARGET}")"
 TARGET_DIR_SED="$(escape_sed_replacement "${TARGET_DIR}")"
+PROFILE_SED="$(escape_sed_replacement "${PROFILE}")"
+FEATURE_FLAGS_SED="$(escape_sed_replacement "${FEATURE_FLAGS}")"
+BEFORE_CARGO_BUILD_SED="$(escape_sed_replacement "${BEFORE_CARGO_BUILD}")"
 
-# | is the delimiter for every value that can hold a path, since a Windows path
-# cannot contain one.
+# | is the delimiter throughout, since a value here may hold a path and a Windows
+# path cannot contain a pipe.
 sed \
   -e "s|@TARGET@|${TARGET_SED}|" \
-  -e "s/@PROFILE@/${PROFILE}/" \
-  -e "s/@FEATURE_FLAGS@/${FEATURE_FLAGS}/" \
+  -e "s|@PROFILE@|${PROFILE_SED}|" \
+  -e "s|@FEATURE_FLAGS@|${FEATURE_FLAGS_SED}|" \
   -e "s|@TARGET_DIR@|${TARGET_DIR_SED}|" \
-  -e "s|@BEFORE_CARGO_BUILD@|${BEFORE_CARGO_BUILD}|" \
+  -e "s|@BEFORE_CARGO_BUILD@|${BEFORE_CARGO_BUILD_SED}|" \
   src/Makevars.win.in > src/Makevars.win

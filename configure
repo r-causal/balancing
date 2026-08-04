@@ -82,12 +82,38 @@ fi
 if [ "$(uname)" = "Darwin" ]; then
   MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-11.0}"
   echo "using macOS deployment target: ${MACOSX_DEPLOYMENT_TARGET}"
-  BEFORE_CARGO_BUILD="${BEFORE_CARGO_BUILD}"' export MACOSX_DEPLOYMENT_TARGET="'"${MACOSX_DEPLOYMENT_TARGET}"'" \&\&'
+  BEFORE_CARGO_BUILD="${BEFORE_CARGO_BUILD}"' export MACOSX_DEPLOYMENT_TARGET="'"${MACOSX_DEPLOYMENT_TARGET}"'" &&'
 fi
 
+# sed reads & on the replacement side as the text that matched and \ as an escape,
+# so a value carrying either would make the generated makefile say something other
+# than what this script decided. Every value substituted below can come from the
+# environment: SAVVY_PROFILE and SAVVY_FEATURES are read directly, TARGET is only
+# set here for Emscripten and is otherwise whatever was inherited, and
+# BEFORE_CARGO_BUILD is appended to its own inherited value. None of that is
+# reachable by accident, since each is a knob whose setter already controls the
+# build, but the substitution should be correct on its own terms. Escape the
+# backslashes first, so the ones added for the ampersands are not doubled in turn.
+# This is the same helper as in configure.win, kept separate because each
+# configure script has to stand alone in the source tarball.
+escape_sed_replacement() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/&/\\&/g'
+}
+
+# The && that ends a BEFORE_CARGO_BUILD clause is written literally above and
+# escaped here, rather than pre-escaped at the point it is written. That way the
+# value means what it says at every point in this script and only the substitution
+# step knows anything about sed.
+TARGET_SED="$(escape_sed_replacement "${TARGET}")"
+PROFILE_SED="$(escape_sed_replacement "${PROFILE}")"
+FEATURE_FLAGS_SED="$(escape_sed_replacement "${FEATURE_FLAGS}")"
+BEFORE_CARGO_BUILD_SED="$(escape_sed_replacement "${BEFORE_CARGO_BUILD}")"
+
+# | is the delimiter throughout, since a value here may hold a path and none of
+# them can hold a pipe.
 sed \
-  -e "s/@TARGET@/${TARGET}/" \
-  -e "s/@PROFILE@/${PROFILE}/" \
-  -e "s/@FEATURE_FLAGS@/${FEATURE_FLAGS}/" \
-  -e "s|@BEFORE_CARGO_BUILD@|${BEFORE_CARGO_BUILD}|" \
+  -e "s|@TARGET@|${TARGET_SED}|" \
+  -e "s|@PROFILE@|${PROFILE_SED}|" \
+  -e "s|@FEATURE_FLAGS@|${FEATURE_FLAGS_SED}|" \
+  -e "s|@BEFORE_CARGO_BUILD@|${BEFORE_CARGO_BUILD_SED}|" \
   src/Makevars.in > src/Makevars

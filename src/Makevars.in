@@ -17,7 +17,7 @@ PKG_LIBS = -L$(LIBDIR) -lbalancing_savvy
 # resolves the vendored directory that file names, which depends on this location.
 CARGO_HOME_DIR = $(CURDIR)/rust/.cargo-vendor
 
-CARGO_BUILD_ARGS = --lib -p balancing-savvy --profile $(PROFILE) $(FEATURE_FLAGS) --manifest-path=./rust/Cargo.toml --target-dir $(TARGET_DIR)
+CARGO_BUILD_ARGS = --lib -p balancing-savvy --profile $(PROFILE) $(FEATURE_FLAGS) --manifest-path=./rust/Cargo.toml --target-dir "$(TARGET_DIR)"
 
 all: $(SHLIB) clean_intermediate
 
@@ -92,7 +92,7 @@ $(STATLIB): FORCE
 	  fi
 
 clean_intermediate: $(SHLIB)
-	rm -f $(STATLIB)
+	rm -f "$(STATLIB)"
 	# Remove what the build wrote into the package sources once linking is
 	# complete. Release installs, including R CMD check, must leave no build
 	# artifacts behind: the subdirectory checks would otherwise flag the
@@ -104,10 +104,10 @@ clean_intermediate: $(SHLIB)
 	# copy of OSQP means CITATION files in a non-standard place and CRLF line
 	# endings in C sources and in a Makefile. The development profile keeps all
 	# three so repeated load_all() and local rebuilds reuse the cached compilation.
-	if [ "$(PROFILE)" != "dev" ]; then rm -Rf $(TARGET_DIR) $(CARGO_HOME_DIR) ./rust/vendor; fi
+	if [ "$(PROFILE)" != "dev" ]; then rm -Rf "$(TARGET_DIR)" "$(CARGO_HOME_DIR)" ./rust/vendor; fi
 
 clean:
-	rm -Rf $(SHLIB) $(OBJECTS) $(STATLIB) ./rust/target ./rust/vendor ./rust/.cargo-vendor
+	rm -Rf $(SHLIB) $(OBJECTS) "$(STATLIB)" ./rust/target ./rust/vendor ./rust/.cargo-vendor
 
 # An empty rule with no prerequisites, which make therefore treats as out of date
 # on every run, so that every target naming it is remade. .PHONY as well, so that
