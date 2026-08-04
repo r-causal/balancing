@@ -94,10 +94,14 @@ rm -rf "${VENDOR_DIR}"
 ARCHIVE_BYTES="$(wc -c < "${ARCHIVE}" | tr -d ' ')"
 
 if [ "${ARCHIVE_BYTES}" -gt "${ARCHIVE_MAX_BYTES}" ]; then
-  echo "${ARCHIVE} is ${ARCHIVE_BYTES} bytes, over the ${ARCHIVE_MAX_BYTES} this" >&2
-  echo "script allows. Either the dependency graph grew or one of the exclusions" >&2
-  echo "above stopped matching the paths it names, which cargo-vendor-filterer" >&2
-  echo "reports as a warning of its own." >&2
+  # Remove it before failing. The check is worth nothing if the archive it just
+  # rejected is left where R CMD build looks for one, since the next build would
+  # ship exactly what this refused to pass.
+  rm -f "${ARCHIVE}"
+  echo "${ARCHIVE} was ${ARCHIVE_BYTES} bytes, over the ${ARCHIVE_MAX_BYTES} this" >&2
+  echo "script allows, and has been removed. Either the dependency graph grew or" >&2
+  echo "one of the exclusions above stopped matching the paths it names, which" >&2
+  echo "cargo-vendor-filterer reports as a warning of its own." >&2
   exit 1
 fi
 

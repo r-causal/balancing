@@ -174,8 +174,12 @@ PROFILE_SED="$(escape_sed_replacement "${PROFILE}")"
 FEATURE_FLAGS_SED="$(escape_sed_replacement "${FEATURE_FLAGS}")"
 BEFORE_CARGO_BUILD_SED="$(escape_sed_replacement "${BEFORE_CARGO_BUILD}")"
 
-# | is the delimiter throughout, since a value here may hold a path and a Windows
-# path cannot contain a pipe.
+# | is the delimiter throughout, because the values that can hold a path cannot
+# hold a pipe: a Windows path cannot contain one. That is not true of the rest of
+# them, as the Unix configure notes at the same point. A pipe in SAVVY_FEATURES
+# makes sed abort on an unknown option, which leaves a truncated makefile and a
+# non-zero status out of this script, so R CMD INSTALL stops there rather than
+# building something unintended.
 sed \
   -e "s|@TARGET@|${TARGET_SED}|" \
   -e "s|@PROFILE@|${PROFILE_SED}|" \
