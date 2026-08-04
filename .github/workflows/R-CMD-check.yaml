@@ -64,10 +64,11 @@ jobs:
   # the 260-character Windows path limit and the build fails. The matrix job above
   # cannot see that class of failure, because GitHub checks the repository out to
   # D:/a/balancing/balancing and every path the build derives from it has room to
-  # spare. This job points TMPDIR at a directory as long as r-universe's session
-  # temp directory, plus a few characters of headroom, and installs the tarball
-  # from there, which puts the build back at the depth where it breaks. Install
-  # only, no check: the compile is the failure point.
+  # spare. This job points TMPDIR at a directory deep enough that R's session temp
+  # directory beneath it comes out as long as r-universe's, plus a few characters
+  # of headroom, and installs the tarball from there, which puts the build back at
+  # the depth where it breaks. Install only, no check: the compile is the failure
+  # point.
   windows-deep-path-install:
     runs-on: windows-latest
 
@@ -106,14 +107,27 @@ jobs:
           # This asks for three characters more than that, because matching
           # r-universe exactly is not reliably deep enough. The one component of
           # the failing path whose length varies is the R.INSTALL directory that
-          # R CMD INSTALL names from the process id and a random word: across the
-          # five failing r-universe jobs it drew eleven or twelve hex digits,
-          # putting cmake's compiler probe object at 261 or 262 characters. The
-          # same run compiled a 257-character object successfully, so the effective
-          # limit sits just below 261, and a shorter draw at 39 would slip back
-          # under it and let the reproduction pass with the bug still present. At
-          # 42 the probe stays at or past 261 for any suffix of eight digits or
-          # more. Overshooting costs nothing: once the fix puts the cargo target
+          # R CMD INSTALL names from the process id and a random number, both in
+          # hexadecimal: across the five failing r-universe jobs it drew eleven or
+          # twelve hex digits. In the three x86_64 jobs, a draw of that length put
+          # cmake's compiler probe object at 261 or 262 characters, and the same run
+          # compiled a 257-character object successfully, so the effective limit
+          # sits just below 261. A shorter draw at 39 would slip back under it and
+          # let the reproduction pass with the bug still present, while at 42 the
+          # probe stays at or past 261 for any suffix of eight digits or more.
+          #
+          # Every length in the paragraph above is an x86_64 one. The two arm64
+          # jobs build for aarch64-pc-windows-gnullvm, five characters longer than
+          # x86_64-pc-windows-gnu, which puts the same probe object at 266 and 267,
+          # and one of those jobs failed earlier still, on cmake being unable to
+          # create a build.make temporary at 262 characters. An arm64 log
+          # therefore gives the span below the session temp directory as 216 where
+          # an x86_64 log gives 211, and re-deriving the numbers above from one
+          # will look like a contradiction. Sizing for x86_64 is the conservative
+          # choice: the longer triple reaches the limit from a shallower temp
+          # directory, not a deeper one.
+          #
+          # Overshooting costs nothing: once the fix puts the cargo target
           # directory near 60 characters, every path the build derives from it
           # clears both the 260-character limit and cmake's own 250-character
           # warning threshold by a wide margin.
