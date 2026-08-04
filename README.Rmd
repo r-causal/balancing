@@ -20,13 +20,23 @@ options(balancing.quiet = TRUE)
 [![R-CMD-check](https://github.com/r-causal/balancing/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/r-causal/balancing/actions/workflows/R-CMD-check.yaml)
 [![Codecov test coverage](https://codecov.io/gh/r-causal/balancing/graph/badge.svg)](https://app.codecov.io/gh/r-causal/balancing)
 [![Lifecycle: experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](https://lifecycle.r-lib.org/articles/stages.html#experimental)
+[![R-universe version](https://r-causal.r-universe.dev/balancing/badges/version)](https://r-causal.r-universe.dev/balancing)
 <!-- badges: end -->
 
 balancing calculates optimization-based balancing weights for causal inference. Rather than modeling the probability of exposure and then hoping the resulting weights balance the covariates, these methods make covariate balance the objective of a convex optimization problem and solve for the weights that achieve it directly. The package covers six methods (entropy balancing, inverse probability tilting, the covariate balancing propensity score, energy balancing, characteristic function distance balancing, and stable balancing weights) across binary, categorical, and continuous exposures and a range of estimands. A Rust core provides the numerical solvers.
 
 ## Installation
 
-You can install the development version of balancing from [GitHub](https://github.com/r-causal/balancing) with:
+You can install the development version of balancing from [r-causal.r-universe.dev](https://r-causal.r-universe.dev/) with:
+
+```{r}
+install.packages(
+  "balancing",
+  repos = c("https://r-causal.r-universe.dev", getOption("repos"))
+)
+```
+
+You can also install the development version of balancing from source from [GitHub](https://github.com/r-causal/balancing) with:
 
 ``` r
 # install.packages("pak")
@@ -65,7 +75,7 @@ fit
 
 The printed summary reports the solver status and the largest imbalance the weights leave behind on the constraint terms.
 
-The weights are a `bw` vector, a sibling of `propensity::psw`. Pass them to a weighted outcome model to estimate the effect.
+The weights are a `bw` vector, a sibling of `propensity::psw()`. Pass them to a weighted outcome model to estimate the effect.
 
 ```{r outcome}
 study$w <- weights(fit)
