@@ -18,6 +18,7 @@
 ^tests/testthat/_problems$
 ^tests/testthat/testthat-problems\.rds$
 
+^src/\.cargo$
 ^src/rust/\.cargo$
 ^src/rust/target$
 ^src/Makevars$

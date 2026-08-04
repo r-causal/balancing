@@ -4,8 +4,8 @@
 #
 # Run from the package root whenever src/rust/Cargo.lock changes. The archive
 # lets the package build offline: at install time Makevars extracts it and
-# copies tools/config.toml into src/rust/.cargo/config.toml to redirect
-# crates-io to the vendored directory.
+# copies tools/config.toml into src/.cargo/config.toml to redirect crates-io to
+# the vendored directory.
 #
 # cargo-vendor-filterer is preferred because it strips tests, documentation, and
 # platforms the package does not target while keeping valid checksums, which

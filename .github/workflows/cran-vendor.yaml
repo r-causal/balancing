@@ -23,8 +23,50 @@ name: cran-vendor.yaml
 permissions: read-all
 
 jobs:
-  vendored-offline-check:
+  # Vendoring is its own job so that neither job below has run cargo before its
+  # offline build. That separation is what makes those builds a test. Vendoring in
+  # the same job would leave every locked crate in that runner's registry cache,
+  # because cargo vendor downloads them all, and an offline build then resolves
+  # from the cache and passes whether or not it can read the vendored directory.
+  # This job's own registry goes with the runner when it finishes.
+  #
+  # No R here: tools/vendor.sh needs cargo and xz and nothing else.
+  vendor:
+    name: Produce the vendored archive
     runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Vendor the Rust dependencies
+        run: ./tools/vendor.sh
+
+      # Both jobs below consume this archive rather than producing their own, which
+      # is also the arrangement a CRAN release has: the maintainer runs
+      # tools/vendor.sh once and the archive travels inside the source tarball. On
+      # Windows that is the only arrangement the package supports, since producing
+      # the archive there would additionally rest on the runner's tar being able to
+      # compress xz. The archive is a hand-off between the jobs of one run and is
+      # worth nothing afterwards, hence the short retention.
+      - name: Upload the vendored archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: vendored-sources
+          path: src/rust/vendor.tar.xz
+          if-no-files-found: error
+          retention-days: 1
+
+  # What this job proves is that a CRAN Unix build reads the vendored crates. The
+  # archive arrives from the job above, so this runner's registry cache holds only
+  # whatever the image shipped, and CARGO_NET_OFFLINE denies cargo the network. The
+  # crates therefore come from the vendored directory or the build fails.
+  vendored-offline-check:
+    name: Unix offline vendored check
+    runs-on: ubuntu-latest
+
+    needs: vendor
 
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
@@ -47,27 +89,38 @@ jobs:
           extra-packages: any::rcmdcheck
           needs: check
 
-      - name: Vendor the Rust dependencies
-        run: ./tools/vendor.sh
-
-      # The Windows job below consumes this archive rather than producing its own,
-      # which is also the arrangement a CRAN release has: the maintainer runs
-      # tools/vendor.sh on Unix and the archive travels inside the source tarball,
-      # so no Windows machine ever writes one. Producing it here would additionally
-      # rest on the runner's tar being able to compress xz, which is not something
-      # the package needs of Windows. The archive is a hand-off between two jobs of
-      # one run and is worth nothing afterwards, hence the short retention.
-      - name: Upload the vendored archive
-        uses: actions/upload-artifact@v7
+      # src/rust is where Makevars looks for the archive, so the download leaves it
+      # exactly where an unpacked CRAN tarball would have it.
+      - name: Download the vendored archive
+        uses: actions/download-artifact@v7
         with:
           name: vendored-sources
-          path: src/rust/vendor.tar.xz
-          retention-days: 1
+          path: src/rust
+
+      # Leave nothing in the registry cache for the offline build to resolve from.
+      # An artifact of the runner image is still an artifact: what this job asks is
+      # whether the vendored directory is read, and a crate that happens to be
+      # cached answers a different question. Removing the cache makes the answer
+      # independent of what the image ships. The rustup proxies live in
+      # ~/.cargo/bin and are untouched.
+      - name: Empty the cargo registry cache
+        run: rm -rf ~/.cargo/registry
 
       - name: Build and check with the network disabled
         env:
           CARGO_NET_OFFLINE: 'true'
         run: |
+          # Fail on a misplaced archive here rather than in the compile. The
+          # download step above fails outright when the artifact never arrived, so
+          # what is left to catch is an archive that landed somewhere other than
+          # src/rust, which the recipe would not find and would build from the
+          # registry instead. Offline and with an empty cache that shows up as
+          # cargo failing to reach crates.io, which is also how a build that read
+          # no archive at all would look.
+          if (!file.exists("src/rust/vendor.tar.xz")) {
+            stop("src/rust/vendor.tar.xz is missing, so nothing here tests the vendored path")
+          }
+
           rcmdcheck::rcmdcheck(
             args = c("--no-manual", "--ignore-vignettes"),
             build_args = c("--no-build-vignettes", "--no-manual"),
@@ -83,22 +136,23 @@ jobs:
           name: vendored-offline-check-results
           path: check
 
-  # The job above proves the vendored archive builds offline on Unix only. The
-  # Windows makefile template is separate code with its own handling of the
-  # archive, so a passing Unix job says nothing about whether a CRAN Windows build
-  # reads the vendored crates or reaches for crates.io. This job is what says it.
+  # The job above says nothing about Windows. The Windows makefile template is
+  # separate code with its own handling of the archive, so a Unix build that reads
+  # the vendored crates leaves open whether a CRAN Windows build reads them or
+  # reaches for crates.io. This job is what says it.
+  #
+  # It depends on the vendoring job rather than on the Unix job, so the two read the
+  # same archive independently and in parallel. A broken archive then fails both and
+  # says so twice, rather than failing one and leaving the other unrun.
   #
   # Install only, no check: extracting the archive and pointing cargo at it either
   # works or the compile fails, and a check would add minutes to learn nothing
   # further about vendoring.
-  #
-  # Depending on the whole Unix job, rather than only on the archive it uploads, is
-  # deliberate. When the Unix offline build fails the archive itself is in doubt,
-  # and a Windows result read against a suspect archive says nothing.
   windows-vendored-offline-install:
+    name: Windows offline vendored install
     runs-on: windows-latest
 
-    needs: vendored-offline-check
+    needs: vendor
 
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
@@ -125,15 +179,22 @@ jobs:
           name: vendored-sources
           path: src/rust
 
+      - name: Empty the cargo registry cache
+        shell: bash
+        run: rm -rf ~/.cargo/registry
+
       - name: Install with the network disabled
         env:
           CARGO_NET_OFFLINE: 'true'
         shell: bash
         run: |
-          # Fail on a missing archive here rather than letting the compile fail,
-          # so that an artifact that never arrived cannot be mistaken for a build
-          # that ignored an archive which was present. Both would otherwise show
-          # up as cargo trying to reach the network.
+          # Fail on a misplaced archive here rather than in the compile. The
+          # download step above fails outright when the artifact never arrived, so
+          # what is left to catch is an archive that landed somewhere other than
+          # src/rust, which the recipe would not find and would build from the
+          # registry instead. Offline and with an empty cache that shows up as
+          # cargo failing to reach crates.io, which is also how a build that read
+          # no archive at all would look.
           if [ ! -f src/rust/vendor.tar.xz ]; then
             echo "src/rust/vendor.tar.xz is missing, so nothing here tests the vendored path" >&2
             exit 1

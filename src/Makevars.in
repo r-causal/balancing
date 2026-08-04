@@ -21,10 +21,26 @@ $(STATLIB):
 	# When the vendored source archive is present (CRAN releases), extract it and
 	# redirect cargo to build offline against the vendored crates. Development and
 	# CI builds have no archive and resolve dependencies from the registry.
+	#
+	# The redirect is written to ./.cargo, not to ./rust/.cargo beside the workspace
+	# manifest, because cargo looks for a config file by walking up from its working
+	# directory and never from the manifest that --manifest-path names. make runs
+	# this recipe in src, so a config file under ./rust is never read: the redirect
+	# then silently does not apply, and cargo is left resolving from the registry
+	# that --offline has just denied it. tools/config.toml names the vendored
+	# directory relative to this directory for the same reason.
+	#
+	# The file is removed when no archive is present, so that its presence always
+	# matches the archive's. It is build output rather than configuration, and a
+	# redirect left behind by an earlier vendored build would otherwise be read by
+	# every later build in the same tree, pointing at a vendored directory that
+	# clean has since removed.
 	if [ -f ./rust/vendor.tar.xz ]; then \
 	  tar xf ./rust/vendor.tar.xz -C ./rust && \
-	  mkdir -p ./rust/.cargo && \
-	  cp ../tools/config.toml ./rust/.cargo/config.toml; \
+	  mkdir -p ./.cargo && \
+	  cp ../tools/config.toml ./.cargo/config.toml; \
+	else \
+	  rm -f ./.cargo/config.toml; \
 	fi
 
 	# In some environments, ~/.cargo/bin might not be included in PATH, so we need
@@ -57,6 +73,6 @@ clean_intermediate: $(SHLIB)
 	if [ "$(PROFILE)" != "dev" ]; then rm -Rf $(TARGET_DIR); fi
 
 clean:
-	rm -Rf $(SHLIB) $(OBJECTS) $(STATLIB) ./rust/target ./rust/vendor
+	rm -Rf $(SHLIB) $(OBJECTS) $(STATLIB) ./rust/target ./rust/vendor ./.cargo
 
 .PHONY: all clean_intermediate clean
