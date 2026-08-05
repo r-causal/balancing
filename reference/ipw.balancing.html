@@ -119,7 +119,17 @@ neither block, since the effect is one of the outcome-model coefficients;
 that coefficient is named for the effect, as <code>slope</code>, in place of the
 <code>beta_</code> name the others carry. The standard errors in <code>estimates</code> are
 <code>sqrt(diag(fit$vcov))</code> read at those effect names.</p></li>
-</ul></div>
+</ul><p>The <code>estimates</code> table carries the covariance of the reported effects as its
+<code>ipw_vcov</code> attribute, which is what <code><a href="https://rdrr.io/r/stats/vcov.html" class="external-link">stats::vcov()</a></code> returns. Both its
+dimnames are the display labels of the estimates rows: the effect measure
+alone, or the measure and the comparison for a categorical exposure, as
+<code>"rd b vs a"</code>. The stored <code>outcome_mod</code> is wrapped by
+<code><a href="https://r-causal.github.io/causalgenerics/reference/new_ipw_model.html" class="external-link">causalgenerics::new_ipw_model()</a></code>, which carries the outcome-model block of
+<code>fit$vcov</code> under the model's own coefficient names, so <code><a href="https://rdrr.io/r/stats/vcov.html" class="external-link">vcov()</a></code> on it
+reports the joint-estimation variance. <code><a href="https://rdrr.io/r/stats/df.residual.html" class="external-link">stats::df.residual()</a></code> returns
+<code>NA_integer_</code>, since the stacked system is not a fit with residual degrees
+of freedom of its own.</p>
+    </div>
     <div class="section level2">
     <h2 id="details">Details<a class="anchor" aria-label="anchor" href="#details"></a></h2>
     <p>The point estimates are the g-computation marginal means: the outcome model
@@ -182,6 +192,20 @@ stands between the sandwich and the reported effects. The joint covariance
 propagates the uncertainty from estimating the weights into the effect
 standard errors, which a variance that treats the weights as fixed would
 understate.</p>
+<p>The result reads through the accessors causalgenerics registers on the class,
+which every fitting package's results share: <code><a href="https://rdrr.io/r/stats/coef.html" class="external-link">stats::coef()</a></code> for the reported
+effects under their display labels, <code><a href="https://rdrr.io/r/stats/vcov.html" class="external-link">stats::vcov()</a></code> for their covariance,
+<code><a href="https://rdrr.io/r/stats/confint.html" class="external-link">stats::confint()</a></code> for their intervals, <code><a href="https://rdrr.io/r/stats/nobs.html" class="external-link">stats::nobs()</a></code> for the number of
+observations, and <code><a href="https://rdrr.io/r/stats/weights.html" class="external-link">stats::weights()</a></code> for the weights the outcome model was
+fitted with. The covariance those accessors read is the block of the stacked
+one belonging to the reported effects, which is on the estimates table rather
+than derived from it: the effect measures are transformations of the same pair
+of marginal means, so they covary, and the off-diagonals a caller combining
+two of them needs are not recoverable from the standard errors alone. The
+stored outcome model carries its own block of the same covariance, so
+<code><a href="https://rdrr.io/r/stats/vcov.html" class="external-link">vcov()</a></code> on it reports the variance of its coefficients with the uncertainty
+from estimating the weights included, where a bare refit of the same weighted
+model treats the weights as fixed and understates it.</p>
 <p>That covariance is a large-sample one, and how large a sample it takes
 differs by exposure. The binary risk-difference standard error is calibrated
 at a few hundred observations; the continuous slope's is anticonservative

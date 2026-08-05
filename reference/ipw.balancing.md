@@ -75,6 +75,20 @@ table, the result carries two fields describing the variance:
   place of the `beta_` name the others carry. The standard errors in
   `estimates` are `sqrt(diag(fit$vcov))` read at those effect names.
 
+The `estimates` table carries the covariance of the reported effects as
+its `ipw_vcov` attribute, which is what
+[`stats::vcov()`](https://rdrr.io/r/stats/vcov.html) returns. Both its
+dimnames are the display labels of the estimates rows: the effect
+measure alone, or the measure and the comparison for a categorical
+exposure, as `"rd b vs a"`. The stored `outcome_mod` is wrapped by
+[`causalgenerics::new_ipw_model()`](https://r-causal.github.io/causalgenerics/reference/new_ipw_model.html),
+which carries the outcome-model block of `fit$vcov` under the model's
+own coefficient names, so [`vcov()`](https://rdrr.io/r/stats/vcov.html)
+on it reports the joint-estimation variance.
+[`stats::df.residual()`](https://rdrr.io/r/stats/df.residual.html)
+returns `NA_integer_`, since the stacked system is not a fit with
+residual degrees of freedom of its own.
+
 ## Details
 
 The point estimates are the g-computation marginal means: the outcome
@@ -148,6 +162,28 @@ delta-method step stands between the sandwich and the reported effects.
 The joint covariance propagates the uncertainty from estimating the
 weights into the effect standard errors, which a variance that treats
 the weights as fixed would understate.
+
+The result reads through the accessors causalgenerics registers on the
+class, which every fitting package's results share:
+[`stats::coef()`](https://rdrr.io/r/stats/coef.html) for the reported
+effects under their display labels,
+[`stats::vcov()`](https://rdrr.io/r/stats/vcov.html) for their
+covariance, [`stats::confint()`](https://rdrr.io/r/stats/confint.html)
+for their intervals,
+[`stats::nobs()`](https://rdrr.io/r/stats/nobs.html) for the number of
+observations, and
+[`stats::weights()`](https://rdrr.io/r/stats/weights.html) for the
+weights the outcome model was fitted with. The covariance those
+accessors read is the block of the stacked one belonging to the reported
+effects, which is on the estimates table rather than derived from it:
+the effect measures are transformations of the same pair of marginal
+means, so they covary, and the off-diagonals a caller combining two of
+them needs are not recoverable from the standard errors alone. The
+stored outcome model carries its own block of the same covariance, so
+[`vcov()`](https://rdrr.io/r/stats/vcov.html) on it reports the variance
+of its coefficients with the uncertainty from estimating the weights
+included, where a bare refit of the same weighted model treats the
+weights as fixed and understates it.
 
 That covariance is a large-sample one, and how large a sample it takes
 differs by exposure. The binary risk-difference standard error is

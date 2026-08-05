@@ -70,6 +70,22 @@
   above the outcome-model score, and is a large-sample one: at a few
   hundred observations it runs anticonservative.
 
+- An
+  [`ipw()`](https://r-causal.github.io/causalgenerics/reference/ipw.html)
+  result reads through the accessors causalgenerics registers on the
+  class: [`coef()`](https://rdrr.io/r/stats/coef.html),
+  [`vcov()`](https://rdrr.io/r/stats/vcov.html),
+  [`confint()`](https://rdrr.io/r/stats/confint.html),
+  [`nobs()`](https://rdrr.io/r/stats/nobs.html), and
+  [`weights()`](https://rdrr.io/r/stats/weights.html).
+  [`vcov()`](https://rdrr.io/r/stats/vcov.html) returns the covariance
+  of the reported effects, labeled the way the result labels its rows,
+  so the covariances between effect measures that the estimates table
+  cannot report are available to a caller combining them. The stored
+  outcome model carries the outcome-model block of the same covariance,
+  so [`vcov()`](https://rdrr.io/r/stats/vcov.html) on it accounts for
+  having estimated the weights.
+
 - Added the `bw` weight vector class, a sibling of
   [`propensity::psw`](https://r-causal.github.io/propensity/reference/psw.html)
   under the shared `causal_wts` parent.
