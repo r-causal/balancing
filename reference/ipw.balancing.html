@@ -96,6 +96,25 @@ an estimand that disagrees with the fit raises <code>balancing_estimand_error</c
 <dd><p>The confidence level for the intervals. Default <code>0.95</code>.</p></dd>
 
 
+<dt id="arg-effects">effects<a class="anchor" aria-label="anchor" href="#arg-effects"></a></dt>
+<dd><p>The presentation mode the result records, either <code>"marginal"</code>
+(the default) or <code>"conditional"</code>. The marginal reading reports the
+population-averaged causal contrasts described above; the conditional
+reading reports the outcome model's coefficient surface. Both surfaces are
+computed whichever mode is named, since the stacked system is solved either
+way, so the argument settles which one the result presents and nothing
+else. <code><a href="https://r-causal.github.io/causalgenerics/reference/ipw-modes.html" class="external-link">causalgenerics::as_marginal()</a></code> and <code><a href="https://r-causal.github.io/causalgenerics/reference/ipw-modes.html" class="external-link">causalgenerics::as_conditional()</a></code>
+move a result between the two readings afterwards, and the accessors take an
+<code>effects</code> argument of their own for a single call.</p>
+<p>The conditional reading reports the coefficients of the stored
+<code>outcome_mod</code> against the outcome block of the stacked sandwich, which is
+the block the wrapper around that model carries, so its standard errors
+account for having estimated the weights rather than treating them as
+fixed. The stored <code>wt_mod</code> is the balancing fit itself rather than a
+wrapper of one, since the weight block of the same stack is already its
+own.</p></dd>
+
+
 <dt id="arg--">...<a class="anchor" aria-label="anchor" href="#arg--"></a></dt>
 <dd><p>Ignored, for compatibility with the generic.</p></dd>
 
@@ -103,9 +122,9 @@ an estimand that disagrees with the fit raises <code>balancing_estimand_error</c
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
     <p>An object of class <code>ipw</code>, an implementation of
-<code><a href="https://r-causal.github.io/causalgenerics/reference/ipw.html" class="external-link">causalgenerics::ipw()</a></code>. Alongside <code>estimand</code>, <code>wt_mod</code>, <code>outcome_mod</code>, and
-the <code>estimates</code> table, the result carries two fields describing the
-variance:</p><ul><li><p><code>se_method</code>, the string <code>"mestimation"</code>, naming how the standard errors
+<code><a href="https://r-causal.github.io/causalgenerics/reference/ipw.html" class="external-link">causalgenerics::ipw()</a></code>. Alongside <code>estimand</code>, <code>wt_mod</code>, <code>outcome_mod</code>, the
+<code>estimates</code> table, and the <code>effects</code> field recording the presentation mode
+described above, the result carries two fields describing the variance:</p><ul><li><p><code>se_method</code>, the string <code>"mestimation"</code>, naming how the standard errors
 were computed.</p></li>
 <li><p><code>fit</code>, the fitted variance system, a list of <code>theta</code>, the stacked
 parameter vector, and <code>vcov</code>, its sandwich covariance. Both are named by
@@ -120,10 +139,10 @@ that coefficient is named for the effect, as <code>slope</code>, in place of the
 <code>beta_</code> name the others carry. The standard errors in <code>estimates</code> are
 <code>sqrt(diag(fit$vcov))</code> read at those effect names.</p></li>
 </ul><p>The <code>estimates</code> table carries the covariance of the reported effects as its
-<code>ipw_vcov</code> attribute, which is what <code><a href="https://rdrr.io/r/stats/vcov.html" class="external-link">stats::vcov()</a></code> returns. Both its
-dimnames are the display labels of the estimates rows: the effect measure
-alone, or the measure and the comparison for a categorical exposure, as
-<code>"rd b vs a"</code>. The stored <code>outcome_mod</code> is wrapped by
+<code>ipw_vcov</code> attribute, which is what <code><a href="https://rdrr.io/r/stats/vcov.html" class="external-link">stats::vcov()</a></code> returns in the marginal
+reading. Both its dimnames are the display labels of the estimates rows: the
+effect measure alone, or the measure and the comparison for a categorical
+exposure, as <code>"rd b vs a"</code>. The stored <code>outcome_mod</code> is wrapped by
 <code><a href="https://r-causal.github.io/causalgenerics/reference/new_ipw_model.html" class="external-link">causalgenerics::new_ipw_model()</a></code>, which carries the outcome-model block of
 <code>fit$vcov</code> under the model's own coefficient names, so <code><a href="https://rdrr.io/r/stats/vcov.html" class="external-link">vcov()</a></code> on it
 reports the joint-estimation variance. <code><a href="https://rdrr.io/r/stats/df.residual.html" class="external-link">stats::df.residual()</a></code> returns

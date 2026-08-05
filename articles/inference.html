@@ -149,6 +149,7 @@ standard error that accounts for having estimated the weights.</p>
 <span><span class="va">result</span></span>
 <span><span class="co">#&gt; Inverse Probability Weight Estimator</span></span>
 <span><span class="co">#&gt; Estimand: ATE </span></span>
+<span><span class="co">#&gt; Effects: marginal (population-averaged) </span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; Weight Estimator:</span></span>
 <span><span class="co">#&gt;   Call: balance(.data = study, .exposure = exposure, .covariates = c(age, </span></span>
@@ -158,7 +159,7 @@ standard error that accounts for having estimated the weights.</p>
 <span><span class="co">#&gt;   Call: glm(formula = event ~ exposure, family = quasibinomial(), data = study, </span></span>
 <span><span class="co">#&gt;     weights = w) </span></span>
 <span><span class="co">#&gt; </span></span>
-<span><span class="co">#&gt; Estimates:</span></span>
+<span><span class="co">#&gt; Marginal estimates:</span></span>
 <span><span class="co">#&gt;         estimate  std.err      z ci.lower ci.upper conf.level   p.value    </span></span>
 <span><span class="co">#&gt; rd      0.160314 0.026838 5.9734  0.10771  0.21292       0.95 2.323e-09 ***</span></span>
 <span><span class="co">#&gt; log(rr) 0.332094 0.057547 5.7709  0.21931  0.44488       0.95 7.886e-09 ***</span></span>
@@ -251,6 +252,7 @@ model enters the exposure as a factor.</p>
 <span><span class="fu"><a href="https://r-causal.github.io/causalgenerics/reference/ipw.html" class="external-link">ipw</a></span><span class="op">(</span><span class="va">arm_fit</span>, <span class="va">arm_mod</span><span class="op">)</span></span>
 <span><span class="co">#&gt; Inverse Probability Weight Estimator</span></span>
 <span><span class="co">#&gt; Estimand: ATE </span></span>
+<span><span class="co">#&gt; Effects: marginal (population-averaged) </span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; Weight Estimator:</span></span>
 <span><span class="co">#&gt;   Call: balance(.data = study, .exposure = arm, .covariates = c(age, </span></span>
@@ -260,7 +262,7 @@ model enters the exposure as a factor.</p>
 <span><span class="co">#&gt;   Call: glm(formula = relapse ~ arm, family = quasibinomial(), data = study, </span></span>
 <span><span class="co">#&gt;     weights = arm_w) </span></span>
 <span><span class="co">#&gt; </span></span>
-<span><span class="co">#&gt; Estimates:</span></span>
+<span><span class="co">#&gt; Marginal estimates:</span></span>
 <span><span class="co">#&gt;                       estimate  std.err      z ci.lower ci.upper conf.level</span></span>
 <span><span class="co">#&gt; rd medium vs low      0.106453 0.034223 3.1105 0.039377  0.17353       0.95</span></span>
 <span><span class="co">#&gt; log(rr) medium vs low 0.243221 0.078185 3.1108 0.089982  0.39646       0.95</span></span>
@@ -312,6 +314,7 @@ in the exposure on the model’s own link scale.</p>
 <span><span class="fu"><a href="https://r-causal.github.io/causalgenerics/reference/ipw.html" class="external-link">ipw</a></span><span class="op">(</span><span class="va">dose_fit</span>, <span class="va">dose_mod</span><span class="op">)</span></span>
 <span><span class="co">#&gt; Inverse Probability Weight Estimator</span></span>
 <span><span class="co">#&gt; Estimand: ATE </span></span>
+<span><span class="co">#&gt; Effects: marginal (population-averaged) </span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; Weight Estimator:</span></span>
 <span><span class="co">#&gt;   Call: balance(.data = study, .exposure = dose, .covariates = c(age, </span></span>
@@ -320,7 +323,7 @@ in the exposure on the model’s own link scale.</p>
 <span><span class="co">#&gt; Outcome Model:</span></span>
 <span><span class="co">#&gt;   Call: lm(formula = response ~ dose, data = study, weights = dose_w) </span></span>
 <span><span class="co">#&gt; </span></span>
-<span><span class="co">#&gt; Estimates:</span></span>
+<span><span class="co">#&gt; Marginal estimates:</span></span>
 <span><span class="co">#&gt;       estimate  std.err      z ci.lower ci.upper conf.level   p.value    </span></span>
 <span><span class="co">#&gt; slope 0.421318 0.038053 11.072  0.34674   0.4959       0.95 &lt; 2.2e-16 ***</span></span>
 <span><span class="co">#&gt; ---</span></span>
@@ -359,6 +362,7 @@ common way to reduce residual confounding and tighten the estimate.</p>
 <span><span class="fu"><a href="https://r-causal.github.io/causalgenerics/reference/ipw.html" class="external-link">ipw</a></span><span class="op">(</span><span class="va">fit</span>, <span class="va">adjusted_mod</span><span class="op">)</span></span>
 <span><span class="co">#&gt; Inverse Probability Weight Estimator</span></span>
 <span><span class="co">#&gt; Estimand: ATE </span></span>
+<span><span class="co">#&gt; Effects: marginal (population-averaged) </span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; Weight Estimator:</span></span>
 <span><span class="co">#&gt;   Call: balance(.data = study, .exposure = exposure, .covariates = c(age, </span></span>
@@ -368,7 +372,7 @@ common way to reduce residual confounding and tighten the estimate.</p>
 <span><span class="co">#&gt;   Call: glm(formula = event ~ exposure + age + score, family = quasibinomial(), </span></span>
 <span><span class="co">#&gt;     data = study, weights = w) </span></span>
 <span><span class="co">#&gt; </span></span>
-<span><span class="co">#&gt; Estimates:</span></span>
+<span><span class="co">#&gt; Marginal estimates:</span></span>
 <span><span class="co">#&gt;         estimate  std.err      z ci.lower ci.upper conf.level   p.value    </span></span>
 <span><span class="co">#&gt; rd      0.159491 0.026781 5.9555  0.10700  0.21198       0.95 2.593e-09 ***</span></span>
 <span><span class="co">#&gt; log(rr) 0.330306 0.057430 5.7515  0.21775  0.44287       0.95 8.848e-09 ***</span></span>

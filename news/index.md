@@ -86,6 +86,27 @@
   so [`vcov()`](https://rdrr.io/r/stats/vcov.html) on it accounts for
   having estimated the weights.
 
+- [`ipw()`](https://r-causal.github.io/causalgenerics/reference/ipw.html)
+  takes an `effects` argument recording the reading the result it builds
+  presents: `"marginal"`, the default, for the population-averaged
+  causal contrasts, or `"conditional"` for the outcome model’s
+  coefficient surface. The stacked system is solved whichever value is
+  named, so the argument settles which reading the result presents and
+  nothing else. In the conditional reading,
+  [`coef()`](https://rdrr.io/r/stats/coef.html),
+  [`vcov()`](https://rdrr.io/r/stats/vcov.html), and
+  [`confint()`](https://rdrr.io/r/stats/confint.html) report the outcome
+  model’s coefficients against the outcome block of the stacked
+  sandwich, so their standard errors account for having estimated the
+  weights rather than treating the weights as fixed.
+  [`as_marginal()`](https://r-causal.github.io/causalgenerics/reference/ipw-modes.html)
+  and
+  [`as_conditional()`](https://r-causal.github.io/causalgenerics/reference/ipw-modes.html),
+  which move a result between the two readings afterwards, are
+  re-exported here, so a result is flipped without a second attachment.
+  A printed result names its reading beside the estimand and again over
+  the table it decides.
+
 - Added the `bw` weight vector class, a sibling of
   [`propensity::psw`](https://r-causal.github.io/propensity/reference/psw.html)
   under the shared `causal_wts` parent.

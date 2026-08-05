@@ -127,6 +127,7 @@
 <code class="sourceCode R"><span><span class="fu"><a href="https://r-causal.github.io/causalgenerics/reference/ipw.html" class="external-link">ipw</a></span><span class="op">(</span><span class="va">fit</span>, <span class="va">outcome_mod</span><span class="op">)</span></span>
 <span><span class="co">#&gt; Inverse Probability Weight Estimator</span></span>
 <span><span class="co">#&gt; Estimand: ATT </span></span>
+<span><span class="co">#&gt; Effects: marginal (population-averaged) </span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; Weight Estimator:</span></span>
 <span><span class="co">#&gt;   Call: balance(.data = study, .exposure = exposure, .covariates = c(age, </span></span>
@@ -135,7 +136,7 @@
 <span><span class="co">#&gt; Outcome Model:</span></span>
 <span><span class="co">#&gt;   Call: lm(formula = outcome ~ exposure, data = study, weights = w) </span></span>
 <span><span class="co">#&gt; </span></span>
-<span><span class="co">#&gt; Estimates:</span></span>
+<span><span class="co">#&gt; Marginal estimates:</span></span>
 <span><span class="co">#&gt;      estimate std.err      z ci.lower ci.upper conf.level   p.value    </span></span>
 <span><span class="co">#&gt; diff  1.13168 0.12345 9.1673  0.88972   1.3736       0.95 &lt; 2.2e-16 ***</span></span>
 <span><span class="co">#&gt; ---</span></span>

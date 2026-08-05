@@ -96,6 +96,7 @@ result <- ipw(fit, outcome_mod)
 result
 #> Inverse Probability Weight Estimator
 #> Estimand: ATE 
+#> Effects: marginal (population-averaged) 
 #> 
 #> Weight Estimator:
 #>   Call: balance(.data = study, .exposure = exposure, .covariates = c(age, 
@@ -105,7 +106,7 @@ result
 #>   Call: glm(formula = event ~ exposure, family = quasibinomial(), data = study, 
 #>     weights = w) 
 #> 
-#> Estimates:
+#> Marginal estimates:
 #>         estimate  std.err      z ci.lower ci.upper conf.level   p.value    
 #> rd      0.160314 0.026838 5.9734  0.10771  0.21292       0.95 2.323e-09 ***
 #> log(rr) 0.332094 0.057547 5.7709  0.21931  0.44488       0.95 7.886e-09 ***
@@ -208,6 +209,7 @@ arm_mod <- glm(
 ipw(arm_fit, arm_mod)
 #> Inverse Probability Weight Estimator
 #> Estimand: ATE 
+#> Effects: marginal (population-averaged) 
 #> 
 #> Weight Estimator:
 #>   Call: balance(.data = study, .exposure = arm, .covariates = c(age, 
@@ -217,7 +219,7 @@ ipw(arm_fit, arm_mod)
 #>   Call: glm(formula = relapse ~ arm, family = quasibinomial(), data = study, 
 #>     weights = arm_w) 
 #> 
-#> Estimates:
+#> Marginal estimates:
 #>                       estimate  std.err      z ci.lower ci.upper conf.level
 #> rd medium vs low      0.106453 0.034223 3.1105 0.039377  0.17353       0.95
 #> log(rr) medium vs low 0.243221 0.078185 3.1108 0.089982  0.39646       0.95
@@ -273,6 +275,7 @@ dose_mod <- lm(response ~ dose, data = study, weights = dose_w)
 ipw(dose_fit, dose_mod)
 #> Inverse Probability Weight Estimator
 #> Estimand: ATE 
+#> Effects: marginal (population-averaged) 
 #> 
 #> Weight Estimator:
 #>   Call: balance(.data = study, .exposure = dose, .covariates = c(age, 
@@ -281,7 +284,7 @@ ipw(dose_fit, dose_mod)
 #> Outcome Model:
 #>   Call: lm(formula = response ~ dose, data = study, weights = dose_w) 
 #> 
-#> Estimates:
+#> Marginal estimates:
 #>       estimate  std.err      z ci.lower ci.upper conf.level   p.value    
 #> slope 0.421318 0.038053 11.072  0.34674   0.4959       0.95 < 2.2e-16 ***
 #> ---
@@ -322,6 +325,7 @@ adjusted_mod <- glm(
 ipw(fit, adjusted_mod)
 #> Inverse Probability Weight Estimator
 #> Estimand: ATE 
+#> Effects: marginal (population-averaged) 
 #> 
 #> Weight Estimator:
 #>   Call: balance(.data = study, .exposure = exposure, .covariates = c(age, 
@@ -331,7 +335,7 @@ ipw(fit, adjusted_mod)
 #>   Call: glm(formula = event ~ exposure + age + score, family = quasibinomial(), 
 #>     data = study, weights = w) 
 #> 
-#> Estimates:
+#> Marginal estimates:
 #>         estimate  std.err      z ci.lower ci.upper conf.level   p.value    
 #> rd      0.159491 0.026781 5.9555  0.10700  0.21198       0.95 2.593e-09 ***
 #> log(rr) 0.330306 0.057430 5.7515  0.21775  0.44287       0.95 8.848e-09 ***

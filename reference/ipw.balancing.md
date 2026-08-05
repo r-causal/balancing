@@ -48,6 +48,29 @@ having estimated the weights.
 
   The confidence level for the intervals. Default `0.95`.
 
+- effects:
+
+  The presentation mode the result records, either `"marginal"` (the
+  default) or `"conditional"`. The marginal reading reports the
+  population-averaged causal contrasts described above; the conditional
+  reading reports the outcome model's coefficient surface. Both surfaces
+  are computed whichever mode is named, since the stacked system is
+  solved either way, so the argument settles which one the result
+  presents and nothing else.
+  [`causalgenerics::as_marginal()`](https://r-causal.github.io/causalgenerics/reference/ipw-modes.html)
+  and
+  [`causalgenerics::as_conditional()`](https://r-causal.github.io/causalgenerics/reference/ipw-modes.html)
+  move a result between the two readings afterwards, and the accessors
+  take an `effects` argument of their own for a single call.
+
+  The conditional reading reports the coefficients of the stored
+  `outcome_mod` against the outcome block of the stacked sandwich, which
+  is the block the wrapper around that model carries, so its standard
+  errors account for having estimated the weights rather than treating
+  them as fixed. The stored `wt_mod` is the balancing fit itself rather
+  than a wrapper of one, since the weight block of the same stack is
+  already its own.
+
 - ...:
 
   Ignored, for compatibility with the generic.
@@ -56,8 +79,9 @@ having estimated the weights.
 
 An object of class `ipw`, an implementation of
 [`causalgenerics::ipw()`](https://r-causal.github.io/causalgenerics/reference/ipw.html).
-Alongside `estimand`, `wt_mod`, `outcome_mod`, and the `estimates`
-table, the result carries two fields describing the variance:
+Alongside `estimand`, `wt_mod`, `outcome_mod`, the `estimates` table,
+and the `effects` field recording the presentation mode described above,
+the result carries two fields describing the variance:
 
 - `se_method`, the string `"mestimation"`, naming how the standard
   errors were computed.
@@ -77,10 +101,11 @@ table, the result carries two fields describing the variance:
 
 The `estimates` table carries the covariance of the reported effects as
 its `ipw_vcov` attribute, which is what
-[`stats::vcov()`](https://rdrr.io/r/stats/vcov.html) returns. Both its
-dimnames are the display labels of the estimates rows: the effect
-measure alone, or the measure and the comparison for a categorical
-exposure, as `"rd b vs a"`. The stored `outcome_mod` is wrapped by
+[`stats::vcov()`](https://rdrr.io/r/stats/vcov.html) returns in the
+marginal reading. Both its dimnames are the display labels of the
+estimates rows: the effect measure alone, or the measure and the
+comparison for a categorical exposure, as `"rd b vs a"`. The stored
+`outcome_mod` is wrapped by
 [`causalgenerics::new_ipw_model()`](https://r-causal.github.io/causalgenerics/reference/new_ipw_model.html),
 which carries the outcome-model block of `fit$vcov` under the model's
 own coefficient names, so [`vcov()`](https://rdrr.io/r/stats/vcov.html)

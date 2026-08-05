@@ -253,6 +253,7 @@ standard errors that account for the estimation of the weights.</p>
 <span><span class="fu"><a href="https://r-causal.github.io/causalgenerics/reference/ipw.html" class="external-link">ipw</a></span><span class="op">(</span><span class="va">ate_fit</span>, <span class="va">event_mod</span><span class="op">)</span></span>
 <span><span class="co">#&gt; Inverse Probability Weight Estimator</span></span>
 <span><span class="co">#&gt; Estimand: ATE </span></span>
+<span><span class="co">#&gt; Effects: marginal (population-averaged) </span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; Weight Estimator:</span></span>
 <span><span class="co">#&gt;   Call: balance(.data = study, .exposure = exposure, .covariates = c(age, </span></span>
@@ -262,7 +263,7 @@ standard errors that account for the estimation of the weights.</p>
 <span><span class="co">#&gt;   Call: glm(formula = event ~ exposure, family = quasibinomial(), data = study, </span></span>
 <span><span class="co">#&gt;     weights = w_ate) </span></span>
 <span><span class="co">#&gt; </span></span>
-<span><span class="co">#&gt; Estimates:</span></span>
+<span><span class="co">#&gt; Marginal estimates:</span></span>
 <span><span class="co">#&gt;         estimate  std.err      z ci.lower ci.upper conf.level   p.value    </span></span>
 <span><span class="co">#&gt; rd      0.134288 0.036908 3.6385  0.06195  0.20663       0.95 0.0002743 ***</span></span>
 <span><span class="co">#&gt; log(rr) 0.263052 0.073661 3.5711  0.11868  0.40742       0.95 0.0003554 ***</span></span>

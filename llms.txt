@@ -107,6 +107,7 @@ exposure coefficient of a weighted marginal structural model.
 ipw(fit, outcome_mod)
 #> Inverse Probability Weight Estimator
 #> Estimand: ATT 
+#> Effects: marginal (population-averaged) 
 #> 
 #> Weight Estimator:
 #>   Call: balance(.data = study, .exposure = exposure, .covariates = c(age, 
@@ -115,7 +116,7 @@ ipw(fit, outcome_mod)
 #> Outcome Model:
 #>   Call: lm(formula = outcome ~ exposure, data = study, weights = w) 
 #> 
-#> Estimates:
+#> Marginal estimates:
 #>      estimate std.err      z ci.lower ci.upper conf.level   p.value    
 #> diff  1.13168 0.12345 9.1673  0.88972   1.3736       0.95 < 2.2e-16 ***
 #> ---
@@ -243,6 +244,8 @@ Estimate causal effects and access the pieces inference needs.
 
 - [`reexports`](https://r-causal.github.io/balancing/reference/reexports.md)
   [`ipw`](https://r-causal.github.io/balancing/reference/reexports.md)
+  [`as_marginal`](https://r-causal.github.io/balancing/reference/reexports.md)
+  [`as_conditional`](https://r-causal.github.io/balancing/reference/reexports.md)
   [`is_causal_wt`](https://r-causal.github.io/balancing/reference/reexports.md)
   [`estimand`](https://r-causal.github.io/balancing/reference/reexports.md)
   : Objects exported from other packages

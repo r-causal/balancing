@@ -76,6 +76,8 @@ Estimate causal effects and access the pieces inference needs.
 
 - [`reexports`](https://r-causal.github.io/balancing/reference/reexports.md)
   [`ipw`](https://r-causal.github.io/balancing/reference/reexports.md)
+  [`as_marginal`](https://r-causal.github.io/balancing/reference/reexports.md)
+  [`as_conditional`](https://r-causal.github.io/balancing/reference/reexports.md)
   [`is_causal_wt`](https://r-causal.github.io/balancing/reference/reexports.md)
   [`estimand`](https://r-causal.github.io/balancing/reference/reexports.md)
   : Objects exported from other packages
