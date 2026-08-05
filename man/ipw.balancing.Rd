@@ -24,13 +24,31 @@ an estimand that disagrees with the fit raises \code{balancing_estimand_error}.}
 
 \item{conf_level}{The confidence level for the intervals. Default \code{0.95}.}
 
+\item{effects}{The presentation mode the result records, either \code{"marginal"}
+(the default) or \code{"conditional"}. The marginal reading reports the
+population-averaged causal contrasts described above; the conditional
+reading reports the outcome model's coefficient surface. Both surfaces are
+computed whichever mode is named, since the stacked system is solved either
+way, so the argument settles which one the result presents and nothing
+else. \code{\link[causalgenerics:as_marginal]{causalgenerics::as_marginal()}} and \code{\link[causalgenerics:as_conditional]{causalgenerics::as_conditional()}}
+move a result between the two readings afterwards, and the accessors take an
+\code{effects} argument of their own for a single call.
+
+The conditional reading reports the coefficients of the stored
+\code{outcome_mod} against the outcome block of the stacked sandwich, which is
+the block the wrapper around that model carries, so its standard errors
+account for having estimated the weights rather than treating them as
+fixed. The stored \code{wt_mod} is the balancing fit itself rather than a
+wrapper of one, since the weight block of the same stack is already its
+own.}
+
 \item{...}{Ignored, for compatibility with the generic.}
 }
 \value{
 An object of class \code{ipw}, an implementation of
-\code{\link[causalgenerics:ipw]{causalgenerics::ipw()}}. Alongside \code{estimand}, \code{wt_mod}, \code{outcome_mod}, and
-the \code{estimates} table, the result carries two fields describing the
-variance:
+\code{\link[causalgenerics:ipw]{causalgenerics::ipw()}}. Alongside \code{estimand}, \code{wt_mod}, \code{outcome_mod}, the
+\code{estimates} table, and the \code{effects} field recording the presentation mode
+described above, the result carries two fields describing the variance:
 \itemize{
 \item \code{se_method}, the string \code{"mestimation"}, naming how the standard errors
 were computed.
@@ -49,10 +67,10 @@ that coefficient is named for the effect, as \code{slope}, in place of the
 }
 
 The \code{estimates} table carries the covariance of the reported effects as its
-\code{ipw_vcov} attribute, which is what \code{\link[stats:vcov]{stats::vcov()}} returns. Both its
-dimnames are the display labels of the estimates rows: the effect measure
-alone, or the measure and the comparison for a categorical exposure, as
-\code{"rd b vs a"}. The stored \code{outcome_mod} is wrapped by
+\code{ipw_vcov} attribute, which is what \code{\link[stats:vcov]{stats::vcov()}} returns in the marginal
+reading. Both its dimnames are the display labels of the estimates rows: the
+effect measure alone, or the measure and the comparison for a categorical
+exposure, as \code{"rd b vs a"}. The stored \code{outcome_mod} is wrapped by
 \code{\link[causalgenerics:new_ipw_model]{causalgenerics::new_ipw_model()}}, which carries the outcome-model block of
 \code{fit$vcov} under the model's own coefficient names, so \code{vcov()} on it
 reports the joint-estimation variance. \code{\link[stats:df.residual]{stats::df.residual()}} returns

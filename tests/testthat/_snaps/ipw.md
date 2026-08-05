@@ -5,6 +5,7 @@
     Output
       Inverse Probability Weight Estimator
       Estimand: ATE 
+      Effects: marginal (population-averaged) 
       
       Weight Estimator:
         Call: balance(.data = data, .exposure = exposure, .covariates = c(x1, 
@@ -13,7 +14,7 @@
       Outcome Model:
         Call: stats::glm(formula = formula, family = family, data = data, weights = .wts) 
       
-      Estimates:
+      Marginal estimates:
               estimate  std.err      z   ci.lower ci.upper conf.level p.value  
       rd      0.148050 0.076088 1.9458 -0.0010793  0.29718       0.95 0.05168 .
       log(rr) 0.313825 0.162944 1.9260 -0.0055384  0.63319       0.95 0.05411 .

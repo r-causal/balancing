@@ -2,11 +2,21 @@
 # vector's estimand and causal-weight status needs no second attachment. The
 # shared ipw() generic is re-exported so that a fitted balancing object drives
 # the effect-estimation workflow with an unqualified call after
-# `library(balancing)`.
+# `library(balancing)`. The two generics that move an ipw result between its
+# marginal and conditional readings join it for the same reason: the result
+# comes from an unqualified call, so it is flipped by one too.
 
 #' @importFrom causalgenerics ipw
 #' @export
 causalgenerics::ipw
+
+#' @importFrom causalgenerics as_marginal
+#' @export
+causalgenerics::as_marginal
+
+#' @importFrom causalgenerics as_conditional
+#' @export
+causalgenerics::as_conditional
 
 #' @importFrom causalgenerics is_causal_wt
 #' @export
