@@ -47,6 +47,17 @@ that coefficient is named for the effect, as \code{slope}, in place of the
 \code{beta_} name the others carry. The standard errors in \code{estimates} are
 \code{sqrt(diag(fit$vcov))} read at those effect names.
 }
+
+The \code{estimates} table carries the covariance of the reported effects as its
+\code{ipw_vcov} attribute, which is what \code{\link[stats:vcov]{stats::vcov()}} returns. Both its
+dimnames are the display labels of the estimates rows: the effect measure
+alone, or the measure and the comparison for a categorical exposure, as
+\code{"rd b vs a"}. The stored \code{outcome_mod} is wrapped by
+\code{\link[causalgenerics:new_ipw_model]{causalgenerics::new_ipw_model()}}, which carries the outcome-model block of
+\code{fit$vcov} under the model's own coefficient names, so \code{vcov()} on it
+reports the joint-estimation variance. \code{\link[stats:df.residual]{stats::df.residual()}} returns
+\code{NA_integer_}, since the stacked system is not a fit with residual degrees
+of freedom of its own.
 }
 \description{
 A \link{balancing} fit registers a method on \code{\link[causalgenerics:ipw]{causalgenerics::ipw()}}, so a set of
@@ -121,6 +132,21 @@ stands between the sandwich and the reported effects. The joint covariance
 propagates the uncertainty from estimating the weights into the effect
 standard errors, which a variance that treats the weights as fixed would
 understate.
+
+The result reads through the accessors causalgenerics registers on the class,
+which every fitting package's results share: \code{\link[stats:coef]{stats::coef()}} for the reported
+effects under their display labels, \code{\link[stats:vcov]{stats::vcov()}} for their covariance,
+\code{\link[stats:confint]{stats::confint()}} for their intervals, \code{\link[stats:nobs]{stats::nobs()}} for the number of
+observations, and \code{\link[stats:weights]{stats::weights()}} for the weights the outcome model was
+fitted with. The covariance those accessors read is the block of the stacked
+one belonging to the reported effects, which is on the estimates table rather
+than derived from it: the effect measures are transformations of the same pair
+of marginal means, so they covary, and the off-diagonals a caller combining
+two of them needs are not recoverable from the standard errors alone. The
+stored outcome model carries its own block of the same covariance, so
+\code{vcov()} on it reports the variance of its coefficients with the uncertainty
+from estimating the weights included, where a bare refit of the same weighted
+model treats the weights as fixed and understates it.
 
 That covariance is a large-sample one, and how large a sample it takes
 differs by exposure. The binary risk-difference standard error is calibrated
