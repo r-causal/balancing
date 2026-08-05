@@ -112,6 +112,7 @@ coefficient of a weighted marginal structural model.
 ipw(fit, outcome_mod)
 #> Inverse Probability Weight Estimator
 #> Estimand: ATT 
+#> Effects: marginal (population-averaged) 
 #> 
 #> Weight Estimator:
 #>   Call: balance(.data = study, .exposure = exposure, .covariates = c(age, 
@@ -120,7 +121,7 @@ ipw(fit, outcome_mod)
 #> Outcome Model:
 #>   Call: lm(formula = outcome ~ exposure, data = study, weights = w) 
 #> 
-#> Estimates:
+#> Marginal estimates:
 #>      estimate std.err      z ci.lower ci.upper conf.level   p.value    
 #> diff  1.13168 0.12345 9.1673  0.88972   1.3736       0.95 < 2.2e-16 ***
 #> ---

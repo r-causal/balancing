@@ -14,6 +14,12 @@
 # carried the same way: the corrected covariance travels with the model, so
 # `vcov(result$outcome_mod)` accounts for having estimated the weights while a
 # bare refit of the same weighted model does not.
+#
+# The same division decides the presentation mode specs at the foot of this
+# file. What balancing owes the two readings of a result is the `effects`
+# argument that records one at construction and the corrected block the
+# conditional reading reports. The reading itself, the accessors that report it,
+# and the generics that move a result between the two are causalgenerics'.
 
 # ---- Fixtures --------------------------------------------------------------
 
@@ -424,6 +430,348 @@ test_that("vcov() returns the effect covariance and agrees with coef()", {
   expect_identical(rownames(covariance), colnames(covariance))
 })
 
+# ---- The presentation mode -------------------------------------------------
+
+# A result reports its effects in one of two readings, recorded in the `effects`
+# field the result class contracts to hold. The marginal reading is the causal
+# contrast estimates every route reported before the field existed; the
+# conditional reading presents the outcome model's coefficient surface. Both
+# surfaces exist on every result balancing builds, since the stacked system is
+# solved whichever reading is asked for, so the field says which one is
+# presented rather than which one was computed, and `ipw()` takes an `effects`
+# argument saying which one the result it builds records.
+
+# The binary route's fit and its weighted outcome model, which the specs below
+# need together rather than one at a time. The fit is the entropy one every
+# binary spec in this file uses.
+accessor_binary_models <- function() {
+  data <- accessor_binary_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  list(
+    fit = fit,
+    outcome_mod = fit_accessor_outcome(
+      y ~ exposure,
+      data,
+      stats::weights(fit),
+      stats::quasibinomial()
+    )
+  )
+}
+
+# The result an `effects` argument builds, against the same result built without
+# the argument and moved to that reading afterwards. The field records which
+# reading is presented rather than which one was computed, so naming a reading
+# at construction settles the field and nothing else: the same estimates, the
+# same covariance attached to them, and the same component models, wrapper
+# included. Asserting only the field and the surface it selects would leave a
+# construction that computed just the named reading, skipping the marginal
+# estimates or the covariance because they are not the ones on show, passing
+# every test here.
+#
+# Whole-object identity is available because the variance system a balancing
+# result stores is the stacked parameter vector and its covariance, both plain
+# numeric, and the fits and models going in are the same objects. Nothing in it
+# carries the closures of the call that produced it, which is what would make
+# two solves of one system agree in every number and be identical in none of
+# them. The narrower assertions come first so that a mismatch names the field or
+# the shape rather than the whole result.
+expect_ipw_built_as <- function(result, expected) {
+  testthat::expect_identical(result$effects, expected$effects)
+  testthat::expect_identical(names(result), names(expected))
+  testthat::expect_identical(result, expected)
+  invisible(result)
+}
+
+test_that("every route defaults to the marginal reading and round-trips", {
+  binary <- accessor_binary_models()
+
+  categorical_data <- accessor_categorical_fixture()
+  categorical_fit <- balance(
+    categorical_data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate"
+  )
+  categorical_mod <- fit_accessor_outcome(
+    y ~ exposure,
+    categorical_data,
+    stats::weights(categorical_fit),
+    stats::quasibinomial()
+  )
+
+  continuous_data <- accessor_continuous_fixture()
+  continuous_fit <- balance(
+    continuous_data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  continuous_mod <- fit_accessor_outcome(
+    y_cont ~ exposure,
+    continuous_data,
+    stats::weights(continuous_fit),
+    stats::gaussian()
+  )
+
+  results <- list(
+    binary = ipw(binary$fit, binary$outcome_mod),
+    categorical = ipw(categorical_fit, categorical_mod),
+    continuous = ipw(continuous_fit, continuous_mod)
+  )
+
+  # Marginal is what every route reported before the mode was a field, so a call
+  # that names no mode still reports it.
+  expect_identical(
+    vapply(results, function(res) res$effects, character(1)),
+    stats::setNames(rep("marginal", length(results)), names(results))
+  )
+
+  # Both readings exist on every result, so moving to the other one records the
+  # move and reads nothing else, and moving back is the result that went in
+  # rather than a rebuild of it.
+  flipped <- lapply(results, causalgenerics::as_conditional)
+  expect_identical(
+    vapply(flipped, function(res) res$effects, character(1)),
+    stats::setNames(rep("conditional", length(results)), names(results))
+  )
+  expect_identical(lapply(flipped, causalgenerics::as_marginal), results)
+
+  # Asking for the reading a result already records says what asking once said.
+  expect_identical(lapply(flipped, causalgenerics::as_conditional), flipped)
+  expect_identical(lapply(results, causalgenerics::as_marginal), results)
+})
+
+test_that("a binary result records the reading it was built in", {
+  models <- accessor_binary_models()
+
+  base <- ipw(models$fit, models$outcome_mod)
+  result <- ipw(models$fit, models$outcome_mod, effects = "conditional")
+
+  # Building in the conditional reading is building the result and recording the
+  # reading, so it is the default build moved to that reading and nothing else.
+  # The stacked system is solved either way, so the corrected block still reaches
+  # the outcome model and the marginal estimates are still there to present.
+  expect_ipw_built_as(result, causalgenerics::as_conditional(base))
+  expect_s3_class(result$outcome_mod, "ipw_model")
+  expect_identical(stats::vcov(result), stats::vcov(result$outcome_mod))
+
+  # The reading is a field of the result rather than something the accessors are
+  # told at each call, so a result built in the conditional one reports it with
+  # nothing named at the call site.
+  expect_identical(stats::coef(result), stats::coef(models$outcome_mod))
+
+  # Naming the default is the other half of the argument, and it has to build the
+  # result that leaving the argument out builds.
+  named <- ipw(models$fit, models$outcome_mod, effects = "marginal")
+  expect_ipw_built_as(named, base)
+  expect_identical(
+    names(stats::coef(named)),
+    c("rd", "log(rr)", "log(or)")
+  )
+})
+
+test_that("a categorical result records the reading it was built in", {
+  data <- accessor_categorical_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate"
+  )
+  outcome_mod <- fit_accessor_outcome(
+    y ~ exposure,
+    data,
+    stats::weights(fit),
+    stats::quasibinomial()
+  )
+
+  base <- ipw(fit, outcome_mod)
+  result <- ipw(fit, outcome_mod, effects = "conditional")
+
+  # The conditional reading is of the outcome model, which has one coefficient
+  # per non-reference exposure level rather than the six rows the marginal
+  # reading of this fit reports.
+  expect_ipw_built_as(result, causalgenerics::as_conditional(base))
+  expect_identical(stats::coef(result), stats::coef(outcome_mod))
+  expect_identical(
+    names(stats::coef(result)),
+    c("(Intercept)", "exposureb", "exposurec")
+  )
+})
+
+test_that("a continuous result records the reading it was built in", {
+  data <- accessor_continuous_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  outcome_mod <- fit_accessor_outcome(
+    y_cont ~ exposure,
+    data,
+    stats::weights(fit),
+    stats::gaussian()
+  )
+
+  base <- ipw(fit, outcome_mod)
+  result <- ipw(fit, outcome_mod, effects = "conditional")
+
+  # A continuous exposure takes the other branch of the method, whose stack is
+  # the weight parameters and the marginal structural model alone, so the
+  # argument has to reach the construction from there as well.
+  expect_ipw_built_as(result, causalgenerics::as_conditional(base))
+  expect_s3_class(result$outcome_mod, "ipw_model")
+  expect_identical(stats::coef(result), stats::coef(outcome_mod))
+  expect_identical(names(stats::coef(result)), c("(Intercept)", "exposure"))
+})
+
+test_that("an invalid effects value errors", {
+  models <- accessor_binary_models()
+
+  err <- expect_error(
+    ipw(models$fit, models$outcome_mod, effects = "banana"),
+    class = "rlang_error"
+  )
+
+  # The message names both readings alongside the value, which is what tells a
+  # rejection of the value apart from a rejection of the argument itself. This
+  # method's dots absorb a name it does not recognize, so a value that reached
+  # them would be reported, if at all, as a dots problem naming neither reading.
+  expect_match(conditionMessage(err), "marginal", fixed = TRUE)
+  expect_match(conditionMessage(err), "conditional", fixed = TRUE)
+  expect_match(conditionMessage(err), "banana", fixed = TRUE)
+
+  # The value is settled before the outcome model is looked at, so a call that
+  # is wrong in both places reports the value rather than the model. Every
+  # refusal this method makes carries the same parent class, so the reading
+  # names are what separate them.
+  early <- expect_error(
+    ipw(models$fit, list(), effects = "banana"),
+    class = "rlang_error"
+  )
+  expect_match(conditionMessage(early), "conditional", fixed = TRUE)
+})
+
+test_that("the effects argument reports the other reading for one call", {
+  models <- accessor_binary_models()
+  result <- ipw(models$fit, models$outcome_mod)
+
+  expect_identical(result$effects, "marginal")
+  expect_identical(
+    stats::coef(result, effects = "conditional"),
+    stats::coef(models$outcome_mod)
+  )
+  expect_identical(
+    stats::vcov(result, effects = "conditional"),
+    stats::vcov(result$outcome_mod)
+  )
+
+  # Naming a reading at the call site answers in it and leaves the result where
+  # it was, so the next call with nothing named answers in the stored one.
+  expect_identical(result$effects, "marginal")
+  expect_identical(
+    stats::coef(result),
+    stats::setNames(
+      result$estimates$estimate,
+      c("rd", "log(rr)", "log(or)")
+    )
+  )
+
+  # A value that names neither reading is refused at the call site too.
+  expect_error(
+    stats::coef(result, effects = "banana"),
+    class = "causalgenerics_invalid_argument_effects"
+  )
+})
+
+test_that("a conditional result reports the corrected outcome block", {
+  models <- accessor_binary_models()
+  result <- ipw(models$fit, models$outcome_mod)
+  conditional <- causalgenerics::as_conditional(result)
+
+  expect_identical(stats::coef(conditional), stats::coef(models$outcome_mod))
+
+  # The covariance the conditional reading reports is the outcome block of the
+  # stacked sandwich, which balancing attaches to the model itself, rather than
+  # anything derived from it here.
+  covariance <- stats::vcov(conditional)
+  expect_identical(covariance, stats::vcov(result$outcome_mod))
+  expect_identical(
+    dimnames(covariance),
+    list(
+      names(stats::coef(models$outcome_mod)),
+      names(stats::coef(models$outcome_mod))
+    )
+  )
+
+  # It is not the covariance the outcome model computed for itself, which treats
+  # the estimated weights as fixed and reports an uncertainty the coefficients do
+  # not have.
+  expect_false(isTRUE(all.equal(
+    covariance,
+    stats::vcov(models$outcome_mod),
+    check.attributes = FALSE
+  )))
+
+  # The limits are built from that block at every level, since the ones the
+  # result stores belong to the effects the other reading reports.
+  interval <- stats::confint(conditional)
+  expect_identical(
+    rownames(interval),
+    names(stats::coef(models$outcome_mod))
+  )
+  expect_identical(colnames(interval), c("2.5 %", "97.5 %"))
+})
+
+test_that("a conditional result prints the outcome model's coefficients", {
+  # testthat 3e pins the output width but not the number of significant digits,
+  # and `printCoefmat()` wraps its table past 80 columns under a larger `digits`,
+  # which splits the rows this test reads by position.
+  withr::local_options(digits = 7)
+
+  models <- accessor_binary_models()
+  result <- ipw(models$fit, models$outcome_mod)
+  out <- capture.output(print(causalgenerics::as_conditional(result)))
+
+  # The reading is named twice, because the two readings are different tables of
+  # different numbers: once beside the estimand and once over the table.
+  expect_true(any(grepl(
+    "Effects: conditional (outcome model)",
+    out,
+    fixed = TRUE
+  )))
+  expect_false(any(grepl("Marginal estimates:", out, fixed = TRUE)))
+
+  header <- which(startsWith(out, "Conditional estimates (outcome model):"))
+  expect_length(header, 1L)
+
+  # The corrected block is there, so the coefficients are reported beside the
+  # standard errors it implies rather than on their own.
+  expect_true(grepl("Std. Error", out[[header + 1L]], fixed = TRUE))
+  expect_false(any(grepl(
+    "Standard errors are not reported",
+    out,
+    fixed = TRUE
+  )))
+
+  # The rows are the outcome model's coefficients rather than the effect
+  # measures the marginal reading of the same result tabulates.
+  labels <- names(stats::coef(models$outcome_mod))
+  rows <- out[seq(header + 2L, header + 1L + length(labels))]
+  expect_identical(sub(" .*$", "", rows), labels)
+})
+
 # ---- Where the accessors come from -----------------------------------------
 
 # R records a registered S3 method in the `.__S3MethodsTable__.` of the
@@ -468,6 +816,21 @@ test_that("the ipw accessors are the ones causalgenerics registers", {
     sources,
     stats::setNames(rep("causalgenerics", length(specs)), specs)
   )
+
+  # The generics that move a result between its readings are causalgenerics'
+  # own rather than stats', so their methods are recorded in that package's
+  # table instead.
+  modes <- c("as_marginal.ipw", "as_conditional.ipw")
+  mode_sources <- vapply(
+    modes,
+    method_source,
+    character(1),
+    where = asNamespace("causalgenerics")
+  )
+  expect_identical(
+    mode_sources,
+    stats::setNames(rep("causalgenerics", length(modes)), modes)
+  )
 })
 
 test_that("balancing registers no S3 method on class ipw", {
@@ -480,7 +843,9 @@ test_that("balancing registers no S3 method on class ipw", {
     "weights.ipw",
     "print.ipw",
     "as.data.frame.ipw",
-    "vcov.ipw_model"
+    "vcov.ipw_model",
+    "as_marginal.ipw",
+    "as_conditional.ipw"
   )
   defined <- vapply(specs, defined_in_balancing, logical(1))
   expect_identical(
@@ -489,8 +854,8 @@ test_that("balancing registers no S3 method on class ipw", {
   )
 
   # A method under a generic this list does not name would still be recorded in
-  # the table belonging to that generic's package, so both tables the ipw
-  # methods live in are read whole rather than only at the expected names.
+  # the table belonging to that generic's package, so every table the ipw
+  # methods live in is read whole rather than only at the expected names.
   registered_sources <- function(where) {
     table <- get(".__S3MethodsTable__.", envir = where)
     names <- grep(
@@ -506,7 +871,8 @@ test_that("balancing registers no S3 method on class ipw", {
   }
   sources <- c(
     registered_sources(baseenv()),
-    registered_sources(asNamespace("stats"))
+    registered_sources(asNamespace("stats")),
+    registered_sources(asNamespace("causalgenerics"))
   )
   expect_false("balancing" %in% sources)
 })

@@ -240,6 +240,26 @@ test_that("the exported causal-weight generics are the causalgenerics ones", {
   expect_identical(ipw, causalgenerics::ipw)
 })
 
+# The two generics that move an `ipw` result between its readings belong to
+# causalgenerics, which owns the result class and the `effects` field they set.
+# They join the re-export block for the reason `ipw()` is in it: a user who has
+# attached balancing alone writes `as_conditional(result)` on a result
+# `ipw()` built without a second attachment.
+test_that("the presentation mode generics are exported and imported", {
+  expect_contains(
+    getNamespaceExports("balancing"),
+    c("as_marginal", "as_conditional")
+  )
+  expect_true(
+    all(c("as_marginal", "as_conditional") %in% imported_from("causalgenerics"))
+  )
+})
+
+test_that("the exported mode generics are the causalgenerics ones", {
+  expect_identical(as_marginal, causalgenerics::as_marginal)
+  expect_identical(as_conditional, causalgenerics::as_conditional)
+})
+
 test_that("the ipw result methods are the ones causalgenerics registers", {
   expect_identical(method_source("print.ipw", baseenv()), "causalgenerics")
   expect_identical(

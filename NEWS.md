@@ -52,6 +52,19 @@
   outcome model carries the outcome-model block of the same covariance, so
   `vcov()` on it accounts for having estimated the weights.
 
+* `ipw()` takes an `effects` argument recording the reading the result it builds
+  presents: `"marginal"`, the default, for the population-averaged causal
+  contrasts, or `"conditional"` for the outcome model's coefficient surface.
+  The stacked system is solved whichever value is named, so the argument settles
+  which reading the result presents and nothing else. In the conditional
+  reading, `coef()`, `vcov()`, and `confint()` report the outcome model's
+  coefficients against the outcome block of the stacked sandwich, so their
+  standard errors account for having estimated the weights rather than treating
+  the weights as fixed. `as_marginal()` and `as_conditional()`, which move a
+  result between the two readings afterwards, are re-exported here, so a result
+  is flipped without a second attachment. A printed result names its reading
+  beside the estimand and again over the table it decides.
+
 * Added the `bw` weight vector class, a sibling of `propensity::psw` under the
   shared `causal_wts` parent.
 
