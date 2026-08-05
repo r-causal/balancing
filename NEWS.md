@@ -44,6 +44,14 @@
   M-estimator, the weight parameters above the outcome-model score, and is a
   large-sample one: at a few hundred observations it runs anticonservative.
 
+* An `ipw()` result reads through the accessors causalgenerics registers on the
+  class: `coef()`, `vcov()`, `confint()`, `nobs()`, and `weights()`. `vcov()`
+  returns the covariance of the reported effects, labeled the way the result
+  labels its rows, so the covariances between effect measures that the estimates
+  table cannot report are available to a caller combining them. The stored
+  outcome model carries the outcome-model block of the same covariance, so
+  `vcov()` on it accounts for having estimated the weights.
+
 * Added the `bw` weight vector class, a sibling of `propensity::psw` under the
   shared `causal_wts` parent.
 

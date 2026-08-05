@@ -85,6 +85,21 @@
 #' standard errors, which a variance that treats the weights as fixed would
 #' understate.
 #'
+#' The result reads through the accessors causalgenerics registers on the class,
+#' which every fitting package's results share: [stats::coef()] for the reported
+#' effects under their display labels, [stats::vcov()] for their covariance,
+#' [stats::confint()] for their intervals, [stats::nobs()] for the number of
+#' observations, and [stats::weights()] for the weights the outcome model was
+#' fitted with. The covariance those accessors read is the block of the stacked
+#' one belonging to the reported effects, which is on the estimates table rather
+#' than derived from it: the effect measures are transformations of the same pair
+#' of marginal means, so they covary, and the off-diagonals a caller combining
+#' two of them needs are not recoverable from the standard errors alone. The
+#' stored outcome model carries its own block of the same covariance, so
+#' `vcov()` on it reports the variance of its coefficients with the uncertainty
+#' from estimating the weights included, where a bare refit of the same weighted
+#' model treats the weights as fixed and understates it.
+#'
 #' That covariance is a large-sample one, and how large a sample it takes
 #' differs by exposure. The binary risk-difference standard error is calibrated
 #' at a few hundred observations; the continuous slope's is anticonservative
@@ -243,6 +258,17 @@
 #'     `beta_` name the others carry. The standard errors in `estimates` are
 #'     `sqrt(diag(fit$vcov))` read at those effect names.
 #'
+#'   The `estimates` table carries the covariance of the reported effects as its
+#'   `ipw_vcov` attribute, which is what [stats::vcov()] returns. Both its
+#'   dimnames are the display labels of the estimates rows: the effect measure
+#'   alone, or the measure and the comparison for a categorical exposure, as
+#'   `"rd b vs a"`. The stored `outcome_mod` is wrapped by
+#'   [causalgenerics::new_ipw_model()], which carries the outcome-model block of
+#'   `fit$vcov` under the model's own coefficient names, so `vcov()` on it
+#'   reports the joint-estimation variance. [stats::df.residual()] returns
+#'   `NA_integer_`, since the stacked system is not a fit with residual degrees
+#'   of freedom of its own.
+#'
 #' @examples
 #' n <- 200
 #' x1 <- rnorm(n)
@@ -389,6 +415,11 @@ method(causalgenerics_ipw, balancing) <- function(
       keys = effect,
       effects = effect
     )
+    estimates <- attach_effect_covariance(
+      estimates,
+      vcov = variance_system$vcov,
+      keys = effect
+    )
   } else {
     frame <- resolve_ipw_frame(outcome_mod, .data, exposure_name, wt_mod@n)
 
@@ -438,7 +469,11 @@ method(causalgenerics_ipw, balancing) <- function(
   causalgenerics::new_ipw(
     estimand = estimand,
     wt_mod = wt_mod,
-    outcome_mod = outcome_mod,
+    outcome_mod = wrap_outcome_model(
+      outcome_mod,
+      variance_system$vcov,
+      length(container@parameters)
+    ),
     estimates = estimates,
     se_method = "mestimation",
     fit = variance_system
@@ -1122,17 +1157,70 @@ ipw_estimates <- function(theta, vcov, conf_level, continuous, levels = NULL) {
     keys = keys,
     effects = rep(measures, times = length(keys) / length(measures))
   )
-  if (is.null(levels)) {
-    return(estimates)
+  if (!is.null(levels)) {
+    comparison <- rep(
+      paste(levels[-1], "vs", levels[[1]]),
+      each = length(measures)
+    )
+    estimates <- cbind(
+      estimates["effect"],
+      comparison = comparison,
+      estimates[setdiff(names(estimates), "effect")]
+    )
   }
+  # The covariance is attached last because `cbind()` rebuilds the table, which
+  # would drop an attribute attached before it, and because the labels it is
+  # named by are read off the finished table.
+  attach_effect_covariance(estimates, vcov = vcov, keys = keys)
+}
 
-  comparison <- rep(
-    paste(levels[-1], "vs", levels[[1]]),
-    each = length(measures)
-  )
-  cbind(
-    estimates["effect"],
-    comparison = comparison,
-    estimates[setdiff(names(estimates), "effect")]
-  )
+# The covariance of the reported effects, carried on the estimates table as the
+# attribute the shared accessors read. Each effect is a parameter of the stacked
+# system, so that covariance is already a block of the stacked one: the block is
+# taken across as the sandwich produced it, at the stacked names, and relabeled
+# to the labels the table's own rows carry. Rebuilding it from the reported
+# standard errors would lose what it is attached for, since the effect measures
+# are transformations of one and the same pair of marginal means and covary,
+# which a table of standard errors cannot say.
+#
+# The rows of the block follow the rows of the table. A categorical exposure
+# writes its rows comparison-major, all of one comparison's measures before the
+# next comparison begins, and names its stacked contrasts level-major, which is
+# the same order under two spellings.
+attach_effect_covariance <- function(estimates, vcov, keys) {
+  labels <- ipw_effect_labels(estimates)
+  covariance <- vcov[keys, keys, drop = FALSE]
+  dimnames(covariance) <- list(labels, labels)
+  attr(estimates, "ipw_vcov") <- covariance
+  estimates
+}
+
+# The display label of each estimates row: the effect measure alone, or the
+# measure and the comparison where a categorical exposure has left the measure
+# repeating across comparisons. This is the rule causalgenerics labels the
+# printed rows and the accessor output by, restated here so the covariance's
+# dimnames name the effects the same way every other surface of the result does.
+ipw_effect_labels <- function(estimates) {
+  if (!"comparison" %in% names(estimates)) {
+    return(estimates$effect)
+  }
+  paste(estimates$effect, estimates$comparison)
+}
+
+# The outcome model with its own block of the stacked covariance carried
+# alongside it, which is what makes `vcov()` on the stored model report a
+# variance that accounts for having estimated the weights. A bare refit of the
+# same weighted model treats them as fixed and understates it.
+#
+# The block is addressed by position rather than by name, since the model's
+# coefficient names are not the stack's: the stack prefixes them with `beta_`,
+# and a continuous exposure renames the one entry its reported effect is read
+# from. Position says the same thing for either stack, because the weight
+# parameters lead and the outcome-model coefficients follow in both.
+wrap_outcome_model <- function(outcome_mod, vcov, weight_parameters) {
+  coefficients <- names(stats::coef(outcome_mod))
+  block <- weight_parameters + seq_along(coefficients)
+  covariance <- vcov[block, block, drop = FALSE]
+  dimnames(covariance) <- list(coefficients, coefficients)
+  causalgenerics::new_ipw_model(outcome_mod, covariance)
 }
