@@ -69,7 +69,11 @@ having estimated the weights.
   errors account for having estimated the weights rather than treating
   them as fixed. The stored `wt_mod` is the balancing fit itself rather
   than a wrapper of one, since the weight block of the same stack is
-  already its own.
+  already its own: the stored copy carries that block, the covariance of
+  the fit's weight parameters, and
+  [`stats::vcov()`](https://rdrr.io/r/stats/vcov.html) on it reads the
+  block back. The fit that went into the call is untouched, and reports
+  no covariance of its own.
 
 - ...:
 
@@ -109,10 +113,22 @@ comparison for a categorical exposure, as `"rd b vs a"`. The stored
 [`causalgenerics::new_ipw_model()`](https://r-causal.github.io/causalgenerics/reference/new_ipw_model.html),
 which carries the outcome-model block of `fit$vcov` under the model's
 own coefficient names, so [`vcov()`](https://rdrr.io/r/stats/vcov.html)
-on it reports the joint-estimation variance.
+on it reports the joint-estimation variance. The stored `wt_mod` carries
+the leading block of the same covariance under the `theta_w` names
+above, which name the fit's own parameters on either route, so
+[`vcov()`](https://rdrr.io/r/stats/vcov.html) on it reports the
+covariance of the weight parameters.
 [`stats::df.residual()`](https://rdrr.io/r/stats/df.residual.html)
 returns `NA_integer_`, since the stacked system is not a fit with
 residual degrees of freedom of its own.
+
+[`stats::nobs()`](https://rdrr.io/r/stats/nobs.html) delegates to the
+stored outcome model, which counts the rows it was fitted on that carry
+a nonzero weight. A unit given no sampling weight is pinned at zero
+rather than dropped, so the weight vector stays the length of the data
+the fit saw while the outcome model counts one row fewer for each pinned
+unit, and [`nobs()`](https://rdrr.io/r/stats/nobs.html) on the result is
+then smaller than `length(weights(result))`.
 
 ## Details
 

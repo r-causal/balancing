@@ -154,6 +154,14 @@ covariates even though its objective reads every selected one.</p></dd>
 or <code>NULL</code>.</p></dd>
 
 
+<dt id="arg-vcov">vcov<a class="anchor" aria-label="anchor" href="#arg-vcov"></a></dt>
+<dd><p>The covariance of the fit's own weight parameters, a <code>p</code> by <code>p</code>
+matrix named for them, or <code>NULL</code>. A covariance for those parameters comes
+from the stacked system an <code><a href="ipw.balancing.html">ipw()</a></code> result assembles, so
+<code><a href="balance.html">balance()</a></code> leaves this empty and the result fills it in on the copy of the
+fit it stores, where <code><a href="https://rdrr.io/r/stats/vcov.html" class="external-link">stats::vcov()</a></code> reads it back.</p></dd>
+
+
 <dt id="arg-sampling-weights">sampling_weights<a class="anchor" aria-label="anchor" href="#arg-sampling-weights"></a></dt>
 <dd><p>The sampling weights, or <code>NULL</code>.</p></dd>
 

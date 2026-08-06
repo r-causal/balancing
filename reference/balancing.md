@@ -108,6 +108,18 @@ is needed to rebuild the constraint matrix.
   [balancing_estimating_equations](https://r-causal.github.io/balancing/reference/balancing_estimating_equations.md)
   container, or `NULL`.
 
+- vcov:
+
+  The covariance of the fit's own weight parameters, a `p` by `p` matrix
+  named for them, or `NULL`. A covariance for those parameters comes
+  from the stacked system an
+  [`ipw()`](https://r-causal.github.io/balancing/reference/ipw.balancing.md)
+  result assembles, so
+  [`balance()`](https://r-causal.github.io/balancing/reference/balance.md)
+  leaves this empty and the result fills it in on the copy of the fit it
+  stores, where [`stats::vcov()`](https://rdrr.io/r/stats/vcov.html)
+  reads it back.
+
 - sampling_weights:
 
   The sampling weights, or `NULL`.
