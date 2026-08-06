@@ -65,6 +65,14 @@
   is flipped without a second attachment. A printed result names its reading
   beside the estimand and again over the table it decides.
 
+* The balancing fit an `ipw()` result stores carries the leading block of the
+  stacked covariance, the one belonging to the weight parameters alone, so
+  `vcov()` on that fit reports the covariance of the weights under their
+  `theta_w` names. A fit that has not been through such a result carries no
+  covariance and raises `balancing_vcov_error`, pointing at the `ipw()` route
+  when its weights solve estimating equations and at the bootstrap workflow of
+  the inference vignette when they do not.
+
 * Added the `bw` weight vector class, a sibling of `propensity::psw` under the
   shared `causal_wts` parent.
 

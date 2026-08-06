@@ -40,7 +40,9 @@ the block the wrapper around that model carries, so its standard errors
 account for having estimated the weights rather than treating them as
 fixed. The stored \code{wt_mod} is the balancing fit itself rather than a
 wrapper of one, since the weight block of the same stack is already its
-own.}
+own: the stored copy carries that block, the covariance of the fit's
+weight parameters, and \code{\link[stats:vcov]{stats::vcov()}} on it reads the block back. The fit
+that went into the call is untouched, and reports no covariance of its own.}
 
 \item{...}{Ignored, for compatibility with the generic.}
 }
@@ -73,7 +75,10 @@ effect measure alone, or the measure and the comparison for a categorical
 exposure, as \code{"rd b vs a"}. The stored \code{outcome_mod} is wrapped by
 \code{\link[causalgenerics:new_ipw_model]{causalgenerics::new_ipw_model()}}, which carries the outcome-model block of
 \code{fit$vcov} under the model's own coefficient names, so \code{vcov()} on it
-reports the joint-estimation variance. \code{\link[stats:df.residual]{stats::df.residual()}} returns
+reports the joint-estimation variance. The stored \code{wt_mod} carries the
+leading block of the same covariance under the \code{theta_w} names above, which
+name the fit's own parameters on either route, so \code{vcov()} on it reports
+the covariance of the weight parameters. \code{\link[stats:df.residual]{stats::df.residual()}} returns
 \code{NA_integer_}, since the stacked system is not a fit with residual degrees
 of freedom of its own.
 }

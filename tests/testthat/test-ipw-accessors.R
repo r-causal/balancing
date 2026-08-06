@@ -517,12 +517,10 @@ test_that("a continuous result carries the weight covariance on its fit", {
   expect_identical(names(result$fit$theta)[[p + 2L]], "slope")
 })
 
-# Nothing in balancing computes a covariance for a fit on its own. The weight
-# parameters get one from the stacked system an `ipw()` result assembles, where
-# the outcome model's own contribution to their uncertainty is part of the
-# arithmetic. A fit that has not been through that assembly therefore refuses,
-# rather than returning an empty matrix or a covariance that reads as though the
-# outcome model were absent.
+# Nothing in balancing computes a covariance for a fit on its own. The block
+# arrives only as a by-product of the stacked assembly an `ipw()` result
+# performs, so a fit that has not been through one has no block to report and
+# refuses, rather than returning an empty matrix.
 #
 # One class covers both ways of arriving at that refusal, so both are pinned
 # here: a fit whose weights solve estimating equations could reach a covariance

@@ -320,3 +320,24 @@
       i Estimating equations are produced by the estimating-equation family with exact balance.
       i Use the bootstrap workflow in the inference vignette for variance instead.
 
+# balancing_vcov_error: vcov() on a fit with estimating equations
+
+    Code
+      stats::vcov(fit)
+    Condition <balancing_vcov_error>
+      Error in `stats::vcov()`:
+      ! This fit carries no covariance for its weight parameters.
+      x A covariance for them comes from the stacked system an `ipw()` result assembles, and this fit has not been through one.
+      i Build an `ipw()` result from this fit and read `vcov()` off the fit it stores as `wt_mod`.
+
+# balancing_vcov_error: vcov() on a fit without estimating equations
+
+    Code
+      stats::vcov(fit)
+    Condition <balancing_vcov_error>
+      Error in `stats::vcov()`:
+      ! This fit carries no covariance for its weight parameters.
+      x A covariance for them comes from the stacked system an `ipw()` result assembles, and this fit has not been through one.
+      i This fit's weights solve no estimating equations, so there is no such result to read one from.
+      i Use the bootstrap workflow in the inference vignette for variance instead.
+
