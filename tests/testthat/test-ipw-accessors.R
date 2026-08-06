@@ -437,8 +437,9 @@ test_that("vcov() returns the effect covariance and agrees with coef()", {
 # sampling weight is pinned at zero rather than dropped, so the two numbers a
 # caller might read as the sample size come apart: the weight vector is still
 # the length of the data the fit saw, while the outcome model counted one row
-# fewer. Everything else about the fit is the binary ate case above, so what
-# separates the counts here is the single zero.
+# fewer. The single zero is what separates those two counts. It is not what
+# separates this fit's weights from the binary ate case above: sampling weights
+# enter the entropy solve, so every unit's weight moves with them.
 test_that("nobs() counts the outcome model's nonzero-weight rows", {
   data <- accessor_binary_fixture()
   data$sw <- rep(1, nrow(data))
@@ -967,27 +968,8 @@ test_that("a conditional result prints the outcome model's coefficients", {
 
 # ---- Where the accessors come from -----------------------------------------
 
-# R records a registered S3 method in the `.__S3MethodsTable__.` of the
-# environment where its generic is defined, so reading that table names the
-# package a method actually comes from. `getS3method()` is not a substitute: it
-# returns `NULL` for a generic that is not visible on the search path, which
-# under `R CMD check` would make an absence assertion pass without testing
-# anything. test-dependencies.R reads the same tables for the printers; the two
-# readers are kept separate because a test file's definitions are local to it.
-method_source <- function(name, where) {
-  table <- get(".__S3MethodsTable__.", envir = where)
-  if (!exists(name, envir = table, inherits = FALSE)) {
-    return(NA_character_)
-  }
-  environmentName(environment(get(name, envir = table, inherits = FALSE)))
-}
-
-# `UseMethod()` searches the environment its generic was called from as well as
-# the registration table, so a method left behind in balancing's namespace
-# would shadow an inherited one even with no registration behind it.
-defined_in_balancing <- function(name) {
-  exists(name, envir = asNamespace("balancing"), inherits = FALSE)
-}
+# The readers these specs use to name the package a method comes from live in
+# helper-s3-registration.R.
 
 test_that("the ipw accessors are the ones causalgenerics registers", {
   specs <- c(
@@ -1049,23 +1031,11 @@ test_that("balancing registers no S3 method on class ipw", {
   # A method under a generic this list does not name would still be recorded in
   # the table belonging to that generic's package, so every table the ipw
   # methods live in is read whole rather than only at the expected names.
-  registered_sources <- function(where) {
-    table <- get(".__S3MethodsTable__.", envir = where)
-    names <- grep(
-      "\\.ipw(_model)?$",
-      ls(table, all.names = TRUE),
-      value = TRUE
-    )
-    vapply(
-      names,
-      function(name) environmentName(environment(get(name, envir = table))),
-      character(1)
-    )
-  }
+  pattern <- "\\.ipw(_model)?$"
   sources <- c(
-    registered_sources(baseenv()),
-    registered_sources(asNamespace("stats")),
-    registered_sources(asNamespace("causalgenerics"))
+    registered_sources(baseenv(), pattern),
+    registered_sources(asNamespace("stats"), pattern),
+    registered_sources(asNamespace("causalgenerics"), pattern)
   )
   expect_false("balancing" %in% sources)
 })

@@ -6,39 +6,7 @@
 # from a fresh R process, that a whole `ipw()` workflow runs with propensity
 # absent from the loaded namespaces.
 
-# ---- Reading the S3 registration tables -----------------------------------
-
-# R records a registered S3 method in the `.__S3MethodsTable__.` of the
-# environment where its generic is defined, so reading that table names the
-# package a method actually comes from. `getS3method()` is not a substitute: it
-# returns `NULL` for a generic that is not visible on the search path, which
-# under `R CMD check` would make an absence assertion pass without testing
-# anything.
-registered_method <- function(name, where) {
-  table <- get(".__S3MethodsTable__.", envir = where)
-  if (!exists(name, envir = table, inherits = FALSE)) {
-    return(NULL)
-  }
-  get(name, envir = table, inherits = FALSE)
-}
-
-# The package a registered method was defined in, or `NA` when the table holds
-# no method by that name.
-method_source <- function(name, where) {
-  method <- registered_method(name, where)
-  if (is.null(method)) {
-    return(NA_character_)
-  }
-  environmentName(environment(method))
-}
-
-# `UseMethod()` searches the environment its generic was called from as well as
-# the registration table, so a method left behind in balancing's namespace would
-# still shadow an inherited one after its registration was removed. Every
-# absence claim has to be checked in both places.
-defined_in_balancing <- function(name) {
-  exists(name, envir = asNamespace("balancing"), inherits = FALSE)
-}
+# ---- Reading the declared dependencies ------------------------------------
 
 # The symbols balancing imports from `package`, read from the namespace's own
 # import record rather than from DESCRIPTION, because that record is the edge
@@ -233,6 +201,9 @@ test_that("propensity is a suggested package rather than an imported one", {
 })
 
 # ---- Where the borrowed methods come from ---------------------------------
+
+# The readers these specs use to name the package a method comes from live in
+# helper-s3-registration.R.
 
 test_that("the exported causal-weight generics are the causalgenerics ones", {
   expect_identical(estimand, causalgenerics::estimand)
