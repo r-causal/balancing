@@ -430,6 +430,47 @@ test_that("vcov() returns the effect covariance and agrees with coef()", {
   expect_identical(rownames(covariance), colnames(covariance))
 })
 
+# ---- The nobs() generic ----------------------------------------------------
+
+# The accessor delegates to the stored outcome model, and a weighted glm counts
+# only the rows it was fitted on that carry a nonzero weight. A unit given no
+# sampling weight is pinned at zero rather than dropped, so the two numbers a
+# caller might read as the sample size come apart: the weight vector is still
+# the length of the data the fit saw, while the outcome model counted one row
+# fewer. Everything else about the fit is the binary ate case above, so what
+# separates the counts here is the single zero.
+test_that("nobs() counts the outcome model's nonzero-weight rows", {
+  data <- accessor_binary_fixture()
+  data$sw <- rep(1, nrow(data))
+  data$sw[7L] <- 0
+
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate",
+    sampling_weights = sw
+  )
+  w <- stats::weights(fit)
+  expect_identical(as.numeric(w)[7L], 0)
+
+  outcome_mod <- fit_accessor_outcome(
+    y ~ exposure,
+    data,
+    w,
+    stats::quasibinomial()
+  )
+  result <- ipw(fit, outcome_mod)
+
+  expect_identical(stats::nobs(result), nrow(data) - 1L)
+  expect_length(stats::weights(result), nrow(data))
+
+  # The count is the outcome model's own, read through the delegation rather
+  # than recomputed from the weights.
+  expect_identical(stats::nobs(result), as.integer(stats::nobs(outcome_mod)))
+})
+
 # ---- The fit's own covariance ----------------------------------------------
 
 # The stacked system a result is built from covers every parameter in it, and

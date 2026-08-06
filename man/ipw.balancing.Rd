@@ -81,6 +81,13 @@ name the fit's own parameters on either route, so \code{vcov()} on it reports
 the covariance of the weight parameters. \code{\link[stats:df.residual]{stats::df.residual()}} returns
 \code{NA_integer_}, since the stacked system is not a fit with residual degrees
 of freedom of its own.
+
+\code{\link[stats:nobs]{stats::nobs()}} delegates to the stored outcome model, which counts the
+rows it was fitted on that carry a nonzero weight. A unit given no sampling
+weight is pinned at zero rather than dropped, so the weight vector stays the
+length of the data the fit saw while the outcome model counts one row fewer
+for each pinned unit, and \code{nobs()} on the result is then smaller than
+\code{length(weights(result))}.
 }
 \description{
 A \link{balancing} fit registers a method on \code{\link[causalgenerics:ipw]{causalgenerics::ipw()}}, so a set of

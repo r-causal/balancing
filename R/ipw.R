@@ -291,6 +291,13 @@
 #'   `NA_integer_`, since the stacked system is not a fit with residual degrees
 #'   of freedom of its own.
 #'
+#'   [stats::nobs()] delegates to the stored outcome model, which counts the
+#'   rows it was fitted on that carry a nonzero weight. A unit given no sampling
+#'   weight is pinned at zero rather than dropped, so the weight vector stays the
+#'   length of the data the fit saw while the outcome model counts one row fewer
+#'   for each pinned unit, and `nobs()` on the result is then smaller than
+#'   `length(weights(result))`.
+#'
 #' @examples
 #' n <- 200
 #' x1 <- rnorm(n)
