@@ -382,3 +382,37 @@ test_that("balancing_ipw_unsupported_error: estimating_equations() when absent",
   )
   expect_balancing_error(estimating_equations(fit))
 })
+
+# A fit carries no covariance of its own, and one class covers both ways of
+# arriving at that. The guidance is what separates them. A fit whose weights
+# solve estimating equations reaches a covariance by way of an `ipw()` result,
+# which is where the stacked system that has one is assembled, so its bullet
+# names that route and the copy of the fit the result stores. A fit from a
+# method that solves none has no such route to be sent down: `ipw()` refuses it
+# as well, so naming the route would walk its holder into a second refusal, and
+# the bullet names the bootstrap workflow instead. Both are recorded because the
+# class the two share cannot tell their wordings apart.
+
+test_that("balancing_vcov_error: vcov() on a fit with estimating equations", {
+  data <- sim_binary(n = 150)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  expect_balancing_error(stats::vcov(fit))
+})
+
+test_that("balancing_vcov_error: vcov() on a fit without estimating equations", {
+  data <- sim_binary(n = 150)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(),
+    estimand = "ate"
+  )
+  expect_balancing_error(stats::vcov(fit))
+})

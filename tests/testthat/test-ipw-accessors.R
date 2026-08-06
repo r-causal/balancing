@@ -430,6 +430,160 @@ test_that("vcov() returns the effect covariance and agrees with coef()", {
   expect_identical(rownames(covariance), colnames(covariance))
 })
 
+# ---- The fit's own covariance ----------------------------------------------
+
+# The stacked system a result is built from covers every parameter in it, and
+# its leading block belongs to the weight parameters alone. That block is the
+# fit's covariance, the one a caller reads to report uncertainty in the weights
+# rather than in the effects, so the result stores it on the copy of the fit it
+# carries and `vcov()` on that copy reads it back. The block keeps the stacked
+# parameter names, `theta_w1` through `theta_wp`, because those name the fit's
+# own parameters and neither route renames them: a continuous stack relabels one
+# entry, and that entry is the marginal structural model's exposure coefficient,
+# which follows the block rather than sitting in it.
+
+test_that("a binary result carries the weight covariance on the fit it stores", {
+  data <- accessor_binary_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- stats::weights(fit)
+  outcome_mod <- fit_accessor_outcome(
+    y ~ exposure,
+    data,
+    w,
+    stats::quasibinomial()
+  )
+
+  result <- ipw(fit, outcome_mod)
+
+  # The block covers the parameters the fit solved for, so the container is what
+  # says how large it is. The literal is pinned beside it because a block
+  # compared only against a size read off the same fit would move with any
+  # change to the expansion and report nothing.
+  p <- length(estimating_equations(fit)@parameters)
+  expect_identical(p, 4L)
+
+  covariance <- stats::vcov(result$wt_mod)
+  expect_identical(
+    covariance,
+    result$fit$vcov[seq_len(p), seq_len(p), drop = FALSE]
+  )
+  expect_identical(
+    dimnames(covariance),
+    list(paste0("theta_w", seq_len(p)), paste0("theta_w", seq_len(p)))
+  )
+})
+
+test_that("a continuous result carries the weight covariance on its fit", {
+  data <- accessor_continuous_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- stats::weights(fit)
+  outcome_mod <- fit_accessor_outcome(
+    y_cont ~ exposure,
+    data,
+    w,
+    stats::gaussian()
+  )
+
+  result <- ipw(fit, outcome_mod)
+
+  p <- length(estimating_equations(fit)@parameters)
+  expect_identical(p, 5L)
+
+  covariance <- stats::vcov(result$wt_mod)
+  expect_identical(
+    covariance,
+    result$fit$vcov[seq_len(p), seq_len(p), drop = FALSE]
+  )
+  expect_identical(
+    dimnames(covariance),
+    list(paste0("theta_w", seq_len(p)), paste0("theta_w", seq_len(p)))
+  )
+
+  # The entry this route renames is the effect it reports, which is a
+  # coefficient of the marginal structural model. It sits past the weight
+  # parameters, so the block carries the same names on either route.
+  expect_identical(names(result$fit$theta)[[p + 2L]], "slope")
+})
+
+# Nothing in balancing computes a covariance for a fit on its own. The weight
+# parameters get one from the stacked system an `ipw()` result assembles, where
+# the outcome model's own contribution to their uncertainty is part of the
+# arithmetic. A fit that has not been through that assembly therefore refuses,
+# rather than returning an empty matrix or a covariance that reads as though the
+# outcome model were absent.
+#
+# One class covers both ways of arriving at that refusal, so both are pinned
+# here: a fit whose weights solve estimating equations could reach a covariance
+# through an `ipw()` result, and a fit from a method that solves none has no
+# such route at all, since `ipw()` turns it away too. What separates them is the
+# guidance rather than the class, and test-errors.R records the two wordings.
+test_that("a fit on its own reports no covariance", {
+  data <- accessor_binary_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+
+  expect_error(stats::vcov(fit), class = "balancing_vcov_error")
+
+  no_equations <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(),
+    estimand = "ate"
+  )
+  expect_null(no_equations@estimating_equations)
+  expect_error(stats::vcov(no_equations), class = "balancing_vcov_error")
+})
+
+# S7 objects have value semantics, so filling the covariance in on the fit a
+# result stores cannot reach the object the caller passed. That is the whole of
+# what this pins: the caller's fit still refuses after a result has been built
+# from it, and the stored copy differs from it in the covariance and in nothing
+# else, which is what tells one property being filled in apart from the fit
+# being rebuilt.
+test_that("building a result leaves the fit that went into it alone", {
+  data <- accessor_binary_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- stats::weights(fit)
+  outcome_mod <- fit_accessor_outcome(
+    y ~ exposure,
+    data,
+    w,
+    stats::quasibinomial()
+  )
+
+  result <- ipw(fit, outcome_mod)
+
+  expect_true(is.matrix(stats::vcov(result$wt_mod)))
+  expect_error(stats::vcov(fit), class = "balancing_vcov_error")
+
+  shared <- setdiff(S7::prop_names(fit), "vcov")
+  expect_identical(S7::props(result$wt_mod)[shared], S7::props(fit)[shared])
+})
+
 # ---- The presentation mode -------------------------------------------------
 
 # A result reports its effects in one of two readings, recorded in the `effects`
@@ -875,4 +1029,28 @@ test_that("balancing registers no S3 method on class ipw", {
     registered_sources(asNamespace("causalgenerics"))
   )
   expect_false("balancing" %in% sources)
+})
+
+# The methods balancing does register belong to the fit class rather than to the
+# result, and their generics are `stats`' own, so S7 records them at load time in
+# that package's table under the class's fully qualified name. Reading the table
+# is what pins the registration rather than the dispatch alone: an S7 method for
+# an external generic that never reaches the table is never dispatched to, and
+# the table is where that shows.
+test_that("the fit's own accessors are balancing's methods", {
+  specs <- c(
+    "getCall.balancing::balancing",
+    "weights.balancing::balancing",
+    "vcov.balancing::balancing"
+  )
+  sources <- vapply(
+    specs,
+    method_source,
+    character(1),
+    where = asNamespace("stats")
+  )
+  expect_identical(
+    sources,
+    stats::setNames(rep("balancing", length(specs)), specs)
+  )
 })
