@@ -4,7 +4,8 @@
 # the effect-estimation workflow with an unqualified call after
 # `library(balancing)`. The two generics that move an ipw result between its
 # marginal and conditional readings join it for the same reason: the result
-# comes from an unqualified call, so it is flipped by one too.
+# comes from an unqualified call, so it is flipped by one too, and so is the
+# entrypoint that pools a set of them across multiply imputed datasets.
 
 #' @importFrom causalgenerics ipw
 #' @export
@@ -17,6 +18,10 @@ causalgenerics::as_marginal
 #' @importFrom causalgenerics as_conditional
 #' @export
 causalgenerics::as_conditional
+
+#' @importFrom causalgenerics pool_ipw
+#' @export
+causalgenerics::pool_ipw
 
 #' @importFrom causalgenerics is_causal_wt
 #' @export

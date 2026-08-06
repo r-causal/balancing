@@ -62,7 +62,7 @@ fit_pooling_ipw <- function(data) {
 test_that("pool_ipw() pools balancing results across imputations", {
   skip_if_not_installed("mice")
   data <- ipw_pooling_fixture()
-  imp <- mice::mice(data, m = 3, print = FALSE, seed = 4321)
+  imp <- withr::with_seed(4321, mice::mice(data, m = 3, print = FALSE))
   fits <- lapply(mice::complete(imp, "all"), fit_pooling_ipw)
 
   # Unqualified, since the entrypoint being reachable after
@@ -90,7 +90,7 @@ test_that("pool_ipw() pools balancing results across imputations", {
 test_that("the pooled degrees of freedom fall back to the outcome models", {
   skip_if_not_installed("mice")
   data <- ipw_pooling_fixture()
-  imp <- mice::mice(data, m = 3, print = FALSE, seed = 4321)
+  imp <- withr::with_seed(4321, mice::mice(data, m = 3, print = FALSE))
   fits <- lapply(mice::complete(imp, "all"), fit_pooling_ipw)
 
   pooled <- pool_ipw(fits)
@@ -119,10 +119,18 @@ test_that("the pooled degrees of freedom fall back to the outcome models", {
 test_that("the pooled estimate is the mean of the per-imputation estimates", {
   skip_if_not_installed("mice")
   data <- ipw_pooling_fixture()
-  imp <- mice::mice(data, m = 3, print = FALSE, seed = 4321)
+  imp <- withr::with_seed(4321, mice::mice(data, m = 3, print = FALSE))
   fits <- lapply(mice::complete(imp, "all"), fit_pooling_ipw)
 
   pooled <- pool_ipw(fits)
+
+  # The recompute reads each result's estimates by position, so the row
+  # correspondence it assumes is pinned rather than trusted: every fit has to
+  # report the same measures in the same order as the pooled table, which is
+  # also the agreement the pooling itself requires.
+  for (fit in fits) {
+    expect_identical(fit$estimates$effect, pooled$estimates$effect)
+  }
 
   for (row in seq_len(nrow(pooled$estimates))) {
     per_imputation <- vapply(

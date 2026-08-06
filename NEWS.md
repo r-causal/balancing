@@ -44,6 +44,12 @@
   M-estimator, the weight parameters above the outcome-model score, and is a
   large-sample one: at a few hundred observations it runs anticonservative.
 
+* Missing covariate data is handled by imputing first and analyzing within each
+  completed dataset. Balance, weight, and estimate once per imputation, then
+  pool the results with `pool_ipw()`, which balancing re-exports from
+  causalgenerics. The complete-data degrees of freedom come from the outcome
+  models automatically, since a balancing result reports none of its own.
+
 * An `ipw()` result reads through the accessors causalgenerics registers on the
   class: `coef()`, `vcov()`, `confint()`, `nobs()`, and `weights()`. `vcov()`
   returns the covariance of the reported effects, labeled the way the result
