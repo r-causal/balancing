@@ -35,6 +35,7 @@ Suggests:
     halfmoon,
     knitr,
     MASS,
+    mice,
     optweight,
     osqp,
     pkgload,
