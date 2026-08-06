@@ -1997,6 +1997,100 @@ test_that("the categorical estimates table keeps the shared column contract", {
   )
 })
 
+# The column naming a categorical exposure's contrasts is called `contrast`.
+# causalgenerics reads either spelling, so a frame still storing the older
+# `comparison` is understood and every surface built from it still heads the
+# column canonically. That tolerance is exactly why the stored frame has to be
+# pinned on its own: a coerced frame cannot tell the two apart, so it cannot say
+# which one balancing wrote.
+
+test_that("a categorical estimates table names its contrasts in `contrast`", {
+  data <- ipw_categorical_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  estimates <- ipw(fit, outcome_mod)$estimates
+
+  expect_true("contrast" %in% names(estimates))
+  expect_false("comparison" %in% names(estimates))
+  # Position is part of the contract and nothing else here reaches it: the
+  # column qualifies the effect measure, so it sits immediately after it.
+  expect_identical(which(names(estimates) == "contrast"), 2L)
+  expect_identical(estimates$contrast, rep(c("b vs a", "c vs a"), each = 3))
+})
+
+# Every label a categorical result carries joins the effect measure to the
+# contrast, since the measure repeats across contrasts and names no row on its
+# own. balancing builds those labels for the covariance it attaches to the
+# estimates table, and causalgenerics builds them again for the accessors, so
+# both have to reach the contrast column under the name it actually has. A
+# label built from a column that is no longer there leaves three measures
+# standing for six rows, which the covariance carries as duplicated dimnames
+# rather than as an error.
+
+test_that("a categorical result labels every row by measure and contrast", {
+  data <- ipw_categorical_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  result <- ipw(fit, outcome_mod)
+  labels <- c(
+    "rd b vs a",
+    "log(rr) b vs a",
+    "log(or) b vs a",
+    "rd c vs a",
+    "log(rr) c vs a",
+    "log(or) c vs a"
+  )
+
+  covariance <- attr(result$estimates, "ipw_vcov", exact = TRUE)
+  expect_identical(dimnames(covariance), list(labels, labels))
+  expect_identical(anyDuplicated(rownames(covariance)), 0L)
+
+  # The accessor side labels through causalgenerics' own reader, so it holds
+  # for either spelling. What it pins is that balancing's own labels agree
+  # with it.
+  expect_identical(names(stats::coef(result)), labels)
+})
+
+# A guard on the coerced frame rather than a new demand of it: causalgenerics
+# builds that frame and heads the column `contrast` whichever spelling it read,
+# so this holds before and after balancing writes the canonical name. What it
+# pins is that the two packages agree on where the column sits, immediately
+# after the term it qualifies.
+
+test_that("a coerced categorical result heads `contrast` after `term`", {
+  data <- ipw_categorical_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  coerced <- as.data.frame(ipw(fit, outcome_mod))
+
+  expect_identical(names(coerced)[1:2], c("term", "contrast"))
+  expect_identical(coerced$contrast, rep(c("b vs a", "c vs a"), each = 3))
+})
+
 test_that("the categorical variance system names K means and K - 1 contrasts", {
   data <- ipw_categorical_fixture()
   fit <- balance(
@@ -2528,6 +2622,31 @@ test_that("ipw() reports the exposure slope for a continuous entropy ate fit", {
   )
   expect_true(is.finite(estimates$std.err))
   expect_gt(estimates$std.err, 0)
+})
+
+# A continuous exposure has no levels to contrast, so its estimates table names
+# no contrast at all. Pinning the absence of both spellings is what keeps the
+# canonical name from arriving here as an addition rather than as a rename.
+
+test_that("a continuous fit's estimates table names no contrast", {
+  data <- ipw_continuous_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  outcome_mod <- fit_msm(
+    y_cont ~ exposure,
+    data,
+    as.numeric(stats::weights(fit))
+  )
+
+  estimates <- ipw(fit, outcome_mod)$estimates
+
+  expect_false("contrast" %in% names(estimates))
+  expect_false("comparison" %in% names(estimates))
 })
 
 test_that("ipw() accepts a covariate-adjusted continuous marginal structural model", {
@@ -3567,6 +3686,29 @@ test_that("a binary fit's estimates table carries no comparison column", {
     )
   )
   expect_identical(estimates$effect, c("rd", "log(rr)", "log(or)"))
+})
+
+# The same absence holds of a binary exposure for a different reason than a
+# continuous one: it has levels to contrast but only one contrast, so a column
+# naming it would repeat a single label down the table. Neither spelling belongs
+# there either.
+
+test_that("a binary fit's estimates table names no contrast", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  estimates <- ipw(fit, outcome_mod)$estimates
+
+  expect_false("contrast" %in% names(estimates))
+  expect_false("comparison" %in% names(estimates))
 })
 
 # ---- Arguments: conf_level and estimand -----------------------------------
