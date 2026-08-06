@@ -71,7 +71,7 @@ that coefficient is named for the effect, as \code{slope}, in place of the
 The \code{estimates} table carries the covariance of the reported effects as its
 \code{ipw_vcov} attribute, which is what \code{\link[stats:vcov]{stats::vcov()}} returns in the marginal
 reading. Both its dimnames are the display labels of the estimates rows: the
-effect measure alone, or the measure and the comparison for a categorical
+effect measure alone, or the measure and the contrast for a categorical
 exposure, as \code{"rd b vs a"}. The stored \code{outcome_mod} is wrapped by
 \code{\link[causalgenerics:new_ipw_model]{causalgenerics::new_ipw_model()}}, which carries the outcome-model block of
 \code{fit$vcov} under the model's own coefficient names, so \code{vcov()} on it
@@ -109,9 +109,9 @@ level against the reference level, which is the first of the fit's own levels:
 a factor's declared level order for a factor exposure, and the sorted values
 otherwise. A K-level exposure therefore contributes K marginal means and one
 block of measures per non-reference level, and the estimates table gains a
-\code{comparison} column, placed after \code{effect}, naming each contrast as
+\code{contrast} column, placed after \code{effect}, naming each contrast as
 \code{"<level> vs <reference>"}. A binary exposure keeps the table it has always
-returned, with no \code{comparison} column.
+returned, with no \code{contrast} column.
 
 A continuous exposure has no levels to contrast, so there is no pair of
 marginal means to difference. What the method reports instead is the
@@ -120,7 +120,7 @@ balancing weights break the exposure-covariate association, the outcome model
 carries exactly one term in the exposure, and that term's coefficient is the
 effect of a one-unit change in the exposure on the model's own link scale. The
 estimates table holds a single row, keeping the columns it holds for every
-other exposure and gaining no \code{comparison} column, and that row is named for
+other exposure and gaining no \code{contrast} column, and that row is named for
 the link: \code{slope} for an identity link, whether the model arrives as a
 \code{\link[stats:lm]{stats::lm()}} or as a gaussian \code{\link[stats:glm]{stats::glm()}}; \code{log(or)} for a logit; and
 \code{log(rr)} for a log link. Another link raises \code{balancing_ipw_input_error},
@@ -326,7 +326,7 @@ adjusted_mod <- glm(
 ipw(fit, adjusted_mod)
 
 # A categorical exposure reports each level against the reference level, and
-# the estimates table names the comparison.
+# the estimates table names the contrast.
 odds_b <- exp(0.6 * x1)
 odds_c <- exp(-0.5 * x1)
 denominator <- 1 + odds_b + odds_c

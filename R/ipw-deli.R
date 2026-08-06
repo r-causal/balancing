@@ -21,7 +21,7 @@
 # non-reference level, each measured against the reference level, which is the
 # first of the fit's own levels. A binary exposure is that system at K equal to
 # two, and the only thing its two levels change is the naming: its means are
-# `mu0` and `mu1` and its contrasts are unsuffixed, since one comparison needs no
+# `mu0` and `mu1` and its contrasts are unsuffixed, since one contrast needs no
 # label to tell it from another.
 #
 # A continuous exposure has no levels to fix, so the last two blocks are absent
@@ -612,7 +612,7 @@ validate_stacked_bread <- function(
 # Every contrast is measured against the reference level, the first of the means,
 # and the blocks run level-major: each non-reference level contributes all of its
 # effect measures before the next level begins. A binary exposure has one such
-# block and no need to say which comparison it belongs to, so its labels are the
+# block and no need to say which contrast it belongs to, so its labels are the
 # bare measure names; a categorical exposure suffixes each label with the level
 # it compares, which is what keeps the names unique across blocks.
 ipw_contrast_values <- function(means, continuous) {
@@ -642,7 +642,7 @@ ipw_contrast_names <- function(continuous, levels = NULL) {
 }
 
 # The names of the marginal-mean block. A categorical exposure names each mean
-# after its level, which is what the estimates table's comparison labels and the
+# after its level, which is what the estimates table's contrast labels and the
 # contrast names are keyed on. A binary exposure keeps the positional `mu0` and
 # `mu1`, the names its results have always carried and the ones propensity uses
 # for the same block.

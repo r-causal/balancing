@@ -33,7 +33,7 @@
   alongside the exposure, in which case the marginal means are standardized over
   the estimand's target population. A categorical exposure reports each
   non-reference level against the reference level, and the estimates table names
-  each contrast in a `comparison` column.
+  each contrast in a `contrast` column.
 
 * `ipw()` also accepts a continuous exposure from an entropy balancing fit with
   exact balance, whose estimand is the average treatment effect. It reports the
