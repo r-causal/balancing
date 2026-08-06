@@ -151,7 +151,7 @@ test_that("the ipw() workflow runs with propensity absent from the namespaces", 
     'invisible(vctrs::vec_cast(1, w))',
     'invisible(vctrs::vec_cast(1L, w))',
     'cat(sprintf("print_header: %s\\n", printed[[1]]))',
-    'cat(sprintf("effects: %s\\n", paste(estimates$effect, collapse = ",")))',
+    'cat(sprintf("terms: %s\\n", paste(estimates$term, collapse = ",")))',
     'cat(sprintf("propensity_after_use: %s\\n", "propensity" %in% loadedNamespaces()))',
     'cat(sprintf("causalgenerics: %s\\n", "causalgenerics" %in% loadedNamespaces()))'
   ))
@@ -174,7 +174,7 @@ test_that("the ipw() workflow runs with propensity absent from the namespaces", 
       subprocess_field(run, "print_header"),
       "Inverse Probability Weight Estimator"
     )
-    expect_identical(subprocess_field(run, "effects"), "rd,log(rr),log(or)")
+    expect_identical(subprocess_field(run, "terms"), "rd,log(rr),log(or)")
   }
 })
 
