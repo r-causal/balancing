@@ -623,7 +623,7 @@ test_that("ipw() returns the binary-outcome effect rows for an entropy fit", {
   estimates <- as.data.frame(result)
 
   expect_s3_class(result, "ipw")
-  expect_identical(estimates$effect, c("rd", "log(rr)", "log(or)"))
+  expect_identical(estimates$term, c("rd", "log(rr)", "log(or)"))
 })
 
 test_that("ipw() returns a single difference row for a continuous outcome", {
@@ -642,7 +642,7 @@ test_that("ipw() returns a single difference row for a continuous outcome", {
   result <- ipw(fit, outcome_mod)
   estimates <- as.data.frame(result)
 
-  expect_identical(estimates$effect, "diff")
+  expect_identical(estimates$term, "diff")
 })
 
 test_that("an ipw() result prints for a balancing fit", {
@@ -677,8 +677,8 @@ test_that("ipw() point estimates match the plain weighted-glm computation", {
 
   result <- ipw(fit, outcome_mod)
   estimates <- as.data.frame(result)
-  rd <- estimates$estimate[estimates$effect == "rd"]
-  log_rr <- estimates$estimate[estimates$effect == "log(rr)"]
+  rd <- estimates$estimate[estimates$term == "rd"]
+  log_rr <- estimates$estimate[estimates$term == "log(rr)"]
 
   expect_equal(rd, means$mu1 - means$mu0, tolerance = 1e-8)
   expect_equal(log_rr, log(means$mu1 / means$mu0), tolerance = 1e-8)
@@ -731,12 +731,12 @@ test_that("ipw() reports its standard-error method and the fitted variance syste
   estimates <- as.data.frame(result)
   expect_equal(
     estimates$estimate,
-    unname(result$fit$theta[estimates$effect]),
+    unname(result$fit$theta[estimates$term]),
     tolerance = 1e-12
   )
   expect_equal(
-    estimates$std.err,
-    unname(sqrt(diag(result$fit$vcov))[estimates$effect]),
+    estimates$std.error,
+    unname(sqrt(diag(result$fit$vcov))[estimates$term]),
     tolerance = 1e-12
   )
 })
@@ -762,7 +762,7 @@ test_that("the ipw() variance system carries one contrast for a continuous outco
     c("mu0", "mu1", "diff")
   )
   expect_equal(
-    estimates$std.err,
+    estimates$std.error,
     unname(sqrt(result$fit$vcov[["diff", "diff"]])),
     tolerance = 1e-12
   )
@@ -785,8 +785,8 @@ test_that("ipw() standard errors are finite and positive", {
   result <- ipw(fit, outcome_mod)
   estimates <- as.data.frame(result)
 
-  expect_true(all(is.finite(estimates$std.err)))
-  expect_true(all(estimates$std.err > 0))
+  expect_true(all(is.finite(estimates$std.error)))
+  expect_true(all(estimates$std.error > 0))
 })
 
 test_that("a shift-related covariate leaves the ipw() chain identified", {
@@ -832,10 +832,10 @@ test_that("a shift-related covariate leaves the ipw() chain identified", {
   estimates <- as.data.frame(ipw(fit, outcome_mod))
   reduced_estimates <- as.data.frame(ipw(reduced, reduced_mod))
 
-  expect_true(all(is.finite(estimates$std.err)))
-  expect_true(all(estimates$std.err > 0))
+  expect_true(all(is.finite(estimates$std.error)))
+  expect_true(all(estimates$std.error > 0))
   expect_equal(estimates$estimate, reduced_estimates$estimate)
-  expect_equal(estimates$std.err, reduced_estimates$std.err)
+  expect_equal(estimates$std.error, reduced_estimates$std.error)
 })
 
 test_that("a factor covariate leaves the ipw() sandwich finite", {
@@ -902,10 +902,14 @@ test_that("a factor covariate leaves the ipw() sandwich finite", {
   estimates <- as.data.frame(expect_no_warning(ipw(fit, outcome_mod)))
   reduced_estimates <- as.data.frame(ipw(reduced, reduced_mod))
 
-  expect_true(all(is.finite(estimates$std.err)))
-  expect_true(all(estimates$std.err > 0))
+  expect_true(all(is.finite(estimates$std.error)))
+  expect_true(all(estimates$std.error > 0))
   expect_equal(estimates$estimate, reduced_estimates$estimate, tolerance = 1e-6)
-  expect_equal(estimates$std.err, reduced_estimates$std.err, tolerance = 1e-6)
+  expect_equal(
+    estimates$std.error,
+    reduced_estimates$std.error,
+    tolerance = 1e-6
+  )
 })
 
 test_that("ipw() standard errors differ from the naive weights-fixed sandwich", {
@@ -930,7 +934,7 @@ test_that("ipw() standard errors differ from the naive weights-fixed sandwich", 
 
   result <- ipw(fit, outcome_mod)
   estimates <- as.data.frame(result)
-  rd_se <- estimates$std.err[estimates$effect == "rd"]
+  rd_se <- estimates$std.error[estimates$term == "rd"]
 
   # Accounting for weight estimation moves the standard error; it does not equal
   # the sandwich that treats the weights as fixed.
@@ -1006,11 +1010,11 @@ for (spec in list(
 
         result <- ipw(fit, outcome_mod)
         estimates <- as.data.frame(result)
-        rd_se <- estimates$std.err[estimates$effect == "rd"]
+        rd_se <- estimates$std.error[estimates$term == "rd"]
 
-        expect_identical(estimates$effect, c("rd", "log(rr)", "log(or)"))
-        expect_true(all(is.finite(estimates$std.err)))
-        expect_true(all(estimates$std.err > 0))
+        expect_identical(estimates$term, c("rd", "log(rr)", "log(or)"))
+        expect_true(all(is.finite(estimates$std.error)))
+        expect_true(all(estimates$std.error > 0))
         expect_equal(rd_se, oracle_se, tolerance = 1e-8)
       }
     )
@@ -1034,7 +1038,7 @@ test_that("ipw() risk-difference standard error is coherent with sampling weight
 
   result <- ipw(fit, outcome_mod)
   estimates <- as.data.frame(result)
-  rd_se <- estimates$std.err[estimates$effect == "rd"]
+  rd_se <- estimates$std.error[estimates$term == "rd"]
 
   expect_equal(rd_se, oracle_se, tolerance = 1e-8)
 })
@@ -1054,7 +1058,7 @@ test_that("ipw() standard errors track a nonparametric bootstrap", {
 
   result <- ipw(fit, outcome_mod)
   estimates <- as.data.frame(result)
-  rd_se <- estimates$std.err[estimates$effect == "rd"]
+  rd_se <- estimates$std.error[estimates$term == "rd"]
 
   n <- nrow(data)
   boot_rd <- withr::with_seed(2024, {
@@ -1389,8 +1393,8 @@ for (spec in list(
           focal_level = spec$focal
         )
 
-        expect_identical(binary_estimates$effect, c("rd", "log(rr)", "log(or)"))
-        expect_identical(continuous_estimates$effect, "diff")
+        expect_identical(binary_estimates$term, c("rd", "log(rr)", "log(or)"))
+        expect_identical(continuous_estimates$term, "diff")
 
         expect_equal(
           binary$fit$theta[["mu0"]],
@@ -1438,10 +1442,10 @@ for (spec in list(
           expect_false(isTRUE(all.equal(pooled_means$mu1, binary_means$mu1)))
         }
 
-        expect_true(all(is.finite(binary_estimates$std.err)))
-        expect_true(all(binary_estimates$std.err > 0))
-        expect_true(all(is.finite(continuous_estimates$std.err)))
-        expect_true(all(continuous_estimates$std.err > 0))
+        expect_true(all(is.finite(binary_estimates$std.error)))
+        expect_true(all(binary_estimates$std.error > 0))
+        expect_true(all(is.finite(continuous_estimates$std.error)))
+        expect_true(all(continuous_estimates$std.error > 0))
       }
     )
   })
@@ -1481,12 +1485,12 @@ test_that("ipw() standardizes an adjusted model over the untreated for an atc fi
   expect_false(isTRUE(all.equal(treated$mu0, untreated$mu0)))
   expect_false(isTRUE(all.equal(treated$mu1, untreated$mu1)))
   expect_equal(
-    estimates$estimate[estimates$effect == "rd"],
+    estimates$estimate[estimates$term == "rd"],
     untreated$mu1 - untreated$mu0,
     tolerance = 1e-8
   )
   expect_equal(
-    estimates$std.err[estimates$effect == "rd"],
+    estimates$std.error[estimates$term == "rd"],
     oracle_se,
     tolerance = 1e-8
   )
@@ -1520,8 +1524,8 @@ test_that("ipw() standardizes an adjusted model over the sampling weights", {
   expect_false(isTRUE(all.equal(means$mu0, unweighted$mu0)))
   expect_equal(result$fit$theta[["mu0"]], means$mu0, tolerance = 1e-8)
   expect_equal(result$fit$theta[["mu1"]], means$mu1, tolerance = 1e-8)
-  expect_true(all(is.finite(estimates$std.err)))
-  expect_true(all(estimates$std.err > 0))
+  expect_true(all(is.finite(estimates$std.error)))
+  expect_true(all(estimates$std.error > 0))
 })
 
 # The whole family is compared against the independent oracle, across estimands
@@ -1600,7 +1604,7 @@ for (spec in list(
         oracle_se <- adjusted_rd_se(fit, outcome_mod, data)
 
         estimates <- as.data.frame(ipw(fit, outcome_mod))
-        rd_se <- estimates$std.err[estimates$effect == "rd"]
+        rd_se <- estimates$std.error[estimates$term == "rd"]
 
         expect_equal(rd_se, oracle_se, tolerance = 1e-8)
       }
@@ -1624,7 +1628,7 @@ test_that("the adjusted-model standard error is coherent with sampling weights",
   oracle_se <- adjusted_rd_se(fit, outcome_mod, data, sampling = data$sw)
 
   estimates <- as.data.frame(ipw(fit, outcome_mod))
-  rd_se <- estimates$std.err[estimates$effect == "rd"]
+  rd_se <- estimates$std.error[estimates$term == "rd"]
 
   expect_equal(rd_se, oracle_se, tolerance = 1e-8)
 })
@@ -1649,7 +1653,7 @@ test_that("ipw() adjusted-model standard errors track a bootstrap for entropy at
   outcome_mod <- fit_outcome(y ~ exposure + x1 + x2, data, w, stats::binomial())
 
   estimates <- as.data.frame(ipw(fit, outcome_mod))
-  rd_se <- estimates$std.err[estimates$effect == "rd"]
+  rd_se <- estimates$std.error[estimates$term == "rd"]
   boot_se <- adjusted_boot_rd_se(
     data,
     quote(bw_entropy()),
@@ -1677,7 +1681,7 @@ test_that("ipw() adjusted-model standard errors track a bootstrap for bw_ipt att
   outcome_mod <- fit_outcome(y ~ exposure + x1 + x2, data, w, stats::binomial())
 
   estimates <- as.data.frame(ipw(fit, outcome_mod))
-  rd_se <- estimates$std.err[estimates$effect == "rd"]
+  rd_se <- estimates$std.error[estimates$term == "rd"]
   boot_se <- adjusted_boot_rd_se(
     data,
     quote(bw_ipt()),
@@ -1710,7 +1714,7 @@ test_that("ipw() adjusted-model standard errors track a bootstrap for bw_ipt ate
   outcome_mod <- fit_outcome(y ~ exposure + x1 + x2, data, w, stats::binomial())
 
   estimates <- as.data.frame(ipw(fit, outcome_mod))
-  rd_se <- estimates$std.err[estimates$effect == "rd"]
+  rd_se <- estimates$std.error[estimates$term == "rd"]
   boot_se <- adjusted_boot_rd_se(
     data,
     quote(bw_ipt()),
@@ -1755,8 +1759,8 @@ test_that("supporting adjusted outcome models leaves the marginal ones alone", {
     means <- marginal_means(outcome_mod, data)
 
     estimates <- as.data.frame(ipw(fit, outcome_mod))
-    rd <- estimates$estimate[estimates$effect == "rd"]
-    rd_se <- estimates$std.err[estimates$effect == "rd"]
+    rd <- estimates$estimate[estimates$term == "rd"]
+    rd_se <- estimates$std.error[estimates$term == "rd"]
 
     expect_equal(rd, means$mu1 - means$mu0, tolerance = 1e-8)
     expect_equal(rd_se, coherent_rd_se(fit, data), tolerance = 1e-8)
@@ -1890,12 +1894,12 @@ test_that("ipw() supports an interaction between the exposure and a covariate", 
     expect_equal(result$fit$theta[["mu0"]], means$mu0, tolerance = 1e-8)
     expect_equal(result$fit$theta[["mu1"]], means$mu1, tolerance = 1e-8)
     expect_equal(
-      estimates$estimate[estimates$effect == "rd"],
+      estimates$estimate[estimates$term == "rd"],
       means$mu1 - means$mu0,
       tolerance = 1e-8
     )
-    expect_true(all(is.finite(estimates$std.err)))
-    expect_true(all(estimates$std.err > 0))
+    expect_true(all(is.finite(estimates$std.error)))
+    expect_true(all(estimates$std.error > 0))
   }
 })
 
@@ -1936,7 +1940,7 @@ test_that("ipw() computes effects for a categorical bw_ipt ate fit", {
   expect_s3_class(result, "ipw")
   expect_identical(result$se_method, "mestimation")
   expect_identical(
-    estimates$effect,
+    estimates$term,
     rep(c("rd", "log(rr)", "log(or)"), times = 2)
   )
   expect_identical(
@@ -1958,7 +1962,10 @@ test_that("the categorical estimates table keeps the shared column contract", {
   outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
 
   result <- ipw(fit, outcome_mod)
-  estimates <- as.data.frame(result)
+  # The stored table is what this pins. Coercing the result would report the
+  # tidier frame causalgenerics builds from it, which is that package's contract
+  # rather than the one balancing fills in.
+  estimates <- result$estimates
 
   # The comparison column sits between `effect` and `estimate`, and every other
   # column of the binary contract is present and populated as it is there.
@@ -2028,14 +2035,14 @@ test_that("the categorical variance system names K means and K - 1 contrasts", {
   # estimates table and the variance system cannot drift apart.
   estimates <- as.data.frame(result)
   compared_level <- sub(" vs .*$", "", estimates$comparison)
-  keys <- paste0(estimates$effect, "_", compared_level)
+  keys <- paste0(estimates$term, "_", compared_level)
   expect_equal(
     estimates$estimate,
     unname(result$fit$theta[keys]),
     tolerance = 1e-12
   )
   expect_equal(
-    estimates$std.err,
+    estimates$std.error,
     unname(sqrt(diag(result$fit$vcov))[keys]),
     tolerance = 1e-12
   )
@@ -2056,7 +2063,7 @@ test_that("a categorical continuous outcome reports one difference per level", {
   result <- ipw(fit, outcome_mod)
   estimates <- as.data.frame(result)
 
-  expect_identical(estimates$effect, c("diff", "diff"))
+  expect_identical(estimates$term, c("diff", "diff"))
   expect_identical(estimates$comparison, c("b vs a", "c vs a"))
   expect_identical(
     utils::tail(names(result$fit$theta), 5L),
@@ -2179,7 +2186,7 @@ test_that("categorical contrasts follow the formulas against the reference", {
   estimates <- as.data.frame(result)
   estimate_of <- function(effect, comparison) {
     estimates$estimate[
-      estimates$effect == effect & estimates$comparison == comparison
+      estimates$term == effect & estimates$comparison == comparison
     ]
   }
 
@@ -2245,7 +2252,7 @@ test_that("the categorical reference level follows the fit's level ordering", {
     )
   )
   expect_equal(
-    estimates$estimate[estimates$effect == "rd"],
+    estimates$estimate[estimates$term == "rd"],
     c(means[["b"]] - means[["c"]], means[["a"]] - means[["c"]]),
     tolerance = 1e-8
   )
@@ -2494,7 +2501,9 @@ test_that("ipw() reports the exposure slope for a continuous entropy ate fit", {
   )
 
   result <- ipw(fit, outcome_mod)
-  estimates <- as.data.frame(result)
+  # The stored table, for the same reason the discrete column contracts read it:
+  # the column set below is the one balancing fills in.
+  estimates <- result$estimates
 
   expect_s3_class(result, "ipw")
   expect_identical(nrow(estimates), 1L)
@@ -2538,20 +2547,20 @@ test_that("ipw() accepts a covariate-adjusted continuous marginal structural mod
   adjusted <- as.data.frame(ipw(fit, adjusted_mod))
 
   expect_identical(nrow(adjusted), 1L)
-  expect_identical(adjusted$effect, "slope")
+  expect_identical(adjusted$term, "slope")
   expect_equal(
     adjusted$estimate,
     stats::coef(adjusted_mod)[["exposure"]],
     tolerance = 1e-10
   )
-  expect_true(is.finite(adjusted$std.err))
-  expect_gt(adjusted$std.err, 0)
+  expect_true(is.finite(adjusted$std.error))
+  expect_gt(adjusted$std.error, 0)
 
   # `v` is prognostic and unbalanced, so adjusting for it is a real change to
   # the model rather than one the weights have already made irrelevant. Pinning
   # that the two results differ is what makes this a check on the adjusted path.
   expect_false(isTRUE(all.equal(adjusted$estimate, marginal$estimate)))
-  expect_false(isTRUE(all.equal(adjusted$std.err, marginal$std.err)))
+  expect_false(isTRUE(all.equal(adjusted$std.error, marginal$std.error)))
 })
 
 # The single effect row is named for the outcome model's link, since that is the
@@ -2601,7 +2610,7 @@ test_that("ipw() names the continuous effect for the outcome model's link", {
     estimates <- as.data.frame(ipw(fit, outcome_mod))
 
     expect_identical(nrow(estimates), 1L)
-    expect_identical(estimates$effect, spec$effect)
+    expect_identical(estimates$term, spec$effect)
     expect_equal(
       estimates$estimate,
       stats::coef(outcome_mod)[["exposure"]],
@@ -2663,7 +2672,7 @@ for (spec in list(
         estimates <- as.data.frame(ipw(fit, outcome_mod))
 
         expect_identical(nrow(estimates), 1L)
-        expect_equal(estimates$std.err, oracle_se, tolerance = 1e-8)
+        expect_equal(estimates$std.error, oracle_se, tolerance = 1e-8)
       }
     )
   })
@@ -2689,9 +2698,9 @@ test_that("the continuous ipw() standard error is coherent with sampling weights
 
   estimates <- as.data.frame(ipw(fit, outcome_mod))
 
-  expect_true(is.finite(estimates$std.err))
-  expect_gt(estimates$std.err, 0)
-  expect_equal(estimates$std.err, oracle_se, tolerance = 1e-8)
+  expect_true(is.finite(estimates$std.error))
+  expect_gt(estimates$std.error, 0)
+  expect_equal(estimates$std.error, oracle_se, tolerance = 1e-8)
 })
 
 test_that("the continuous ipw() standard error differs from the weights-fixed sandwich", {
@@ -2712,7 +2721,7 @@ test_that("the continuous ipw() standard error differs from the weights-fixed sa
   # Accounting for weight estimation moves the standard error; it does not equal
   # the sandwich a weighted regression reports when it treats the weights as a
   # design quantity.
-  expect_false(isTRUE(all.equal(estimates$std.err, naive_se)))
+  expect_false(isTRUE(all.equal(estimates$std.error, naive_se)))
 })
 
 test_that("ipw() reports the mestimation variance system for a continuous fit", {
@@ -2737,12 +2746,12 @@ test_that("ipw() reports the mestimation variance system for a continuous fit", 
   expect_named(result$fit, c("theta", "vcov"))
   expect_equal(
     estimates$estimate,
-    unname(result$fit$theta[estimates$effect]),
+    unname(result$fit$theta[estimates$term]),
     tolerance = 1e-12
   )
   expect_equal(
-    estimates$std.err,
-    unname(sqrt(diag(result$fit$vcov))[estimates$effect]),
+    estimates$std.error,
+    unname(sqrt(diag(result$fit$vcov))[estimates$term]),
     tolerance = 1e-12
   )
 })
@@ -2930,24 +2939,24 @@ test_that("ipw() accepts a continuous outcome model with an exposure-free offset
   shifted <- as.data.frame(ipw(fit, shifted_mod))
 
   expect_identical(nrow(rate), 1L)
-  expect_identical(rate$effect, "log(rr)")
+  expect_identical(rate$term, "log(rr)")
   expect_equal(
     rate$estimate,
     stats::coef(rate_mod)[["exposure"]],
     tolerance = 1e-10
   )
-  expect_true(is.finite(rate$std.err))
-  expect_gt(rate$std.err, 0)
+  expect_true(is.finite(rate$std.error))
+  expect_gt(rate$std.error, 0)
 
   expect_identical(nrow(shifted), 1L)
-  expect_identical(shifted$effect, "slope")
+  expect_identical(shifted$term, "slope")
   expect_equal(
     shifted$estimate,
     stats::coef(shifted_mod)[["exposure"]],
     tolerance = 1e-10
   )
-  expect_true(is.finite(shifted$std.err))
-  expect_gt(shifted$std.err, 0)
+  expect_true(is.finite(shifted$std.error))
+  expect_gt(shifted$std.error, 0)
 })
 
 # The single effect row is named for the outcome model's link, and only three
@@ -3033,14 +3042,14 @@ test_that("ipw() accepts a continuous marginal structural model with a non-synta
   reference <- as.data.frame(ipw(reference_fit, reference_mod))
 
   expect_identical(nrow(estimates), 1L)
-  expect_identical(estimates$effect, "slope")
+  expect_identical(estimates$term, "slope")
   expect_equal(
     estimates$estimate,
     stats::coef(outcome_mod)[["`dose level`"]],
     tolerance = 1e-10
   )
   expect_equal(estimates$estimate, reference$estimate, tolerance = 1e-8)
-  expect_equal(estimates$std.err, reference$std.err, tolerance = 1e-8)
+  expect_equal(estimates$std.error, reference$std.error, tolerance = 1e-8)
 })
 
 # The continuous path is exact entropy balancing alone. A continuous fit from
@@ -3116,7 +3125,7 @@ test_that("ipw() computes effects for a character categorical exposure", {
 
   expect_identical(estimates$comparison, reference$comparison)
   expect_equal(estimates$estimate, reference$estimate, tolerance = 1e-8)
-  expect_equal(estimates$std.err, reference$std.err, tolerance = 1e-8)
+  expect_equal(estimates$std.error, reference$std.error, tolerance = 1e-8)
 })
 
 test_that("ipw() computes effects for an integer-coded categorical exposure", {
@@ -3151,7 +3160,7 @@ test_that("ipw() computes effects for an integer-coded categorical exposure", {
     c(rep("2 vs 1", 3L), rep("3 vs 1", 3L))
   )
   expect_equal(estimates$estimate, reference$estimate, tolerance = 1e-8)
-  expect_equal(estimates$std.err, reference$std.err, tolerance = 1e-8)
+  expect_equal(estimates$std.error, reference$std.error, tolerance = 1e-8)
 })
 
 test_that("a transformed exposure still needs the exposure column", {
@@ -3230,8 +3239,8 @@ test_that("a categorical att standardizes an adjusted model over the focal group
   # move the means. Without that the test would pass on an implementation that
   # ignored the estimand entirely.
   expect_false(isTRUE(all.equal(unname(focal), unname(pooled))))
-  expect_true(all(is.finite(estimates$std.err)))
-  expect_true(all(estimates$std.err > 0))
+  expect_true(all(is.finite(estimates$std.error)))
+  expect_true(all(estimates$std.error > 0))
 })
 
 # The standard errors are checked three ways: they are finite and positive
@@ -3255,8 +3264,8 @@ test_that("categorical standard errors are finite and positive", {
   for (formula in list(y ~ exposure, y ~ exposure + x1, y ~ exposure * x1)) {
     outcome_mod <- fit_outcome(formula, data, w, stats::binomial())
     estimates <- as.data.frame(ipw(fit, outcome_mod))
-    expect_true(all(is.finite(estimates$std.err)))
-    expect_true(all(estimates$std.err > 0))
+    expect_true(all(is.finite(estimates$std.error)))
+    expect_true(all(estimates$std.error > 0))
   }
 })
 
@@ -3294,8 +3303,8 @@ for (spec in list(
         estimates <- as.data.frame(result)
 
         for (level in c("b", "c")) {
-          reported <- estimates$std.err[
-            estimates$effect == "rd" &
+          reported <- estimates$std.error[
+            estimates$term == "rd" &
               estimates$comparison == paste0(level, " vs a")
           ]
           expect_equal(
@@ -3325,8 +3334,8 @@ test_that("the categorical standard error is coherent with sampling weights", {
 
   result <- ipw(fit, outcome_mod)
   estimates <- as.data.frame(result)
-  rd_se <- estimates$std.err[
-    estimates$effect == "rd" & estimates$comparison == "b vs a"
+  rd_se <- estimates$std.error[
+    estimates$term == "rd" & estimates$comparison == "b vs a"
   ]
 
   expect_equal(
@@ -3351,8 +3360,8 @@ test_that("categorical standard errors track a nonparametric bootstrap", {
 
   result <- ipw(fit, outcome_mod)
   estimates <- as.data.frame(result)
-  rd_se <- estimates$std.err[
-    estimates$effect == "rd" & estimates$comparison == "b vs a"
+  rd_se <- estimates$std.error[
+    estimates$term == "rd" & estimates$comparison == "b vs a"
   ]
 
   n <- nrow(data)
@@ -3455,7 +3464,7 @@ for (spec in list(
       estimates <- as.data.frame(result)
 
       expect_identical(
-        estimates$effect,
+        estimates$term,
         rep(c("rd", "log(rr)", "log(or)"), times = 2)
       )
       expect_identical(
@@ -3467,8 +3476,8 @@ for (spec in list(
         unname(means),
         tolerance = 1e-8
       )
-      expect_true(all(is.finite(estimates$std.err)))
-      expect_true(all(estimates$std.err > 0))
+      expect_true(all(is.finite(estimates$std.error)))
+      expect_true(all(estimates$std.error > 0))
     })
   })
 }
@@ -3538,11 +3547,11 @@ test_that("a binary fit's estimates table carries no comparison column", {
   w <- as.numeric(stats::weights(fit))
   outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
 
-  estimates <- as.data.frame(ipw(fit, outcome_mod))
+  estimates <- ipw(fit, outcome_mod)$estimates
 
   # A binary exposure has one comparison, so naming it would add a column that
   # says the same thing on every row. The eight-column contract is what
-  # propensity reports there, and lifting the categorical case must not disturb
+  # propensity stores there, and lifting the categorical case must not disturb
   # it.
   expect_named(
     estimates,
@@ -3574,8 +3583,12 @@ test_that("ipw() respects conf_level", {
   w <- as.numeric(stats::weights(fit))
   outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
 
-  wide <- as.data.frame(ipw(fit, outcome_mod, conf_level = 0.95))
-  narrow <- as.data.frame(ipw(fit, outcome_mod, conf_level = 0.80))
+  # The stored bounds, since they are the ones `conf_level` sets. Coercion
+  # takes a confidence level of its own and recomputes the bounds whenever it
+  # differs from the stored one, so a coerced frame would answer for that
+  # argument rather than for this one.
+  wide <- ipw(fit, outcome_mod, conf_level = 0.95)$estimates
+  narrow <- ipw(fit, outcome_mod, conf_level = 0.80)$estimates
 
   wide_width <- wide$ci.upper - wide$ci.lower
   narrow_width <- narrow$ci.upper - narrow$ci.lower
@@ -3888,18 +3901,18 @@ test_that("ipw() honors an offset term in the outcome model", {
   binary_means <- marginal_means(binary_mod, data)
   continuous_means <- marginal_means(continuous_mod, data)
 
-  expect_identical(binary$effect, c("rd", "log(rr)", "log(or)"))
+  expect_identical(binary$term, c("rd", "log(rr)", "log(or)"))
   expect_equal(
-    binary$estimate[binary$effect == "rd"],
+    binary$estimate[binary$term == "rd"],
     binary_means$mu1 - binary_means$mu0,
     tolerance = 1e-10
   )
   expect_equal(
-    binary$estimate[binary$effect == "log(rr)"],
+    binary$estimate[binary$term == "log(rr)"],
     log(binary_means$mu1) - log(binary_means$mu0),
     tolerance = 1e-10
   )
-  expect_identical(continuous$effect, "diff")
+  expect_identical(continuous$term, "diff")
   expect_equal(
     continuous$estimate,
     continuous_means$mu1 - continuous_means$mu0,
@@ -3930,7 +3943,7 @@ test_that("ipw() honors an offset argument in the outcome model", {
   means <- marginal_means(outcome_mod, data)
 
   expect_equal(
-    estimates$estimate[estimates$effect == "rd"],
+    estimates$estimate[estimates$term == "rd"],
     means$mu1 - means$mu0,
     tolerance = 1e-10
   )
@@ -3997,7 +4010,7 @@ test_that("ipw() honors an offset in a categorical outcome model", {
     for (level in c("b", "c")) {
       expect_equal(
         estimates$estimate[
-          estimates$effect == "rd" &
+          estimates$term == "rd" &
             estimates$comparison == paste0(level, " vs a")
         ],
         means[[level]] - means[["a"]],
@@ -4040,11 +4053,11 @@ test_that("ipw() standard errors with an offset come from the variance engine", 
     sampling_weights = fit@sampling_weights
   )
 
-  expect_true(all(is.finite(estimates$std.err)))
-  expect_true(all(estimates$std.err > 0))
+  expect_true(all(is.finite(estimates$std.error)))
+  expect_true(all(estimates$std.error > 0))
   expect_equal(
-    estimates$std.err,
-    unname(sqrt(diag(engine$vcov))[estimates$effect]),
+    estimates$std.error,
+    unname(sqrt(diag(engine$vcov))[estimates$term]),
     tolerance = 1e-12
   )
 })
@@ -4265,13 +4278,13 @@ test_that("ipw() accepts the binomial, quasibinomial, gaussian, and lm families"
   gaussian_result <- as.data.frame(ipw(fit, gaussian_mod))
   lm_result <- as.data.frame(ipw(fit, lm_mod))
 
-  expect_identical(binomial_result$effect, c("rd", "log(rr)", "log(or)"))
-  expect_identical(quasi_result$effect, c("rd", "log(rr)", "log(or)"))
-  expect_identical(gaussian_result$effect, "diff")
-  expect_identical(lm_result$effect, "diff")
+  expect_identical(binomial_result$term, c("rd", "log(rr)", "log(or)"))
+  expect_identical(quasi_result$term, c("rd", "log(rr)", "log(or)"))
+  expect_identical(gaussian_result$term, "diff")
+  expect_identical(lm_result$term, "diff")
 
   expect_equal(quasi_result$estimate, binomial_result$estimate)
-  expect_equal(quasi_result$std.err, binomial_result$std.err)
+  expect_equal(quasi_result$std.error, binomial_result$std.error)
 })
 
 # ---- Outcome response scale -----------------------------------------------
@@ -4307,13 +4320,13 @@ test_that("ipw() gives identical results for numeric and factor binary outcomes"
   numeric_result <- as.data.frame(ipw(fit, numeric_mod))
   factor_result <- as.data.frame(ipw(fit, factor_mod))
 
-  expect_identical(factor_result$effect, numeric_result$effect)
+  expect_identical(factor_result$term, numeric_result$term)
   expect_equal(factor_result$estimate, numeric_result$estimate)
-  expect_equal(factor_result$std.err, numeric_result$std.err)
+  expect_equal(factor_result$std.error, numeric_result$std.error)
 
   # The numeric path is the one pinned against the scale-coherent oracle, so
   # anchor the factor path there too rather than only to its numeric twin.
-  factor_rd_se <- factor_result$std.err[factor_result$effect == "rd"]
+  factor_rd_se <- factor_result$std.error[factor_result$term == "rd"]
   expect_equal(factor_rd_se, coherent_rd_se(fit, data), tolerance = 1e-8)
 })
 
@@ -4393,9 +4406,9 @@ test_that("ipw() gives identical results for a numeric response with y = FALSE",
   stored_result <- as.data.frame(ipw(fit, stored))
   dropped_result <- as.data.frame(ipw(fit, dropped))
 
-  expect_identical(dropped_result$effect, stored_result$effect)
+  expect_identical(dropped_result$term, stored_result$term)
   expect_equal(dropped_result$estimate, stored_result$estimate)
-  expect_equal(dropped_result$std.err, stored_result$std.err)
+  expect_equal(dropped_result$std.error, stored_result$std.error)
 })
 
 # An lm stores no response by default, so it always reads one from the model
@@ -4428,10 +4441,10 @@ test_that("ipw() gives identical results for an lm and a gaussian glm", {
   glm_result <- as.data.frame(ipw(fit, glm_mod))
   lm_result <- as.data.frame(ipw(fit, lm_mod))
 
-  expect_identical(lm_result$effect, "diff")
-  expect_identical(lm_result$effect, glm_result$effect)
+  expect_identical(lm_result$term, "diff")
+  expect_identical(lm_result$term, glm_result$term)
   expect_equal(lm_result$estimate, glm_result$estimate)
-  expect_equal(lm_result$std.err, glm_result$std.err)
+  expect_equal(lm_result$std.error, glm_result$std.error)
 })
 
 # A two-column response through `glm()` is the grouped binomial form, one row per

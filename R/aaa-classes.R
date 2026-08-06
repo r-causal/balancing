@@ -415,6 +415,11 @@ balancing_estimating_equations <- new_class(
 #' @param solver_status The solver that produced the result.
 #' @param estimating_equations The [balancing_estimating_equations] container,
 #'   or `NULL`.
+#' @param vcov The covariance of the fit's own weight parameters, a `p` by `p`
+#'   matrix named for them, or `NULL`. A covariance for those parameters comes
+#'   from the stacked system an [`ipw()`][ipw.balancing] result assembles, so
+#'   [balance()] leaves this empty and the result fills it in on the copy of the
+#'   fit it stores, where [stats::vcov()] reads it back.
 #' @param sampling_weights The sampling weights, or `NULL`.
 #' @param call The originating call.
 #'
@@ -442,6 +447,7 @@ balancing <- new_class(
     objective = class_double,
     solver_status = class_character,
     estimating_equations = NULL | balancing_estimating_equations,
+    vcov = NULL | class_double,
     sampling_weights = NULL | class_double,
     call = class_call
   )

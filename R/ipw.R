@@ -252,7 +252,9 @@
 #'   account for having estimated the weights rather than treating them as
 #'   fixed. The stored `wt_mod` is the balancing fit itself rather than a
 #'   wrapper of one, since the weight block of the same stack is already its
-#'   own.
+#'   own: the stored copy carries that block, the covariance of the fit's
+#'   weight parameters, and [stats::vcov()] on it reads the block back. The fit
+#'   that went into the call is untouched, and reports no covariance of its own.
 #' @param ... Ignored, for compatibility with the generic.
 #'
 #' @return An object of class `ipw`, an implementation of
@@ -282,9 +284,19 @@
 #'   exposure, as `"rd b vs a"`. The stored `outcome_mod` is wrapped by
 #'   [causalgenerics::new_ipw_model()], which carries the outcome-model block of
 #'   `fit$vcov` under the model's own coefficient names, so `vcov()` on it
-#'   reports the joint-estimation variance. [stats::df.residual()] returns
+#'   reports the joint-estimation variance. The stored `wt_mod` carries the
+#'   leading block of the same covariance under the `theta_w` names above, which
+#'   name the fit's own parameters on either route, so `vcov()` on it reports
+#'   the covariance of the weight parameters. [stats::df.residual()] returns
 #'   `NA_integer_`, since the stacked system is not a fit with residual degrees
 #'   of freedom of its own.
+#'
+#'   [stats::nobs()] delegates to the stored outcome model, which counts the
+#'   rows it was fitted on that carry a nonzero weight. A unit given no sampling
+#'   weight is pinned at zero rather than dropped, so the weight vector stays the
+#'   length of the data the fit saw while the outcome model counts one row fewer
+#'   for each pinned unit, and `nobs()` on the result is then smaller than
+#'   `length(weights(result))`.
 #'
 #' @examples
 #' n <- 200
@@ -363,6 +375,7 @@
 #' @name ipw.balancing
 #' @importFrom causalgenerics ipw
 #' @importFrom stats getCall
+#' @importFrom stats vcov
 NULL
 
 # Expose the originating call through the standard model accessor so tools that
@@ -372,6 +385,45 @@ getCall_generic <- new_external_generic("stats", "getCall", "x")
 
 method(getCall_generic, balancing) <- function(x, ...) {
   x@call
+}
+
+# Report the covariance of the weight parameters through the standard model
+# accessor. Nothing in this package computes one for a fit on its own. The block
+# arrives only as a by-product of the stacked assembly an ipw() result performs,
+# which fills it in on the copy of the fit it stores, so a fit that has not been
+# through that assembly has no block to report and refuses rather than returning
+# an empty matrix.
+#
+# One class covers both ways of arriving at that refusal, since the caller's
+# position is the same either way, and the guidance is what separates them. A
+# fit whose weights solve estimating equations has the ipw() route open to it,
+# so the guidance names it. A fit from a method that solves none does not:
+# ipw() turns such a fit away as well, so naming the route would walk its holder
+# into a second refusal, and the guidance names the bootstrap workflow instead.
+vcov_generic <- new_external_generic("stats", "vcov", "object")
+
+method(vcov_generic, balancing) <- function(object, ...) {
+  if (is.null(object@vcov)) {
+    guidance <- if (is.null(object@estimating_equations)) {
+      c(
+        i = "This fit's weights solve no estimating equations, so there is no such result to read one from.",
+        i = "Use the bootstrap workflow in the inference vignette for variance instead."
+      )
+    } else {
+      c(
+        i = "Build an {.fun ipw} result from this fit and read {.fun vcov} off the fit it stores as {.arg wt_mod}."
+      )
+    }
+    abort(
+      c(
+        "This fit carries no covariance for its weight parameters.",
+        x = "A covariance for them comes from the stacked system an {.fun ipw} result assembles, and this fit has not been through one.",
+        guidance
+      ),
+      error_class = "balancing_vcov_error"
+    )
+  }
+  object@vcov
 }
 
 causalgenerics_ipw <- new_external_generic("causalgenerics", "ipw", "wt_mod")
@@ -485,6 +537,21 @@ method(causalgenerics_ipw, balancing) <- function(
     )
   }
 
+  # The weight parameters lead the stack on either route, so their own
+  # covariance is its leading block and one slice serves both exposure paths.
+  # The fit is where that block belongs, since it describes the parameters the
+  # fit solved for rather than anything the result reports, and filling it in
+  # here reaches only this function's copy: an S7 object is a value, so the fit
+  # the caller passed still carries no covariance and still refuses to report
+  # one. The block keeps the stacked `theta_w` names, which name the fit's own
+  # parameters on either route.
+  weight_parameters <- length(container@parameters)
+  wt_mod@vcov <- variance_system$vcov[
+    seq_len(weight_parameters),
+    seq_len(weight_parameters),
+    drop = FALSE
+  ]
+
   # The result is built by the shared constructor, so it carries the fields the
   # common print and as.data.frame methods read. The stacked parameter vector
   # and its covariance are the whole of the fitted variance system here, so they
@@ -497,7 +564,7 @@ method(causalgenerics_ipw, balancing) <- function(
     outcome_mod = wrap_outcome_model(
       outcome_mod,
       variance_system$vcov,
-      length(container@parameters)
+      weight_parameters
     ),
     estimates = estimates,
     se_method = "mestimation",

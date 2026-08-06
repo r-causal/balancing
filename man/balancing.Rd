@@ -57,6 +57,12 @@ covariates even though its objective reads every selected one.}
 \item{estimating_equations}{The \link{balancing_estimating_equations} container,
 or \code{NULL}.}
 
+\item{vcov}{The covariance of the fit's own weight parameters, a \code{p} by \code{p}
+matrix named for them, or \code{NULL}. A covariance for those parameters comes
+from the stacked system an \code{\link[=ipw.balancing]{ipw()}} result assembles, so
+\code{\link[=balance]{balance()}} leaves this empty and the result fills it in on the copy of the
+fit it stores, where \code{\link[stats:vcov]{stats::vcov()}} reads it back.}
+
 \item{sampling_weights}{The sampling weights, or \code{NULL}.}
 
 \item{call}{The originating call.}
