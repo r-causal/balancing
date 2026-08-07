@@ -9,4 +9,5 @@ to see their documentation.
   [`as_marginal()`](https://r-causal.github.io/causalgenerics/reference/ipw-modes.html),
   [`estimand()`](https://r-causal.github.io/causalgenerics/reference/causal-weights.html),
   [`ipw()`](https://r-causal.github.io/causalgenerics/reference/ipw.html),
-  [`is_causal_wt()`](https://r-causal.github.io/causalgenerics/reference/causal-weights.html)
+  [`is_causal_wt()`](https://r-causal.github.io/causalgenerics/reference/causal-weights.html),
+  [`pool_ipw()`](https://r-causal.github.io/causalgenerics/reference/pool_ipw.html)

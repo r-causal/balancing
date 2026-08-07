@@ -108,7 +108,7 @@ its `ipw_vcov` attribute, which is what
 [`stats::vcov()`](https://rdrr.io/r/stats/vcov.html) returns in the
 marginal reading. Both its dimnames are the display labels of the
 estimates rows: the effect measure alone, or the measure and the
-comparison for a categorical exposure, as `"rd b vs a"`. The stored
+contrast for a categorical exposure, as `"rd b vs a"`. The stored
 `outcome_mod` is wrapped by
 [`causalgenerics::new_ipw_model()`](https://r-causal.github.io/causalgenerics/reference/new_ipw_model.html),
 which carries the outcome-model block of `fit$vcov` under the model's
@@ -144,9 +144,9 @@ non-reference level against the reference level, which is the first of
 the fit's own levels: a factor's declared level order for a factor
 exposure, and the sorted values otherwise. A K-level exposure therefore
 contributes K marginal means and one block of measures per non-reference
-level, and the estimates table gains a `comparison` column, placed after
+level, and the estimates table gains a `contrast` column, placed after
 `effect`, naming each contrast as `"<level> vs <reference>"`. A binary
-exposure keeps the table it has always returned, with no `comparison`
+exposure keeps the table it has always returned, with no `contrast`
 column.
 
 A continuous exposure has no levels to contrast, so there is no pair of
@@ -156,9 +156,9 @@ balancing weights break the exposure-covariate association, the outcome
 model carries exactly one term in the exposure, and that term's
 coefficient is the effect of a one-unit change in the exposure on the
 model's own link scale. The estimates table holds a single row, keeping
-the columns it holds for every other exposure and gaining no
-`comparison` column, and that row is named for the link: `slope` for an
-identity link, whether the model arrives as a
+the columns it holds for every other exposure and gaining no `contrast`
+column, and that row is named for the link: `slope` for an identity
+link, whether the model arrives as a
 [`stats::lm()`](https://rdrr.io/r/stats/lm.html) or as a gaussian
 [`stats::glm()`](https://rdrr.io/r/stats/glm.html); `log(or)` for a
 logit; and `log(rr)` for a log link. Another link raises
@@ -352,6 +352,50 @@ value. That is the right treatment of a quantity the exposure does not
 move and the wrong treatment of one it does, which is why the
 exposure-reading case is refused above.
 
+## Multiple imputation
+
+Missing covariate data is handled by imputing first and analyzing within
+each completed dataset: impute, then balance, weight, and fit the
+outcome model once per imputation, then pool the per-imputation results
+with
+[`causalgenerics::pool_ipw()`](https://r-causal.github.io/causalgenerics/reference/pool_ipw.html).
+That function combines them by Rubin's rules with a Barnard-Rubin
+degrees-of-freedom adjustment, and documents the rules and the
+agreements the results have to satisfy.
+
+The per-imputation analysis is written as an
+[`lapply()`](https://rdrr.io/r/base/lapply.html) over the completed
+datasets rather than as `with(imp, ...)`.
+[`balance()`](https://r-causal.github.io/balancing/reference/balance.md)
+takes its data as the first argument and selects covariates out of it
+with tidyselect, so it needs that frame as a named object; inside
+[`with()`](https://rdrr.io/r/base/with.html) the completed frame is the
+evaluation environment instead and has no name to give. Walking the
+imputations directly also keeps the frame in hand for the weight column
+and the outcome model, which the same step needs.
+
+Only the estimating-equation methods at exact balance reach this
+workflow at all, for the reason they are the only ones
+[`ipw()`](https://r-causal.github.io/causalgenerics/reference/ipw.html)
+accepts anywhere: the pooled standard error is built from per-imputation
+standard errors, and a fit carrying no estimating equations produces no
+result to pool. The refusal comes at the per-imputation
+[`ipw()`](https://r-causal.github.io/causalgenerics/reference/ipw.html)
+call rather than at the pooling step.
+
+The complete-data degrees of freedom are found without being told. A
+balancing result reports none of its own, since the stacked system is
+not a fit with residual degrees of freedom, so
+[`causalgenerics::pool_ipw()`](https://r-causal.github.io/causalgenerics/reference/pool_ipw.html)
+falls through to the outcome models and takes the smallest residual
+degrees of freedom among them. Pooling the same results with
+[`mice::pool()`](https://amices.org/mice/reference/pool.html) instead
+needs two things this route supplies on its own: the propensity package
+loaded, since the `tidy()` method it reaches an `ipw` result through
+lives there rather than in balancing, and that count passed explicitly
+as its `dfcom` argument, since it reads only what the results themselves
+report.
+
 ## References
 
 Kostouraki A, Hajage D, Rachet B, et al. On variance estimation of the
@@ -430,7 +474,7 @@ ipw(fit, adjusted_mod)
 #> Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
 
 # A categorical exposure reports each level against the reference level, and
-# the estimates table names the comparison.
+# the estimates table names the contrast.
 odds_b <- exp(0.6 * x1)
 odds_c <- exp(-0.5 * x1)
 denominator <- 1 + odds_b + odds_c
@@ -499,4 +543,52 @@ ipw(dose_fit, dose_mod)
 #> slope  0.48987 0.076449 6.407895     0.34  0.63971       0.95 1.475e-10 ***
 #> ---
 #> Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+# With missing covariate data, analyze within each completed dataset and
+# pool the results afterward.
+set.seed(2024)
+n <- 150
+mx1 <- rnorm(n)
+mx2 <- rnorm(n)
+mz <- rbinom(n, 1, plogis(0.6 * mx1 - 0.4 * mx2))
+my <- rbinom(n, 1, plogis(-0.3 + 0.5 * mz + 0.4 * mx1))
+incomplete <- data.frame(exposure = mz, x1 = mx1, x2 = mx2, y = my)
+incomplete$x1[rbinom(n, 1, plogis(-1.2 + 0.5 * mx2)) == 1] <- NA
+
+imp <- mice::mice(incomplete, m = 2, print = FALSE, seed = 4321)
+
+fits <- lapply(mice::complete(imp, "all"), function(completed) {
+  completed_fit <- balance(
+    completed,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  completed$.wts <- weights(completed_fit)
+  ipw(
+    completed_fit,
+    glm(
+      y ~ exposure,
+      data = completed,
+      family = quasibinomial(),
+      weights = .wts
+    )
+  )
+})
+#> ℹ Treating `.exposure` as binary.
+#> ℹ Treating `.exposure` as binary.
+
+pool_ipw(fits)
+#> Pooled Inverse Probability Weight Estimator
+#> Estimand: ATE 
+#> Effects: marginal (population-averaged) 
+#> Imputations: 2 
+#> Complete-data df: 148 
+#> 
+#> Pooled marginal estimates:
+#>         estimate  std.err      t     df  ci.lower ci.upper conf.level p.value
+#> rd      0.093662 0.086512 1.0827 64.596 -0.079134  0.26646       0.95  0.2830
+#> log(rr) 0.178972 0.165070 1.0842 67.103 -0.150501  0.50844       0.95  0.2821
+#> log(or) 0.376786 0.350486 1.0750 64.419 -0.323302  1.07687       0.95  0.2864
 ```

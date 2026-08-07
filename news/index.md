@@ -57,7 +57,7 @@
   which case the marginal means are standardized over the estimand’s
   target population. A categorical exposure reports each non-reference
   level against the reference level, and the estimates table names each
-  contrast in a `comparison` column.
+  contrast in a `contrast` column.
 
 - [`ipw()`](https://r-causal.github.io/causalgenerics/reference/ipw.html)
   also accepts a continuous exposure from an entropy balancing fit with
@@ -69,6 +69,14 @@
   error comes from the same stacked M-estimator, the weight parameters
   above the outcome-model score, and is a large-sample one: at a few
   hundred observations it runs anticonservative.
+
+- Missing covariate data is handled by imputing first and analyzing
+  within each completed dataset. Balance, weight, and estimate once per
+  imputation, then pool the results with
+  [`pool_ipw()`](https://r-causal.github.io/causalgenerics/reference/pool_ipw.html),
+  which balancing re-exports from causalgenerics. The complete-data
+  degrees of freedom come from the outcome models automatically, since a
+  balancing result reports none of its own.
 
 - An
   [`ipw()`](https://r-causal.github.io/causalgenerics/reference/ipw.html)

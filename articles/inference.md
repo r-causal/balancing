@@ -238,8 +238,8 @@ ipw(arm_fit, arm_mod)
 #> Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 ```
 
-Each effect measure appears once per comparison, so the estimates table
-gains a `comparison` column naming the two levels each row contrasts.
+Each effect measure appears once per contrast, so the estimates table
+gains a `contrast` column naming the two levels each row contrasts.
 Everything else carries over unchanged: the outcome model may adjust for
 covariates, the marginal means standardize over the estimand’s target
 population, and the standard errors account for having estimated the
