@@ -45,7 +45,7 @@ accessor_binary_fixture <- function(n = 200) {
 
 # A three-level categorical fixture, whose exposure is the shared process's and
 # whose binary outcome depends on both non-reference levels, so every
-# comparison carries a distinct effect.
+# contrast carries a distinct effect.
 accessor_categorical_fixture <- function(n = 200) {
   data <- sim_categorical(n)
   withr::with_seed(606, {
@@ -308,9 +308,9 @@ test_that("a gaussian-outcome result carries the covariance of its difference", 
 
 # A categorical exposure reports one block of measures per non-reference level,
 # so the effect measure alone no longer identifies a row and the labels join
-# the measure to the comparison. The stacked names suffix the measure with the
+# the measure to the contrast. The stacked names suffix the measure with the
 # level instead, which is what the attribute relabels.
-test_that("a categorical ate result labels its covariance by comparison", {
+test_that("a categorical ate result labels its covariance by contrast", {
   data <- accessor_categorical_fixture()
   fit <- balance(
     data,

@@ -1911,7 +1911,7 @@ test_that("ipw() supports an interaction between the exposure and a covariate", 
 # categorical contract, and balancing follows it so that the two packages report
 # a categorical effect the same way: the stacked parameter vector names the means
 # `mu_<level>` and each contrast `<effect>_<level>`, and the estimates table
-# gains a `comparison` column, placed after `effect`, naming the contrast as
+# gains a `contrast` column, placed after `effect`, naming the contrast as
 # `"<level> vs <reference>"`. The table therefore has one row per effect measure
 # per non-reference level: (K - 1) * 3 rows for a binomial outcome and K - 1 for
 # a gaussian one.
@@ -1944,7 +1944,7 @@ test_that("ipw() computes effects for a categorical bw_ipt ate fit", {
     rep(c("rd", "log(rr)", "log(or)"), times = 2)
   )
   expect_identical(
-    estimates$comparison,
+    estimates$contrast,
     rep(c("b vs a", "c vs a"), each = 3)
   )
 })
@@ -1967,13 +1967,13 @@ test_that("the categorical estimates table keeps the shared column contract", {
   # rather than the one balancing fills in.
   estimates <- result$estimates
 
-  # The comparison column sits between `effect` and `estimate`, and every other
+  # The contrast column sits between `effect` and `estimate`, and every other
   # column of the binary contract is present and populated as it is there.
   expect_named(
     estimates,
     c(
       "effect",
-      "comparison",
+      "contrast",
       "estimate",
       "std.err",
       "z",
@@ -1995,6 +1995,100 @@ test_that("the categorical estimates table keeps the shared column contract", {
     estimates$estimate / estimates$std.err,
     tolerance = 1e-12
   )
+})
+
+# The column naming a categorical exposure's contrasts is called `contrast`.
+# causalgenerics reads either spelling, so a frame still storing the older
+# `comparison` is understood and every surface built from it still heads the
+# column canonically. That tolerance is exactly why the stored frame has to be
+# pinned on its own: a coerced frame cannot tell the two apart, so it cannot say
+# which one balancing wrote.
+
+test_that("a categorical estimates table names its contrasts in `contrast`", {
+  data <- ipw_categorical_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  estimates <- ipw(fit, outcome_mod)$estimates
+
+  expect_true("contrast" %in% names(estimates))
+  expect_false("comparison" %in% names(estimates))
+  # Position is part of the contract and nothing else here reaches it: the
+  # column qualifies the effect measure, so it sits immediately after it.
+  expect_identical(which(names(estimates) == "contrast"), 2L)
+  expect_identical(estimates$contrast, rep(c("b vs a", "c vs a"), each = 3))
+})
+
+# Every label a categorical result carries joins the effect measure to the
+# contrast, since the measure repeats across contrasts and names no row on its
+# own. balancing builds those labels for the covariance it attaches to the
+# estimates table, and causalgenerics builds them again for the accessors, so
+# both have to reach the contrast column under the name it actually has. A
+# label built from a column that is no longer there leaves three measures
+# standing for six rows, which the covariance carries as duplicated dimnames
+# rather than as an error.
+
+test_that("a categorical result labels every row by measure and contrast", {
+  data <- ipw_categorical_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  result <- ipw(fit, outcome_mod)
+  labels <- c(
+    "rd b vs a",
+    "log(rr) b vs a",
+    "log(or) b vs a",
+    "rd c vs a",
+    "log(rr) c vs a",
+    "log(or) c vs a"
+  )
+
+  covariance <- attr(result$estimates, "ipw_vcov", exact = TRUE)
+  expect_identical(dimnames(covariance), list(labels, labels))
+  expect_identical(anyDuplicated(rownames(covariance)), 0L)
+
+  # The accessor side labels through causalgenerics' own reader, so it holds
+  # for either spelling. What it pins is that balancing's own labels agree
+  # with it.
+  expect_identical(names(stats::coef(result)), labels)
+})
+
+# A guard on the coerced frame rather than a new demand of it: causalgenerics
+# builds that frame and heads the column `contrast` whichever spelling it read,
+# so this holds before and after balancing writes the canonical name. What it
+# pins is that the two packages agree on where the column sits, immediately
+# after the term it qualifies.
+
+test_that("a coerced categorical result heads `contrast` after `term`", {
+  data <- ipw_categorical_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  coerced <- as.data.frame(ipw(fit, outcome_mod))
+
+  expect_identical(names(coerced)[1:2], c("term", "contrast"))
+  expect_identical(coerced$contrast, rep(c("b vs a", "c vs a"), each = 3))
 })
 
 test_that("the categorical variance system names K means and K - 1 contrasts", {
@@ -2034,7 +2128,7 @@ test_that("the categorical variance system names K means and K - 1 contrasts", {
   # Each reported row is read off the stack at the contrast's own name, so the
   # estimates table and the variance system cannot drift apart.
   estimates <- as.data.frame(result)
-  compared_level <- sub(" vs .*$", "", estimates$comparison)
+  compared_level <- sub(" vs .*$", "", estimates$contrast)
   keys <- paste0(estimates$term, "_", compared_level)
   expect_equal(
     estimates$estimate,
@@ -2064,7 +2158,7 @@ test_that("a categorical continuous outcome reports one difference per level", {
   estimates <- as.data.frame(result)
 
   expect_identical(estimates$term, c("diff", "diff"))
-  expect_identical(estimates$comparison, c("b vs a", "c vs a"))
+  expect_identical(estimates$contrast, c("b vs a", "c vs a"))
   expect_identical(
     utils::tail(names(result$fit$theta), 5L),
     c("mu_a", "mu_b", "mu_c", "diff_b", "diff_c")
@@ -2111,7 +2205,7 @@ test_that("a categorical bw_cbps fit works after its over-identified request is 
   expect_equal(result$fit$vcov, expected$fit$vcov, tolerance = 1e-12)
 })
 
-test_that("a categorical ipw() result prints its comparisons", {
+test_that("a categorical ipw() result prints its contrasts", {
   data <- ipw_categorical_fixture()
   fit <- balance(
     data,
@@ -2184,26 +2278,26 @@ test_that("categorical contrasts follow the formulas against the reference", {
 
   result <- ipw(fit, outcome_mod)
   estimates <- as.data.frame(result)
-  estimate_of <- function(effect, comparison) {
+  estimate_of <- function(effect, contrast) {
     estimates$estimate[
-      estimates$term == effect & estimates$comparison == comparison
+      estimates$term == effect & estimates$contrast == contrast
     ]
   }
 
   for (level in c("b", "c")) {
-    comparison <- paste0(level, " vs a")
+    contrast <- paste0(level, " vs a")
     expect_equal(
-      estimate_of("rd", comparison),
+      estimate_of("rd", contrast),
       means[[level]] - means[["a"]],
       tolerance = 1e-8
     )
     expect_equal(
-      estimate_of("log(rr)", comparison),
+      estimate_of("log(rr)", contrast),
       log(means[[level]]) - log(means[["a"]]),
       tolerance = 1e-8
     )
     expect_equal(
-      estimate_of("log(or)", comparison),
+      estimate_of("log(or)", contrast),
       stats::qlogis(means[[level]]) - stats::qlogis(means[["a"]]),
       tolerance = 1e-8
     )
@@ -2234,7 +2328,7 @@ test_that("the categorical reference level follows the fit's level ordering", {
   estimates <- as.data.frame(result)
 
   expect_identical(
-    estimates$comparison,
+    estimates$contrast,
     rep(c("b vs c", "a vs c"), each = 3)
   )
   expect_identical(
@@ -2528,6 +2622,31 @@ test_that("ipw() reports the exposure slope for a continuous entropy ate fit", {
   )
   expect_true(is.finite(estimates$std.err))
   expect_gt(estimates$std.err, 0)
+})
+
+# A continuous exposure has no levels to contrast, so its estimates table names
+# no contrast at all. Pinning the absence of both spellings is what keeps the
+# canonical name from arriving here as an addition rather than as a rename.
+
+test_that("a continuous fit's estimates table names no contrast", {
+  data <- ipw_continuous_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  outcome_mod <- fit_msm(
+    y_cont ~ exposure,
+    data,
+    as.numeric(stats::weights(fit))
+  )
+
+  estimates <- ipw(fit, outcome_mod)$estimates
+
+  expect_false("contrast" %in% names(estimates))
+  expect_false("comparison" %in% names(estimates))
 })
 
 test_that("ipw() accepts a covariate-adjusted continuous marginal structural model", {
@@ -3123,7 +3242,11 @@ test_that("ipw() computes effects for a character categorical exposure", {
   estimates <- as.data.frame(ipw(fit, outcome_mod))
   reference <- as.data.frame(ipw(reference_fit, reference_mod))
 
-  expect_identical(estimates$comparison, reference$comparison)
+  # Naming the contrasts outright rather than only against the reference fit:
+  # two absent columns compare identical, so a column-to-column assertion alone
+  # would go on passing if neither frame named a contrast at all.
+  expect_identical(estimates$contrast, rep(c("b vs a", "c vs a"), each = 3))
+  expect_identical(estimates$contrast, reference$contrast)
   expect_equal(estimates$estimate, reference$estimate, tolerance = 1e-8)
   expect_equal(estimates$std.error, reference$std.error, tolerance = 1e-8)
 })
@@ -3156,7 +3279,7 @@ test_that("ipw() computes effects for an integer-coded categorical exposure", {
   reference <- as.data.frame(ipw(reference_fit, reference_mod))
 
   expect_identical(
-    estimates$comparison,
+    estimates$contrast,
     c(rep("2 vs 1", 3L), rep("3 vs 1", 3L))
   )
   expect_equal(estimates$estimate, reference$estimate, tolerance = 1e-8)
@@ -3305,7 +3428,7 @@ for (spec in list(
         for (level in c("b", "c")) {
           reported <- estimates$std.error[
             estimates$term == "rd" &
-              estimates$comparison == paste0(level, " vs a")
+              estimates$contrast == paste0(level, " vs a")
           ]
           expect_equal(
             reported,
@@ -3335,7 +3458,7 @@ test_that("the categorical standard error is coherent with sampling weights", {
   result <- ipw(fit, outcome_mod)
   estimates <- as.data.frame(result)
   rd_se <- estimates$std.error[
-    estimates$term == "rd" & estimates$comparison == "b vs a"
+    estimates$term == "rd" & estimates$contrast == "b vs a"
   ]
 
   expect_equal(
@@ -3361,7 +3484,7 @@ test_that("categorical standard errors track a nonparametric bootstrap", {
   result <- ipw(fit, outcome_mod)
   estimates <- as.data.frame(result)
   rd_se <- estimates$std.error[
-    estimates$term == "rd" & estimates$comparison == "b vs a"
+    estimates$term == "rd" & estimates$contrast == "b vs a"
   ]
 
   n <- nrow(data)
@@ -3468,7 +3591,7 @@ for (spec in list(
         rep(c("rd", "log(rr)", "log(or)"), times = 2)
       )
       expect_identical(
-        estimates$comparison,
+        estimates$contrast,
         rep(c("b vs a", "c vs a"), each = 3)
       )
       expect_equal(
@@ -3535,7 +3658,7 @@ test_that("ipw() rejects an estimand that contradicts a categorical fit", {
   )
 })
 
-test_that("a binary fit's estimates table carries no comparison column", {
+test_that("a binary fit's estimates table carries no contrast column", {
   data <- ipw_fixture()
   fit <- balance(
     data,
@@ -3549,7 +3672,7 @@ test_that("a binary fit's estimates table carries no comparison column", {
 
   estimates <- ipw(fit, outcome_mod)$estimates
 
-  # A binary exposure has one comparison, so naming it would add a column that
+  # A binary exposure has one contrast, so naming it would add a column that
   # says the same thing on every row. The eight-column contract is what
   # propensity stores there, and lifting the categorical case must not disturb
   # it.
@@ -3567,6 +3690,29 @@ test_that("a binary fit's estimates table carries no comparison column", {
     )
   )
   expect_identical(estimates$effect, c("rd", "log(rr)", "log(or)"))
+})
+
+# The same absence holds of a binary exposure for a different reason than a
+# continuous one: it has levels to contrast but only one contrast, so a column
+# naming it would repeat a single label down the table. Neither spelling belongs
+# there either.
+
+test_that("a binary fit's estimates table names no contrast", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  estimates <- ipw(fit, outcome_mod)$estimates
+
+  expect_false("contrast" %in% names(estimates))
+  expect_false("comparison" %in% names(estimates))
 })
 
 # ---- Arguments: conf_level and estimand -----------------------------------
@@ -4011,7 +4157,7 @@ test_that("ipw() honors an offset in a categorical outcome model", {
       expect_equal(
         estimates$estimate[
           estimates$term == "rd" &
-            estimates$comparison == paste0(level, " vs a")
+            estimates$contrast == paste0(level, " vs a")
         ],
         means[[level]] - means[["a"]],
         tolerance = 1e-10

@@ -31,9 +31,9 @@
 #' a factor's declared level order for a factor exposure, and the sorted values
 #' otherwise. A K-level exposure therefore contributes K marginal means and one
 #' block of measures per non-reference level, and the estimates table gains a
-#' `comparison` column, placed after `effect`, naming each contrast as
+#' `contrast` column, placed after `effect`, naming each contrast as
 #' `"<level> vs <reference>"`. A binary exposure keeps the table it has always
-#' returned, with no `comparison` column.
+#' returned, with no `contrast` column.
 #'
 #' A continuous exposure has no levels to contrast, so there is no pair of
 #' marginal means to difference. What the method reports instead is the
@@ -42,7 +42,7 @@
 #' carries exactly one term in the exposure, and that term's coefficient is the
 #' effect of a one-unit change in the exposure on the model's own link scale. The
 #' estimates table holds a single row, keeping the columns it holds for every
-#' other exposure and gaining no `comparison` column, and that row is named for
+#' other exposure and gaining no `contrast` column, and that row is named for
 #' the link: `slope` for an identity link, whether the model arrives as a
 #' [stats::lm()] or as a gaussian [stats::glm()]; `log(or)` for a logit; and
 #' `log(rr)` for a log link. Another link raises `balancing_ipw_input_error`,
@@ -215,6 +215,39 @@
 #' treatment of one it does, which is why the exposure-reading case is refused
 #' above.
 #'
+#' # Multiple imputation
+#'
+#' Missing covariate data is handled by imputing first and analyzing within each
+#' completed dataset: impute, then balance, weight, and fit the outcome model
+#' once per imputation, then pool the per-imputation results with
+#' [causalgenerics::pool_ipw()]. That function combines them by Rubin's rules
+#' with a Barnard-Rubin degrees-of-freedom adjustment, and documents the rules
+#' and the agreements the results have to satisfy.
+#'
+#' The per-imputation analysis is written as an `lapply()` over the completed
+#' datasets rather than as `with(imp, ...)`. `balance()` takes its data as the
+#' first argument and selects covariates out of it with tidyselect, so it needs
+#' that frame as a named object; inside `with()` the completed frame is the
+#' evaluation environment instead and has no name to give. Walking the
+#' imputations directly also keeps the frame in hand for the weight column and
+#' the outcome model, which the same step needs.
+#'
+#' Only the estimating-equation methods at exact balance reach this workflow at
+#' all, for the reason they are the only ones `ipw()` accepts anywhere: the
+#' pooled standard error is built from per-imputation standard errors, and a fit
+#' carrying no estimating equations produces no result to pool. The refusal
+#' comes at the per-imputation `ipw()` call rather than at the pooling step.
+#'
+#' The complete-data degrees of freedom are found without being told. A
+#' balancing result reports none of its own, since the stacked system is not a
+#' fit with residual degrees of freedom, so [causalgenerics::pool_ipw()] falls
+#' through to the outcome models and takes the smallest residual degrees of
+#' freedom among them. Pooling the same results with [mice::pool()] instead
+#' needs two things this route supplies on its own: the propensity package
+#' loaded, since the `tidy()` method it reaches an `ipw` result through lives
+#' there rather than in balancing, and that count passed explicitly as its
+#' `dfcom` argument, since it reads only what the results themselves report.
+#'
 #' @references
 #' Kostouraki A, Hajage D, Rachet B, et al. On variance estimation of the
 #' inverse probability-of-treatment weighting estimator: A tutorial for
@@ -280,7 +313,7 @@
 #'   The `estimates` table carries the covariance of the reported effects as its
 #'   `ipw_vcov` attribute, which is what [stats::vcov()] returns in the marginal
 #'   reading. Both its dimnames are the display labels of the estimates rows: the
-#'   effect measure alone, or the measure and the comparison for a categorical
+#'   effect measure alone, or the measure and the contrast for a categorical
 #'   exposure, as `"rd b vs a"`. The stored `outcome_mod` is wrapped by
 #'   [causalgenerics::new_ipw_model()], which carries the outcome-model block of
 #'   `fit$vcov` under the model's own coefficient names, so `vcov()` on it
@@ -331,7 +364,7 @@
 #' ipw(fit, adjusted_mod)
 #'
 #' # A categorical exposure reports each level against the reference level, and
-#' # the estimates table names the comparison.
+#' # the estimates table names the contrast.
 #' odds_b <- exp(0.6 * x1)
 #' odds_c <- exp(-0.5 * x1)
 #' denominator <- 1 + odds_b + odds_c
@@ -371,6 +404,42 @@
 #' dose_mod <- lm(score ~ dose, data = df, weights = .dose_wts)
 #'
 #' ipw(dose_fit, dose_mod)
+#'
+#' @examplesIf requireNamespace("mice", quietly = TRUE)
+#' # With missing covariate data, analyze within each completed dataset and
+#' # pool the results afterward.
+#' set.seed(2024)
+#' n <- 150
+#' mx1 <- rnorm(n)
+#' mx2 <- rnorm(n)
+#' mz <- rbinom(n, 1, plogis(0.6 * mx1 - 0.4 * mx2))
+#' my <- rbinom(n, 1, plogis(-0.3 + 0.5 * mz + 0.4 * mx1))
+#' incomplete <- data.frame(exposure = mz, x1 = mx1, x2 = mx2, y = my)
+#' incomplete$x1[rbinom(n, 1, plogis(-1.2 + 0.5 * mx2)) == 1] <- NA
+#'
+#' imp <- mice::mice(incomplete, m = 2, print = FALSE, seed = 4321)
+#'
+#' fits <- lapply(mice::complete(imp, "all"), function(completed) {
+#'   completed_fit <- balance(
+#'     completed,
+#'     exposure,
+#'     c(x1, x2),
+#'     method = bw_entropy(),
+#'     estimand = "ate"
+#'   )
+#'   completed$.wts <- weights(completed_fit)
+#'   ipw(
+#'     completed_fit,
+#'     glm(
+#'       y ~ exposure,
+#'       data = completed,
+#'       family = quasibinomial(),
+#'       weights = .wts
+#'     )
+#'   )
+#' })
+#'
+#' pool_ipw(fits)
 #'
 #' @name ipw.balancing
 #' @importFrom causalgenerics ipw
@@ -1214,7 +1283,7 @@ fixed_exposure_pieces <- function(
 # what each row is called, which are the same strings for a continuous exposure,
 # whose one effect is the exposure coefficient under the name that coefficient
 # already carries in the stack, and differ for a categorical one, whose measures
-# repeat once per comparison under distinct stacked names.
+# repeat once per contrast under distinct stacked names.
 ipw_estimate_rows <- function(theta, vcov, conf_level, keys, effects) {
   estimate <- unname(theta[keys])
   std_err <- unname(sqrt(diag(vcov)[keys]))
@@ -1235,10 +1304,11 @@ ipw_estimate_rows <- function(theta, vcov, conf_level, keys, effects) {
 
 # A categorical exposure reports one block of measures per non-reference level,
 # so the `effect` column alone no longer identifies a row: the same three
-# measures appear once per comparison. The table therefore gains a `comparison`
-# column naming the two levels, placed immediately after `effect`, which is where
-# propensity puts it and where its own print method looks for it. A binary
-# exposure has a single comparison and keeps the eight-column table, since a
+# measures appear once per contrast. The table therefore gains a `contrast`
+# column naming the two levels, placed immediately after `effect`, since the
+# column qualifies the measure it follows. That is the column the causalgenerics
+# contract names, and every surface built from the table reads it from there. A
+# binary exposure has a single contrast and keeps the eight-column table, since a
 # column repeating one label on every row identifies nothing.
 ipw_estimates <- function(theta, vcov, conf_level, continuous, levels = NULL) {
   keys <- ipw_contrast_names(continuous, levels)
@@ -1251,13 +1321,13 @@ ipw_estimates <- function(theta, vcov, conf_level, continuous, levels = NULL) {
     effects = rep(measures, times = length(keys) / length(measures))
   )
   if (!is.null(levels)) {
-    comparison <- rep(
+    contrast <- rep(
       paste(levels[-1], "vs", levels[[1]]),
       each = length(measures)
     )
     estimates <- cbind(
       estimates["effect"],
-      comparison = comparison,
+      contrast = contrast,
       estimates[setdiff(names(estimates), "effect")]
     )
   }
@@ -1277,9 +1347,9 @@ ipw_estimates <- function(theta, vcov, conf_level, continuous, levels = NULL) {
 # which a table of standard errors cannot say.
 #
 # The rows of the block follow the rows of the table. A categorical exposure
-# writes its rows comparison-major, all of one comparison's measures before the
-# next comparison begins, and names its stacked contrasts level-major, which is
-# the same order under two spellings.
+# writes its rows contrast-major, all of one contrast's measures before the next
+# contrast begins, and names its stacked contrasts level-major, which is the
+# same order under two spellings.
 attach_effect_covariance <- function(estimates, vcov, keys) {
   labels <- ipw_effect_labels(estimates)
   covariance <- vcov[keys, keys, drop = FALSE]
@@ -1289,15 +1359,22 @@ attach_effect_covariance <- function(estimates, vcov, keys) {
 }
 
 # The display label of each estimates row: the effect measure alone, or the
-# measure and the comparison where a categorical exposure has left the measure
-# repeating across comparisons. This is the rule causalgenerics labels the
-# printed rows and the accessor output by, restated here so the covariance's
-# dimnames name the effects the same way every other surface of the result does.
+# measure and the contrast where a categorical exposure has left the measure
+# repeating across contrasts. This is the rule causalgenerics labels the printed
+# rows and the accessor output by, restated here so the covariance's dimnames
+# name the effects the same way every other surface of the result does.
+#
+# Only `attach_effect_covariance()` calls this, and its two callers both hand it
+# a frame built moments earlier in this file: the continuous route builds one
+# from `ipw_estimate_rows()` and never names a contrast at all, and
+# `ipw_estimates()` adds the column itself for a categorical exposure. The
+# canonical name is therefore the only one either frame can carry, so no alias
+# needs reading.
 ipw_effect_labels <- function(estimates) {
-  if (!"comparison" %in% names(estimates)) {
+  if (!"contrast" %in% names(estimates)) {
     return(estimates$effect)
   }
-  paste(estimates$effect, estimates$comparison)
+  paste(estimates$effect, estimates$contrast)
 }
 
 # The outcome model with its own block of the stacked covariance carried

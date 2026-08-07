@@ -33,7 +33,7 @@
   alongside the exposure, in which case the marginal means are standardized over
   the estimand's target population. A categorical exposure reports each
   non-reference level against the reference level, and the estimates table names
-  each contrast in a `comparison` column.
+  each contrast in a `contrast` column.
 
 * `ipw()` also accepts a continuous exposure from an entropy balancing fit with
   exact balance, whose estimand is the average treatment effect. It reports the
@@ -43,6 +43,12 @@
   `log(rr)` for a log link. The standard error comes from the same stacked
   M-estimator, the weight parameters above the outcome-model score, and is a
   large-sample one: at a few hundred observations it runs anticonservative.
+
+* Missing covariate data is handled by imputing first and analyzing within each
+  completed dataset. Balance, weight, and estimate once per imputation, then
+  pool the results with `pool_ipw()`, which balancing re-exports from
+  causalgenerics. The complete-data degrees of freedom come from the outcome
+  models automatically, since a balancing result reports none of its own.
 
 * An `ipw()` result reads through the accessors causalgenerics registers on the
   class: `coef()`, `vcov()`, `confint()`, `nobs()`, and `weights()`. `vcov()`

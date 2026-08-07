@@ -71,7 +71,7 @@ that coefficient is named for the effect, as \code{slope}, in place of the
 The \code{estimates} table carries the covariance of the reported effects as its
 \code{ipw_vcov} attribute, which is what \code{\link[stats:vcov]{stats::vcov()}} returns in the marginal
 reading. Both its dimnames are the display labels of the estimates rows: the
-effect measure alone, or the measure and the comparison for a categorical
+effect measure alone, or the measure and the contrast for a categorical
 exposure, as \code{"rd b vs a"}. The stored \code{outcome_mod} is wrapped by
 \code{\link[causalgenerics:new_ipw_model]{causalgenerics::new_ipw_model()}}, which carries the outcome-model block of
 \code{fit$vcov} under the model's own coefficient names, so \code{vcov()} on it
@@ -109,9 +109,9 @@ level against the reference level, which is the first of the fit's own levels:
 a factor's declared level order for a factor exposure, and the sorted values
 otherwise. A K-level exposure therefore contributes K marginal means and one
 block of measures per non-reference level, and the estimates table gains a
-\code{comparison} column, placed after \code{effect}, naming each contrast as
+\code{contrast} column, placed after \code{effect}, naming each contrast as
 \code{"<level> vs <reference>"}. A binary exposure keeps the table it has always
-returned, with no \code{comparison} column.
+returned, with no \code{contrast} column.
 
 A continuous exposure has no levels to contrast, so there is no pair of
 marginal means to difference. What the method reports instead is the
@@ -120,7 +120,7 @@ balancing weights break the exposure-covariate association, the outcome model
 carries exactly one term in the exposure, and that term's coefficient is the
 effect of a one-unit change in the exposure on the model's own link scale. The
 estimates table holds a single row, keeping the columns it holds for every
-other exposure and gaining no \code{comparison} column, and that row is named for
+other exposure and gaining no \code{contrast} column, and that row is named for
 the link: \code{slope} for an identity link, whether the model arrives as a
 \code{\link[stats:lm]{stats::lm()}} or as a gaussian \code{\link[stats:glm]{stats::glm()}}; \code{log(or)} for a logit; and
 \code{log(rr)} for a log link. Another link raises \code{balancing_ipw_input_error},
@@ -293,6 +293,39 @@ is the right treatment of a quantity the exposure does not move and the wrong
 treatment of one it does, which is why the exposure-reading case is refused
 above.
 }
+\section{Multiple imputation}{
+Missing covariate data is handled by imputing first and analyzing within each
+completed dataset: impute, then balance, weight, and fit the outcome model
+once per imputation, then pool the per-imputation results with
+\code{\link[causalgenerics:pool_ipw]{causalgenerics::pool_ipw()}}. That function combines them by Rubin's rules
+with a Barnard-Rubin degrees-of-freedom adjustment, and documents the rules
+and the agreements the results have to satisfy.
+
+The per-imputation analysis is written as an \code{lapply()} over the completed
+datasets rather than as \code{with(imp, ...)}. \code{balance()} takes its data as the
+first argument and selects covariates out of it with tidyselect, so it needs
+that frame as a named object; inside \code{with()} the completed frame is the
+evaluation environment instead and has no name to give. Walking the
+imputations directly also keeps the frame in hand for the weight column and
+the outcome model, which the same step needs.
+
+Only the estimating-equation methods at exact balance reach this workflow at
+all, for the reason they are the only ones \code{ipw()} accepts anywhere: the
+pooled standard error is built from per-imputation standard errors, and a fit
+carrying no estimating equations produces no result to pool. The refusal
+comes at the per-imputation \code{ipw()} call rather than at the pooling step.
+
+The complete-data degrees of freedom are found without being told. A
+balancing result reports none of its own, since the stacked system is not a
+fit with residual degrees of freedom, so \code{\link[causalgenerics:pool_ipw]{causalgenerics::pool_ipw()}} falls
+through to the outcome models and takes the smallest residual degrees of
+freedom among them. Pooling the same results with \code{\link[mice:pool]{mice::pool()}} instead
+needs two things this route supplies on its own: the propensity package
+loaded, since the \code{tidy()} method it reaches an \code{ipw} result through lives
+there rather than in balancing, and that count passed explicitly as its
+\code{dfcom} argument, since it reads only what the results themselves report.
+}
+
 \examples{
 n <- 200
 x1 <- rnorm(n)
@@ -326,7 +359,7 @@ adjusted_mod <- glm(
 ipw(fit, adjusted_mod)
 
 # A categorical exposure reports each level against the reference level, and
-# the estimates table names the comparison.
+# the estimates table names the contrast.
 odds_b <- exp(0.6 * x1)
 odds_c <- exp(-0.5 * x1)
 denominator <- 1 + odds_b + odds_c
@@ -367,6 +400,42 @@ dose_mod <- lm(score ~ dose, data = df, weights = .dose_wts)
 
 ipw(dose_fit, dose_mod)
 
+\dontshow{if (requireNamespace("mice", quietly = TRUE)) withAutoprint(\{ # examplesIf}
+# With missing covariate data, analyze within each completed dataset and
+# pool the results afterward.
+set.seed(2024)
+n <- 150
+mx1 <- rnorm(n)
+mx2 <- rnorm(n)
+mz <- rbinom(n, 1, plogis(0.6 * mx1 - 0.4 * mx2))
+my <- rbinom(n, 1, plogis(-0.3 + 0.5 * mz + 0.4 * mx1))
+incomplete <- data.frame(exposure = mz, x1 = mx1, x2 = mx2, y = my)
+incomplete$x1[rbinom(n, 1, plogis(-1.2 + 0.5 * mx2)) == 1] <- NA
+
+imp <- mice::mice(incomplete, m = 2, print = FALSE, seed = 4321)
+
+fits <- lapply(mice::complete(imp, "all"), function(completed) {
+  completed_fit <- balance(
+    completed,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  completed$.wts <- weights(completed_fit)
+  ipw(
+    completed_fit,
+    glm(
+      y ~ exposure,
+      data = completed,
+      family = quasibinomial(),
+      weights = .wts
+    )
+  )
+})
+
+pool_ipw(fits)
+\dontshow{\}) # examplesIf}
 }
 \references{
 Kostouraki A, Hajage D, Rachet B, et al. On variance estimation of the

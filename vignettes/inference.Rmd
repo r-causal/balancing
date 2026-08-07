@@ -137,7 +137,7 @@ arm_mod <- glm(
 ipw(arm_fit, arm_mod)
 ```
 
-Each effect measure appears once per comparison, so the estimates table gains a `comparison` column naming the two levels each row contrasts. Everything else carries over unchanged: the outcome model may adjust for covariates, the marginal means standardize over the estimand's target population, and the standard errors account for having estimated the weights.
+Each effect measure appears once per contrast, so the estimates table gains a `contrast` column naming the two levels each row contrasts. Everything else carries over unchanged: the outcome model may adjust for covariates, the marginal means standardize over the estimand's target population, and the standard errors account for having estimated the weights.
 
 ### Continuous exposures
 

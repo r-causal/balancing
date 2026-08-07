@@ -6,6 +6,7 @@
 \alias{ipw}
 \alias{as_marginal}
 \alias{as_conditional}
+\alias{pool_ipw}
 \alias{is_causal_wt}
 \alias{estimand}
 \title{Objects exported from other packages}
@@ -15,6 +16,6 @@ These objects are imported from other packages. Follow the links
 below to see their documentation.
 
 \describe{
-  \item{causalgenerics}{\code{\link[causalgenerics:as_conditional]{as_conditional()}}, \code{\link[causalgenerics:as_marginal]{as_marginal()}}, \code{\link[causalgenerics:estimand]{estimand()}}, \code{\link[causalgenerics:ipw]{ipw()}}, \code{\link[causalgenerics:is_causal_wt]{is_causal_wt()}}}
+  \item{causalgenerics}{\code{\link[causalgenerics:as_conditional]{as_conditional()}}, \code{\link[causalgenerics:as_marginal]{as_marginal()}}, \code{\link[causalgenerics:estimand]{estimand()}}, \code{\link[causalgenerics:ipw]{ipw()}}, \code{\link[causalgenerics:is_causal_wt]{is_causal_wt()}}, \code{\link[causalgenerics:pool_ipw]{pool_ipw()}}}
 }}
 

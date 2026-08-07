@@ -231,6 +231,18 @@ test_that("the exported mode generics are the causalgenerics ones", {
   expect_identical(as_conditional, causalgenerics::as_conditional)
 })
 
+# `pool_ipw()` combines results across multiply imputed datasets. It joins the
+# re-export block for the reason the mode generics did: the results it pools
+# come from an unqualified `ipw()` call, so they are pooled by one too.
+test_that("the pooling entrypoint is exported and imported", {
+  expect_contains(getNamespaceExports("balancing"), "pool_ipw")
+  expect_true("pool_ipw" %in% imported_from("causalgenerics"))
+})
+
+test_that("the exported pooling entrypoint is the causalgenerics one", {
+  expect_identical(pool_ipw, causalgenerics::pool_ipw)
+})
+
 test_that("the ipw result methods are the ones causalgenerics registers", {
   expect_identical(method_source("print.ipw", baseenv()), "causalgenerics")
   expect_identical(
