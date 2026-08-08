@@ -115,6 +115,24 @@
   A printed result names its reading beside the estimand and again over
   the table it decides.
 
+- A pooled result moves between the two readings as an unpooled one
+  does.
+  [`pool_ipw()`](https://r-causal.github.io/causalgenerics/reference/pool_ipw.html)
+  pools both readings of a set of results, so
+  [`as_marginal()`](https://r-causal.github.io/causalgenerics/reference/ipw-modes.html)
+  and
+  [`as_conditional()`](https://r-causal.github.io/causalgenerics/reference/ipw-modes.html)
+  flip the pooled result afterwards, and its
+  [`coef()`](https://rdrr.io/r/stats/coef.html),
+  [`vcov()`](https://rdrr.io/r/stats/vcov.html),
+  [`confint()`](https://rdrr.io/r/stats/confint.html), and
+  [`as.data.frame()`](https://rdrr.io/r/base/as.data.frame.html) take an
+  `effects` argument for a single call. The conditional reading is there
+  to pool because
+  [`ipw()`](https://r-causal.github.io/causalgenerics/reference/ipw.html)
+  hands every outcome model over already wrapped with its block of the
+  stacked covariance; the pooling itself comes from causalgenerics.
+
 - The balancing fit an
   [`ipw()`](https://r-causal.github.io/causalgenerics/reference/ipw.html)
   result stores carries the leading block of the stacked covariance, the

@@ -60,8 +60,9 @@ having estimated the weights.
   [`causalgenerics::as_marginal()`](https://r-causal.github.io/causalgenerics/reference/ipw-modes.html)
   and
   [`causalgenerics::as_conditional()`](https://r-causal.github.io/causalgenerics/reference/ipw-modes.html)
-  move a result between the two readings afterwards, and the accessors
-  take an `effects` argument of their own for a single call.
+  move a result between the two readings afterwards, a pooled result as
+  much as an unpooled one, and the accessors take an `effects` argument
+  of their own for a single call.
 
   The conditional reading reports the coefficients of the stored
   `outcome_mod` against the outcome block of the stacked sandwich, which
@@ -396,6 +397,24 @@ lives there rather than in balancing, and that count passed explicitly
 as its `dfcom` argument, since it reads only what the results themselves
 report.
 
+A pooled balancing result carries both readings.
+[`ipw()`](https://r-causal.github.io/causalgenerics/reference/ipw.html)
+hands every outcome model over already wrapped with its block of the
+corrected covariance, so a set of balancing results always has a
+conditional surface to pool beside the marginal one, and
+[`causalgenerics::pool_ipw()`](https://r-causal.github.io/causalgenerics/reference/pool_ipw.html)
+pools both whichever reading it is asked for.
+[`causalgenerics::as_marginal()`](https://r-causal.github.io/causalgenerics/reference/ipw-modes.html)
+and
+[`causalgenerics::as_conditional()`](https://r-causal.github.io/causalgenerics/reference/ipw-modes.html)
+therefore move the pooled result between the readings after pooling, as
+they move an unpooled one, and the pooled
+[`stats::coef()`](https://rdrr.io/r/stats/coef.html),
+[`stats::vcov()`](https://rdrr.io/r/stats/vcov.html),
+[`stats::confint()`](https://rdrr.io/r/stats/confint.html), and
+[`base::as.data.frame()`](https://rdrr.io/r/base/as.data.frame.html)
+take an `effects` argument naming a reading for one call.
+
 ## References
 
 Kostouraki A, Hajage D, Rachet B, et al. On variance estimation of the
@@ -591,4 +610,21 @@ pool_ipw(fits)
 #> rd      0.093662 0.086512 1.0827 64.596 -0.079134  0.26646       0.95  0.2830
 #> log(rr) 0.178972 0.165070 1.0842 67.103 -0.150501  0.50844       0.95  0.2821
 #> log(or) 0.376786 0.350486 1.0750 64.419 -0.323302  1.07687       0.95  0.2864
+
+# The pooled result carries both readings, so it moves to the outcome
+# models' coefficients after pooling.
+as_conditional(pool_ipw(fits))
+#> Pooled Inverse Probability Weight Estimator
+#> Estimand: ATE 
+#> Effects: conditional (outcome model) 
+#> Imputations: 2 
+#> Complete-data df: 148 
+#> 
+#> Pooled conditional estimates (outcome model):
+#>              estimate   std.err       t      df ci.lower ci.upper conf.level
+#> (Intercept) -0.089361  0.223575 -0.3997 127.868 -0.53175  0.35302       0.95
+#> exposure     0.376786  0.350486  1.0750  64.419 -0.32330  1.07687       0.95
+#>             p.value
+#> (Intercept)  0.6901
+#> exposure     0.2864
 ```
