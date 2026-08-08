@@ -142,6 +142,103 @@ test_that("the pooled estimate is the mean of the per-imputation estimates", {
   }
 })
 
+# One call pools both readings of a set of results and stores the one it was not
+# asked for beside the one it was, so a pooled result moves between them
+# afterwards. What makes the second reading reachable at all is balancing's:
+# `ipw()` hands every outcome model over already wrapped, and the conditional
+# reading is that wrapped model's coefficient surface under the corrected
+# covariance. A set of results carrying no such surface pools on the marginal
+# reading alone and refuses the flip, so pinning that a balancing pool is never
+# that kind belongs here rather than upstream, where the wrapping is not in
+# view.
+test_that("a pooled result flips to the outcome models' coefficients", {
+  skip_if_not_installed("mice")
+  data <- ipw_pooling_fixture()
+  imp <- withr::with_seed(4321, mice::mice(data, m = 3, print = FALSE))
+  fits <- lapply(mice::complete(imp, "all"), fit_pooling_ipw)
+
+  # Unqualified, for the reason `pool_ipw()` is: a caller who has attached
+  # balancing alone flips a result that balancing's `ipw()` built.
+  pooled <- pool_ipw(fits)
+  flipped <- as_conditional(pooled)
+
+  # Every imputation is analyzed with the same outcome formula, so one fit's
+  # coefficient names are the set's, which the loop pins rather than assumes.
+  # The literal is pinned beside them because a comparison of two names read the
+  # same way would be satisfied by two empty vectors.
+  coefficients <- names(stats::coef(fits[[1L]]$outcome_mod))
+  expect_identical(coefficients, c("(Intercept)", "exposure"))
+  for (fit in fits) {
+    expect_identical(names(stats::coef(fit$outcome_mod)), coefficients)
+  }
+
+  expect_identical(flipped$effects, "conditional")
+  expect_identical(flipped$estimates$effect, coefficients)
+
+  # The flip exchanges two readings the pooling already computed rather than
+  # computing either, so the result taken out to the other one and back is the
+  # result that went in, the pooling diagnostics and the stored reading
+  # included.
+  expect_identical(as_marginal(flipped), pooled)
+})
+
+# Which reading a call pools actively says what the result presents rather than
+# what was estimated, so the two routes to one pooled result have to arrive at
+# the same object. The per-imputation results are the same objects on both
+# routes, and everything the pooled result reports about the analyses rather
+# than about a reading of them is read off those. The complete-data degrees of
+# freedom are among them, which is why this leaves `dfcom` to be resolved on
+# each route instead of naming it to hold it fixed.
+test_that("pooling either reading of one set gives the same pooled result", {
+  skip_if_not_installed("mice")
+  data <- ipw_pooling_fixture()
+  imp <- withr::with_seed(4321, mice::mice(data, m = 3, print = FALSE))
+  fits <- lapply(mice::complete(imp, "all"), fit_pooling_ipw)
+
+  pooled <- pool_ipw(fits)
+  from_conditional <- pool_ipw(lapply(fits, as_conditional))
+
+  # The narrower assertions come first so that a mismatch names the field or the
+  # shape rather than the whole pooled result.
+  expect_identical(from_conditional$effects, "conditional")
+  expect_identical(names(from_conditional), names(pooled))
+  expect_identical(from_conditional$dfcom, pooled$dfcom)
+  expect_identical(from_conditional$m, pooled$m)
+
+  expect_identical(as_marginal(from_conditional), pooled)
+})
+
+# The pooled accessors take a reading for one call, as the accessors on an
+# unpooled result do. What is pinned here is shape alone: which rows each
+# reading reports, under what names, and that naming one leaves the pooled
+# result presenting the reading it stored. The numbers in either table are
+# causalgenerics' to prove, and this file leaves them there.
+test_that("the pooled accessors report either reading for one call", {
+  skip_if_not_installed("mice")
+  data <- ipw_pooling_fixture()
+  imp <- withr::with_seed(4321, mice::mice(data, m = 3, print = FALSE))
+  fits <- lapply(mice::complete(imp, "all"), fit_pooling_ipw)
+
+  pooled <- pool_ipw(fits)
+  coefficients <- names(stats::coef(fits[[1L]]$outcome_mod))
+
+  expect_identical(
+    names(stats::coef(pooled, effects = "conditional")),
+    coefficients
+  )
+
+  # The tidied frame names its rows in a `term` column, which is the column both
+  # readings of a pooled result use and the one an unpooled result uses too.
+  conditional <- as.data.frame(pooled, effects = "conditional")
+  expect_identical(conditional$term, coefficients)
+
+  # Naming a reading answers in it and leaves the result where it was, so a
+  # following call with nothing named answers in the stored one.
+  expect_identical(pooled$effects, "marginal")
+  expect_identical(names(stats::coef(pooled)), c("rd", "log(rr)", "log(or)"))
+  expect_identical(as.data.frame(pooled)$term, c("rd", "log(rr)", "log(or)"))
+})
+
 # Only the estimating-equation methods carry the container `ipw()`
 # differentiates, so a bootstrap-only method refuses before there is anything to
 # pool. The refusal belongs to `ipw()` rather than to the pooling: a method

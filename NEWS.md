@@ -71,6 +71,14 @@
   is flipped without a second attachment. A printed result names its reading
   beside the estimand and again over the table it decides.
 
+* A pooled result moves between the two readings as an unpooled one does.
+  `pool_ipw()` pools both readings of a set of results, so `as_marginal()` and
+  `as_conditional()` flip the pooled result afterwards, and its `coef()`,
+  `vcov()`, `confint()`, and `as.data.frame()` take an `effects` argument for a
+  single call. The conditional reading is there to pool because `ipw()` hands
+  every outcome model over already wrapped with its block of the stacked
+  covariance; the pooling itself comes from causalgenerics.
+
 * The balancing fit an `ipw()` result stores carries the leading block of the
   stacked covariance, the one belonging to the weight parameters alone, so
   `vcov()` on that fit reports the covariance of the weights under their

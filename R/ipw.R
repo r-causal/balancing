@@ -248,6 +248,17 @@
 #' there rather than in balancing, and that count passed explicitly as its
 #' `dfcom` argument, since it reads only what the results themselves report.
 #'
+#' A pooled balancing result carries both readings. `ipw()` hands every outcome
+#' model over already wrapped with its block of the corrected covariance, so a
+#' set of balancing results always has a conditional surface to pool beside the
+#' marginal one, and [causalgenerics::pool_ipw()] pools both whichever reading
+#' it is asked for. [causalgenerics::as_marginal()] and
+#' [causalgenerics::as_conditional()] therefore move the pooled result between
+#' the readings after pooling, as they move an unpooled one, and the pooled
+#' [stats::coef()], [stats::vcov()], [stats::confint()], and
+#' [base::as.data.frame()] take an `effects` argument naming a reading for one
+#' call.
+#'
 #' @references
 #' Kostouraki A, Hajage D, Rachet B, et al. On variance estimation of the
 #' inverse probability-of-treatment weighting estimator: A tutorial for
@@ -276,8 +287,9 @@
 #'   computed whichever mode is named, since the stacked system is solved either
 #'   way, so the argument settles which one the result presents and nothing
 #'   else. [causalgenerics::as_marginal()] and [causalgenerics::as_conditional()]
-#'   move a result between the two readings afterwards, and the accessors take an
-#'   `effects` argument of their own for a single call.
+#'   move a result between the two readings afterwards, a pooled result as much
+#'   as an unpooled one, and the accessors take an `effects` argument of their
+#'   own for a single call.
 #'
 #'   The conditional reading reports the coefficients of the stored
 #'   `outcome_mod` against the outcome block of the stacked sandwich, which is
@@ -440,6 +452,10 @@
 #' })
 #'
 #' pool_ipw(fits)
+#'
+#' # The pooled result carries both readings, so it moves to the outcome
+#' # models' coefficients after pooling.
+#' as_conditional(pool_ipw(fits))
 #'
 #' @name ipw.balancing
 #' @importFrom causalgenerics ipw
