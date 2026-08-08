@@ -31,8 +31,9 @@ reading reports the outcome model's coefficient surface. Both surfaces are
 computed whichever mode is named, since the stacked system is solved either
 way, so the argument settles which one the result presents and nothing
 else. \code{\link[causalgenerics:as_marginal]{causalgenerics::as_marginal()}} and \code{\link[causalgenerics:as_conditional]{causalgenerics::as_conditional()}}
-move a result between the two readings afterwards, and the accessors take an
-\code{effects} argument of their own for a single call.
+move a result between the two readings afterwards, a pooled result as much
+as an unpooled one, and the accessors take an \code{effects} argument of their
+own for a single call.
 
 The conditional reading reports the coefficients of the stored
 \code{outcome_mod} against the outcome block of the stacked sandwich, which is
@@ -324,6 +325,17 @@ needs two things this route supplies on its own: the propensity package
 loaded, since the \code{tidy()} method it reaches an \code{ipw} result through lives
 there rather than in balancing, and that count passed explicitly as its
 \code{dfcom} argument, since it reads only what the results themselves report.
+
+A pooled balancing result carries both readings. \code{ipw()} hands every outcome
+model over already wrapped with its block of the corrected covariance, so a
+set of balancing results always has a conditional surface to pool beside the
+marginal one, and \code{\link[causalgenerics:pool_ipw]{causalgenerics::pool_ipw()}} pools both whichever reading
+it is asked for. \code{\link[causalgenerics:as_marginal]{causalgenerics::as_marginal()}} and
+\code{\link[causalgenerics:as_conditional]{causalgenerics::as_conditional()}} therefore move the pooled result between
+the readings after pooling, as they move an unpooled one, and the pooled
+\code{\link[stats:coef]{stats::coef()}}, \code{\link[stats:vcov]{stats::vcov()}}, \code{\link[stats:confint]{stats::confint()}}, and
+\code{\link[base:as.data.frame]{base::as.data.frame()}} take an \code{effects} argument naming a reading for one
+call.
 }
 
 \examples{
@@ -435,6 +447,10 @@ fits <- lapply(mice::complete(imp, "all"), function(completed) {
 })
 
 pool_ipw(fits)
+
+# The pooled result carries both readings, so it moves to the outcome
+# models' coefficients after pooling.
+as_conditional(pool_ipw(fits))
 \dontshow{\}) # examplesIf}
 }
 \references{

@@ -145,12 +145,12 @@ test_that("the pooled estimate is the mean of the per-imputation estimates", {
 # One call pools both readings of a set of results and stores the one it was not
 # asked for beside the one it was, so a pooled result moves between them
 # afterwards. What makes the second reading reachable at all is balancing's:
-# `ipw()` hands every outcome model on wrapped, and the conditional reading is
-# that wrapped model's coefficient surface under the corrected covariance. A set
-# of results carrying no such surface pools on the marginal reading alone and
-# refuses the flip, so pinning that a balancing pool is never that kind belongs
-# here rather than upstream, where the wrapping is not in view.
-
+# `ipw()` hands every outcome model over already wrapped, and the conditional
+# reading is that wrapped model's coefficient surface under the corrected
+# covariance. A set of results carrying no such surface pools on the marginal
+# reading alone and refuses the flip, so pinning that a balancing pool is never
+# that kind belongs here rather than upstream, where the wrapping is not in
+# view.
 test_that("a pooled result flips to the outcome models' coefficients", {
   skip_if_not_installed("mice")
   data <- ipw_pooling_fixture()
