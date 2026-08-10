@@ -433,3 +433,45 @@ test_that("pool_ipw() applies Rubin's rules within each subgroup", {
     expect_equal(pooled$estimates$estimate[[row]], mean(per_imputation))
   }
 })
+
+# Analyses whose subgroups differ have no common set of rows to average, and
+# the pooling refuses rather than lining up whatever sits at each position. The
+# refusal is causalgenerics', keyed on the row labels, and the labels carry the
+# subgroup because balancing writes the subgroup column: a grouped result whose
+# rows were keyed by the effect measure alone would look poolable against any
+# other, so reaching that refusal from balancing results is the thing pinned.
+#
+# No imputation is involved, since the disagreement is between two analyses
+# rather than between two completed datasets, and the fixture's complete rows
+# are enough to build both.
+test_that("pool_ipw() refuses grouped results whose subgroups disagree", {
+  data <- ipw_pooling_by_fixture()
+  complete <- data[!is.na(data$x1), , drop = FALSE]
+  # The same analysis on the same rows, with one subgroup split off the top of
+  # `x2`, so the two results agree about everything except which subgroups they
+  # report.
+  widened <- complete
+  widened$modifier <- factor(
+    ifelse(complete$x2 > 1, "top", as.character(complete$modifier)),
+    levels = c("lo", "hi", "top")
+  )
+
+  narrow_result <- fit_pooling_by_ipw(complete)
+  wide_result <- fit_pooling_by_ipw(widened)
+
+  expect_identical(
+    unique(narrow_result$estimates$group),
+    c(
+      "overall",
+      "modifier = lo",
+      "modifier = hi",
+      "modifier = hi vs modifier = lo"
+    )
+  )
+  expect_true("modifier = top" %in% wide_result$estimates$group)
+
+  expect_error(
+    pool_ipw(list(narrow_result, wide_result)),
+    class = "causalgenerics_pool_mismatch_labels"
+  )
+})

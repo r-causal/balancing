@@ -823,6 +823,59 @@ test_that("a coerced .by result heads its subgroup column after the term", {
   )
 })
 
+# ---- The conditional reading -----------------------------------------------
+
+# A request reports the marginal effects within subgroups. The conditional
+# reading is the outcome model's own coefficient surface under the corrected
+# covariance, and a model fitted once has one such surface however the marginal
+# side is broken up, so `.by` must leave it exactly where an ungrouped result
+# leaves it. The reading is read through the accessors rather than through the
+# coerced frame, which reports the stored marginal table whichever reading a
+# result records.
+
+test_that("a .by result's conditional reading is the outcome model's surface", {
+  data <- ipw_by_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, modifier_hi),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_by_outcome(
+    y ~ exposure * modifier,
+    data,
+    w,
+    stats::binomial()
+  )
+
+  result <- ipw(fit, outcome_mod, .by = modifier)
+  conditional <- causalgenerics::as_conditional(result)
+  coefficients <- names(stats::coef(outcome_mod))
+
+  expect_identical(conditional$effects, "conditional")
+  expect_identical(stats::coef(conditional), stats::coef(outcome_mod))
+  expect_identical(
+    dimnames(stats::vcov(conditional)),
+    list(coefficients, coefficients)
+  )
+  expect_identical(rownames(stats::confint(conditional)), coefficients)
+
+  # No subgroup reaches the coefficient names, so nothing there carries the
+  # `"var = value"` segment the marginal rows are keyed by.
+  expect_false(any(grepl("modifier = ", coefficients, fixed = TRUE)))
+
+  # The corrected covariance is the block the result already carries on the
+  # stored outcome model, which is what says the reading reports the same
+  # numbers a grouped result computed rather than recomputing anything.
+  expect_identical(stats::vcov(conditional), stats::vcov(result$outcome_mod))
+
+  # The flip exchanges two readings the result already holds, so a grouped
+  # result taken out to the other reading and back is the result that went in.
+  expect_identical(causalgenerics::as_marginal(conditional), result)
+})
+
 # ---- Categorical exposures -------------------------------------------------
 
 test_that("a .by categorical fit crosses its contrasts with its subgroups", {
@@ -1010,6 +1063,59 @@ test_that("a .by categorical fit labels its rows by measure, contrast, and subgr
   expect_identical(rownames(stats::confint(result)), labels)
 })
 
+# ---- Subgroups no unit belongs to ------------------------------------------
+
+# A factor may declare a level nothing carries, and such a level names an empty
+# subgroup: no means to standardize, no contrast to report, and a row of missing
+# values if one were reported anyway. It is dropped rather than refused, which
+# is propensity's behavior and the reading that lets a modifier subset without
+# being recoded first. The declaration reaches the argument only through
+# `.data`, since a model frame drops a factor's unused levels on the way in.
+
+test_that(".by drops a modifier level no unit carries", {
+  data <- ipw_by_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, modifier_hi),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_by_outcome(
+    y ~ exposure * modifier,
+    data,
+    w,
+    stats::binomial()
+  )
+  supplied <- data
+  supplied$modifier <- factor(
+    as.character(data$modifier),
+    levels = c("lo", "hi", "none")
+  )
+  expect_identical(sum(supplied$modifier == "none"), 0L)
+
+  # The outcome model still carries the interaction, since the supplied column
+  # is the modifier the model was fitted on under one more declared level, so
+  # nothing here is warned about.
+  result <- expect_no_warning(
+    ipw(fit, outcome_mod, .data = supplied, .by = modifier)
+  )
+  estimates <- result$estimates
+
+  expect_identical(nrow(estimates), 9L)
+  expect_identical(
+    unique(estimates$group),
+    c(
+      "overall",
+      "modifier = lo",
+      "modifier = hi",
+      "modifier = hi vs modifier = lo"
+    )
+  )
+  expect_false(any(grepl("none", estimates$group, fixed = TRUE)))
+})
+
 # ---- Refusals --------------------------------------------------------------
 
 # A continuous exposure reports a coefficient of its marginal structural model
@@ -1110,6 +1216,83 @@ test_that(".by refuses a subgroup missing an exposure level", {
     ipw(fit, outcome_mod, .data = supplied, .by = thin),
     class = "balancing_ipw_input_error"
   ))
+})
+
+# The effects are reported within the levels of one variable, so a selection
+# resolving to any other number of columns names no set of subgroups. Both ends
+# are refused: nothing selected is not the same request as `.by = NULL`, which
+# is the argument's default and asks for no subgroups at all, and two columns
+# describe a crossing the caller has to build for themselves.
+
+test_that(".by refuses a selection that is not exactly one column", {
+  data <- ipw_by_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, modifier_hi),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_by_outcome(
+    y ~ exposure * modifier + x1,
+    data,
+    w,
+    stats::binomial()
+  )
+
+  expect_error(
+    ipw(fit, outcome_mod, .by = tidyselect::starts_with("no_such_column")),
+    class = "balancing_ipw_input_error"
+  )
+  expect_error(
+    ipw(fit, outcome_mod, .by = c(modifier, x1)),
+    class = "balancing_ipw_input_error"
+  )
+})
+
+# The subgroups are the levels of the modifier, so the modifier has to name a
+# fixed set of them. A numeric column names one subgroup per distinct value, and
+# a logical one names subgroups whose labels would read as the conditions that
+# produced them rather than as levels a caller declared, so both are refused
+# with the recoding named rather than guessed at.
+
+test_that(".by refuses a modifier that is not a factor or a character vector", {
+  data <- ipw_by_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, modifier_hi),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_by_outcome(
+    y ~ exposure * modifier + x1,
+    data,
+    w,
+    stats::binomial()
+  )
+  supplied <- data
+  supplied$flag <- data$x2 > 0
+
+  expect_error(
+    ipw(fit, outcome_mod, .by = x1),
+    class = "balancing_ipw_input_error"
+  )
+  expect_error(
+    ipw(fit, outcome_mod, .data = supplied, .by = flag),
+    class = "balancing_ipw_input_error"
+  )
+
+  # The indicator the fit balances on holds the same subgroup structure as the
+  # modifier, written as a number, so the refusal is about the column's type
+  # rather than about what it holds and the recoding has to be asked for rather
+  # than guessed at.
+  expect_error(
+    ipw(fit, outcome_mod, .data = supplied, .by = modifier_hi),
+    class = "balancing_ipw_input_error"
+  )
 })
 
 # The subgroup effects are g-computation on the outcome model as it was
