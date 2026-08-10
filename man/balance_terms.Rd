@@ -16,7 +16,14 @@ balance_terms(
 \item{moments}{The highest covariate power to balance. A single whole number
 or a named integer vector; \code{NULL} (the default) resolves to first moments.}
 
-\item{interactions}{Whether to add pairwise interactions of the base columns.}
+\item{interactions}{Whether to add pairwise interactions of the base columns.
+These expand the constraint set the weights must balance, adding the
+pairwise products of the base columns to the covariate functions a fit
+constrains: equated across the exposure groups of a discrete exposure, and
+driven to zero correlation with a continuous one. They say nothing about
+causal interaction between two exposures, which is an effect rather than a
+constraint and is reported for a joint exposure by
+\code{\link[=ipw.balancing]{ipw()}}.}
 
 \item{quantiles}{Quantile probabilities in \verb{(0, 1)}: a numeric vector applied
 to every continuous covariate, a named list of probabilities per covariate,

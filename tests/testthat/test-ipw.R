@@ -2904,17 +2904,18 @@ test_that("ipw() takes the estimand from a continuous fit and refuses another", 
   )
 })
 
-# The reported effect is one coefficient, so the outcome model has to have one
-# coefficient to report: exactly one design column that reads the exposure. A
-# model carrying a second exposure column describes a dose-response curve rather
-# than a slope, and no single coefficient of it is the effect. The three ways to
-# arrive at one are pinned together, since they differ in how the second column
-# gets in: a second term in the exposure, one term that expands to two columns,
-# and an interaction that makes the slope depend on a covariate. Covariates
-# alongside the exposure remain fine, so an accepted model is pinned beside
-# them.
+# What the outcome model may say about the exposure is set by which variables
+# each of its terms reads. A term reading the exposure alone contributes
+# coefficients the surface can report, however it is written and however many
+# design columns it expands to; a term reading the exposure and a covariate
+# together contributes a coefficient that is a change in the effect per unit of
+# that covariate, so no row could name the value it is held at and the model is
+# refused. Both ways of writing the mixing are pinned, since they differ in how
+# the covariate gets in, and an accepted model is pinned beside them so the
+# refusal is not standing in for a fixture that never worked. The surface the
+# admitted shapes report is specified in test-ipw-msm-basis.R.
 
-test_that("ipw() refuses a continuous outcome model with more than one exposure term", {
+test_that("ipw() refuses a continuous outcome model mixing the exposure with a covariate", {
   data <- ipw_continuous_fixture()
   fit <- balance(
     data,
@@ -2926,9 +2927,9 @@ test_that("ipw() refuses a continuous outcome model with more than one exposure 
   w <- as.numeric(stats::weights(fit))
   accepted <- fit_msm(y_cont ~ exposure + v, data, w)
   refused <- list(
-    quadratic = fit_msm(y_cont ~ exposure + I(exposure^2), data, w),
-    polynomial = fit_msm(y_cont ~ poly(exposure, 2), data, w),
-    interaction = fit_msm(y_cont ~ exposure * x1, data, w)
+    crossing = fit_msm(y_cont ~ exposure * x1, data, w),
+    interaction = fit_msm(y_cont ~ exposure + exposure:x1, data, w),
+    product = fit_msm(y_cont ~ I(exposure * x1), data, w)
   )
 
   expect_s3_class(ipw(fit, accepted), "ipw")
@@ -2944,14 +2945,13 @@ test_that("ipw() refuses a continuous outcome model with more than one exposure 
 # exposure type, and the two readings promise different things. A discrete
 # exposure is read through predictions with the exposure fixed to each level, so
 # such a model may carry the exposure inside a transformation. A continuous
-# exposure reports the exposure's own coefficient, and the one-term contract
-# above refuses every transformation, so this refusal has to ask for a term of
-# its own rather than offer one that would only be turned away a second time. A
-# transformation written into the formula still names the exposure and so reaches
-# the one-term contract instead; the model that arrives here is one whose
-# transformed exposure was computed into a column of its own beforehand.
+# exposure reports coefficients of this model, which requires a term that reads
+# the exposure, so this refusal asks for one. A transformation written into the
+# formula still names the exposure and is a term that reads it; the model that
+# arrives here is one whose transformed exposure was computed into a column of
+# its own beforehand, leaving the exposure named nowhere in the formula.
 
-test_that("ipw() asks a continuous outcome model for the exposure as its own term", {
+test_that("ipw() asks a continuous outcome model for a term that reads the exposure", {
   data <- ipw_continuous_fixture()
   data$exposure_scaled <- data$exposure / 10
   fit <- balance(

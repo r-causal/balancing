@@ -268,3 +268,210 @@ test_that("a bootstrap-only method refuses at the per-imputation step", {
     class = "balancing_ipw_unsupported_error"
   )
 })
+
+# ---- Pooling effects reported by subgroup ----------------------------------
+#
+# A `.by` result reports the effects over the whole sample, then within each
+# subgroup of a modifier, then for each non-reference subgroup against the
+# reference one, and names every row by the subgroup it belongs to. The pooling
+# keys rows on that name along with the effect measure, so a subgroup's rows
+# combine with the same subgroup's rows in the other analyses rather than with
+# whichever rows happen to sit at the same position.
+#
+# The keying is causalgenerics', which reads the identity columns of the frames
+# it is handed. What balancing owes is frames that carry the subgroup column at
+# all, and carry the same subgroups in every analysis, so these run the whole
+# path on real fits rather than restating the arithmetic.
+
+# The same missingness as the ungrouped fixture, plus a modifier that is
+# complete in every row. The modifier has to be observed rather than imputed:
+# an imputed one would put a unit in different subgroups in different
+# analyses, so the subgroups themselves would differ and there would be nothing
+# to align.
+ipw_pooling_by_fixture <- function(n = 250) {
+  withr::with_seed(717, {
+    x1 <- stats::rnorm(n)
+    x2 <- stats::rnorm(n)
+    modifier <- factor(
+      sample(c("lo", "hi"), n, replace = TRUE),
+      levels = c("lo", "hi")
+    )
+    modifier_hi <- as.numeric(modifier == "hi")
+    exposure <- stats::rbinom(
+      n,
+      1L,
+      stats::plogis(0.6 * x1 - 0.4 * x2 + 0.5 * modifier_hi)
+    )
+    y <- stats::rbinom(
+      n,
+      1L,
+      stats::plogis(
+        -0.3 + 0.2 * exposure + 0.4 * x1 + 1.2 * exposure * modifier_hi
+      )
+    )
+    # The indicator the fit balances on is derived in the analysis rather than
+    # carried here. A column that is a deterministic function of another is
+    # collinear with it, which the imputation reports as a logged event.
+    data <- data.frame(
+      exposure = exposure,
+      x1 = x1,
+      x2 = x2,
+      modifier = modifier,
+      y = y
+    )
+    missing <- stats::rbinom(n, 1L, stats::plogis(-1.2 + 0.5 * x2)) == 1L
+    data$x1[missing] <- NA_real_
+    data
+  })
+}
+
+# The per-imputation analysis, the ungrouped one plus the modifier: balanced on
+# it, interacted with the exposure in the outcome model, and named to `.by`.
+fit_pooling_by_ipw <- function(data) {
+  data$modifier_hi <- as.numeric(data$modifier == "hi")
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, modifier_hi),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  data$.wts <- stats::weights(fit)
+  ipw(
+    fit,
+    stats::glm(
+      y ~ exposure * modifier,
+      data = data,
+      family = stats::quasibinomial(),
+      weights = .wts
+    ),
+    .by = modifier
+  )
+}
+
+test_that("pool_ipw() keys grouped balancing results by effect and subgroup", {
+  skip_if_not_installed("mice")
+  data <- ipw_pooling_by_fixture()
+  # The modifier is observed, so it enters the imputation model as a predictor
+  # and is never imputed itself.
+  imp <- withr::with_seed(4321, mice::mice(data, m = 3, print = FALSE))
+  fits <- lapply(mice::complete(imp, "all"), fit_pooling_by_ipw)
+
+  pooled <- pool_ipw(fits)
+
+  expect_s3_class(pooled, "ipw_pooled")
+  expect_identical(pooled$m, 3L)
+  expect_identical(names(pooled$estimates)[1:2], c("effect", "group"))
+  expect_identical(nrow(pooled$estimates), 9L)
+  expect_identical(
+    unique(pooled$estimates$group),
+    c(
+      "overall",
+      "modifier = lo",
+      "modifier = hi",
+      "modifier = hi vs modifier = lo"
+    )
+  )
+
+  # Every analysis reports the same subgroups in the same order, which is both
+  # what the pooling requires and what makes the pooled frame's key the key of
+  # the frames it pooled.
+  for (fit in fits) {
+    expect_identical(fit$estimates$effect, pooled$estimates$effect)
+    expect_identical(fit$estimates$group, pooled$estimates$group)
+  }
+
+  expect_true(all(is.finite(pooled$estimates$estimate)))
+  expect_true(all(is.finite(pooled$estimates$std.err)))
+  expect_true(all(is.finite(pooled$estimates$df)))
+
+  # The pooled accessors label their rows by measure and subgroup together, the
+  # way each analysis labels its own.
+  labels <- paste(pooled$estimates$effect, pooled$estimates$group)
+  expect_identical(names(stats::coef(pooled)), labels)
+  expect_identical(as.data.frame(pooled)$group, pooled$estimates$group)
+})
+
+# Rubin's point estimate is the mean of the per-imputation ones, and it is a
+# mean within a subgroup rather than across subgroups. Recomputing one cell of
+# each block from the stored tables, after pinning that the row means the same
+# subgroup in every analysis, is what says the alignment held.
+test_that("pool_ipw() applies Rubin's rules within each subgroup", {
+  skip_if_not_installed("mice")
+  data <- ipw_pooling_by_fixture()
+  imp <- withr::with_seed(4321, mice::mice(data, m = 3, print = FALSE))
+  fits <- lapply(mice::complete(imp, "all"), fit_pooling_by_ipw)
+
+  pooled <- pool_ipw(fits)
+
+  cells <- list(
+    c("rd", "modifier = hi"),
+    c("log(rr)", "modifier = hi vs modifier = lo")
+  )
+  labels <- paste(pooled$estimates$effect, pooled$estimates$group)
+  for (cell in cells) {
+    label <- paste(cell[[1L]], cell[[2L]])
+    row <- match(label, labels)
+
+    # The cell has to be in the pooled frame before anything can be read at its
+    # position, and its absence is the whole of what a missing subgroup column
+    # would show, so the loop reports that and moves on rather than indexing
+    # past the end of every frame it holds.
+    expect_false(is.na(row), label = paste0("pooled row for ", label))
+    if (is.na(row)) {
+      next
+    }
+
+    per_imputation <- vapply(
+      fits,
+      function(fit) {
+        expect_identical(fit$estimates$group[[row]], cell[[2L]])
+        fit$estimates$estimate[[row]]
+      },
+      numeric(1)
+    )
+    expect_equal(pooled$estimates$estimate[[row]], mean(per_imputation))
+  }
+})
+
+# Analyses whose subgroups differ have no common set of rows to average, and
+# the pooling refuses rather than lining up whatever sits at each position. The
+# refusal is causalgenerics', keyed on the row labels, and the labels carry the
+# subgroup because balancing writes the subgroup column: a grouped result whose
+# rows were keyed by the effect measure alone would look poolable against any
+# other, so reaching that refusal from balancing results is the thing pinned.
+#
+# No imputation is involved, since the disagreement is between two analyses
+# rather than between two completed datasets, and the fixture's complete rows
+# are enough to build both.
+test_that("pool_ipw() refuses grouped results whose subgroups disagree", {
+  data <- ipw_pooling_by_fixture()
+  complete <- data[!is.na(data$x1), , drop = FALSE]
+  # The same analysis on the same rows, with one subgroup split off the top of
+  # `x2`, so the two results agree about everything except which subgroups they
+  # report.
+  widened <- complete
+  widened$modifier <- factor(
+    ifelse(complete$x2 > 1, "top", as.character(complete$modifier)),
+    levels = c("lo", "hi", "top")
+  )
+
+  narrow_result <- fit_pooling_by_ipw(complete)
+  wide_result <- fit_pooling_by_ipw(widened)
+
+  expect_identical(
+    unique(narrow_result$estimates$group),
+    c(
+      "overall",
+      "modifier = lo",
+      "modifier = hi",
+      "modifier = hi vs modifier = lo"
+    )
+  )
+  expect_true("modifier = top" %in% wide_result$estimates$group)
+
+  expect_error(
+    pool_ipw(list(narrow_result, wide_result)),
+    class = "causalgenerics_pool_mismatch_labels"
+  )
+})
