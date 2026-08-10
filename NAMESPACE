@@ -60,17 +60,23 @@ export(supported_exposure_types)
 export(supports_estimating_equations)
 import(S7)
 import(vctrs)
-importFrom(causalgenerics,as_conditional)
-importFrom(causalgenerics,as_marginal)
-importFrom(causalgenerics,estimand)
-importFrom(causalgenerics,ipw)
-importFrom(causalgenerics,is_causal_wt)
-importFrom(causalgenerics,pool_ipw)
-importFrom(rlang,"%||%")
-importFrom(rlang,.data)
-importFrom(stats,getCall)
-importFrom(stats,sd)
-importFrom(stats,vcov)
-importFrom(stats,weights)
+importFrom(causalgenerics,
+  as_conditional,
+  as_marginal,
+  estimand,
+  ipw,
+  is_causal_wt,
+  pool_ipw
+)
+importFrom(rlang,
+  "%||%",
+  .data
+)
+importFrom(stats,
+  getCall,
+  sd,
+  vcov,
+  weights
+)
 importFrom(tidyselect,eval_select)
 useDynLib(balancing, .registration = TRUE)
