@@ -65,21 +65,41 @@ ipw_joint_fixture <- function(n = 700) {
   })
 }
 
-# The same two treatments crossed under one name, which
-# `causalgenerics::joint_exposure()` builds: it checks each component in turn,
-# and the cells it writes stay distinct strings, so nothing upstream has cause to
-# compare the two names against each other.
+# The same two treatments crossed under one name, assembled from the parts
+# rather than declared through `causalgenerics::joint_exposure()`, which now
+# refuses two components sharing a name.
 #
-# The components are named and then splatted rather than written as
-# `joint_exposure(a = data$a, a = data$e)`, which is the same call and is a lint
-# the package holds itself to everywhere else. What the crossing carries is
-# asserted where it is used, so the indirection cannot quietly build something
-# else.
+# That refusal covers the public constructor alone. The internal one the class's
+# own subsetting and coercion methods call is unvalidated by design, so a
+# crossing carrying one name twice stays constructible by any package holding
+# the pieces, and balancing reads its rows back by a key written from the
+# component names. Building the object here is what keeps balancing's own
+# refusal under test against a crossing that never passed the upstream check.
+#
+# The layout is the one `joint_exposure()` writes: an integer core indexing the
+# cells, the cells as `levels`, each component's levels as `components` named
+# for the treatment it belongs to, and a class vector placing `"factor"` ahead
+# of `"vctrs_vctr"` so the formula machinery treats the result natively. The
+# cells vary the first component fastest, which is what puts the reference cell
+# first. What the crossing carries is asserted where it is used, so the assembly
+# cannot quietly build something else.
 ipw_joint_collision_fixture <- function() {
   data <- ipw_joint_fixture()
-  components <- list(data$a, data$e)
-  names(components) <- c("a", "a")
-  data$joint <- do.call(causalgenerics::joint_exposure, components)
+  first <- levels(data$a)
+  second <- levels(data$e)
+  cells <- paste0(
+    "a = ",
+    rep(first, times = length(second)),
+    ", a = ",
+    rep(second, each = length(first))
+  )
+  codes <- as.integer(data$a) + (as.integer(data$e) - 1L) * length(first)
+  data$joint <- structure(
+    codes,
+    levels = cells,
+    components = stats::setNames(list(first, second), c("a", "a")),
+    class = c("joint_exposure", "factor", "vctrs_vctr", "integer")
+  )
   data
 }
 
