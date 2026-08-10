@@ -89,10 +89,11 @@ contrast by measure and level, as \code{rd_b}. A continuous exposure carries
 neither block, since its effects are outcome-model coefficients; each of
 those coefficients is named for the label its estimates row carries, as
 \code{slope} or \verb{coef I(exposure^2)}, in place of the \code{beta_} name the others
-keep. A \code{.by} request appends, after all of those, a mean and a contrast
-block per subgroup and a contrast block per non-reference subgroup
-against the reference one. Each of their names is the name of the block
-it repeats, suffixed with its group, as
+keep. A \code{.by} request appends, after all of those, every subgroup's mean
+block in subgroup order, then every subgroup's contrast block in that
+same order, then one contrast block per non-reference subgroup against
+the reference one. Each of their names is the name of the block it
+repeats, suffixed with its group, as
 \code{mu0_sex = female} and \verb{rd_sex = female vs sex = male}. A declared joint
 exposure keeps the mean block and replaces the contrast block, naming
 each of its own contrasts for the measure and the row, as

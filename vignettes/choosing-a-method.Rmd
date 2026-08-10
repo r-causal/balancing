@@ -133,7 +133,7 @@ balance_terms(moments = c(age = 1, score = 2))
 
 Powers above one are ignored for binary indicator columns, since squaring a zero/one column reproduces it.
 
-**Interactions** add all pairwise products of the base columns when set to `TRUE`, excluding products of two indicators of the same factor. This balances the joint distribution of pairs of covariates, not just their marginals, and adds the product terms to the constraint count the printed summary reports. The word names a constraint here rather than a causal quantity: `interactions = TRUE` expands the set of covariate functions the weights must equate across exposure groups, and says nothing about two treatments acting together, which is an effect `ipw()` reports for a joint exposure rather than a constraint requested here.
+**Interactions** add all pairwise products of the base columns when set to `TRUE`, excluding products of two indicators of the same factor. This balances the joint distribution of pairs of covariates, not just their marginals, and adds the product terms to the constraint count the printed summary reports. The word names a constraint here rather than a causal quantity: `interactions = TRUE` expands the set of covariate functions the weights must balance, equating them across the exposure groups of a discrete exposure and driving them to zero correlation with a continuous one, and says nothing about two treatments acting together, which is an effect `ipw()` reports for a joint exposure rather than a constraint requested here.
 
 ```{r interactions}
 with_interactions <- balance(
