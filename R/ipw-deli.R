@@ -31,6 +31,15 @@
 # error is on the diagonal of the returned covariance under the name that
 # coefficient carries.
 #
+# A `.by` request adds two more blocks at the end: the marginal means within
+# each stratum of the modifier, then the contrasts of those means within each
+# stratum followed by the contrasts of one stratum's contrasts against the
+# reference stratum's. They come last on purpose. Nothing already in the stack
+# reads a parameter of theirs, so the bread stays block lower triangular, the
+# leading block of its inverse is the leading block the ungrouped system
+# produces, and the whole-sample rows a grouped result reports are the rows the
+# same fit reports without a request rather than a second computation of them.
+#
 # Two details of that system are there for the outcome models that adjust for
 # covariates, and both reduce to what a marginal model already did.
 #
@@ -70,6 +79,11 @@
 #'   against.
 #' @param categorical Whether the fit's exposure is categorical, which decides
 #'   how the mean and contrast blocks are named.
+#' @param by The strata a `.by` request named, as `ipw_resolve_by()` resolves
+#'   them, or `NULL` when no request was made. A request appends one mean and
+#'   one contrast block per stratum, and one contrast block per non-reference
+#'   stratum against the reference one, after every block the ungrouped system
+#'   carries.
 #' @param sampling_weights The fit's sampling weights, or `NULL`.
 #' @param focal_level The fit's focal exposure level, or `NULL` for a pooled
 #'   estimand. It names the target population the marginal means standardize
@@ -90,6 +104,7 @@ ipw_deli_sandwich <- function(
   exposure_name,
   levels,
   categorical = FALSE,
+  by = NULL,
   sampling_weights = NULL,
   focal_level = NULL,
   call = rlang::current_env()
@@ -171,12 +186,31 @@ ipw_deli_sandwich <- function(
   effects <- ipw_contrast_names(continuous, if (categorical) levels else NULL)
   k <- length(effects)
 
-  theta <- c(weight_parameters, coefficients, means, contrasts)
+  # The stratum blocks are seeded from the same pieces and the same tilt the
+  # whole-sample blocks are, restricted to one stratum at a time, and they are
+  # appended after every block above rather than interleaved with them. Nothing
+  # already in the stack reads a parameter of theirs, so the bread stays block
+  # lower triangular and the leading block of the covariance is the ungrouped
+  # system's own.
+  by_stack <- ipw_by_stack(by, pieces, tilt, continuous, levels, categorical)
+  m_by <- length(by_stack$means)
+  k_by <- length(by_stack$contrasts)
+
+  theta <- c(
+    weight_parameters,
+    coefficients,
+    means,
+    contrasts,
+    by_stack$means,
+    by_stack$contrasts
+  )
   names(theta) <- c(
     paste0("theta_w", seq_len(p)),
     paste0("beta_", colnames(design)),
     ipw_mean_names(levels, categorical),
-    effects
+    effects,
+    by_stack$mean_names,
+    by_stack$contrast_names
   )
 
   # The reported weights and the weight-parameter estimating functions both come
@@ -228,6 +262,18 @@ ipw_deli_sandwich <- function(
       offset = offset
     )
 
+    # The fixed-exposure predictions at these coefficients, one vector per
+    # exposure level. The whole-sample mean rows and every stratum's mean rows
+    # standardize the same predictions over different populations, so they are
+    # computed once here and weighted twice rather than derived twice.
+    fixed <- lapply(seq_len(m), function(j) {
+      eta <- as.numeric(pieces[[j]]$design %*% beta)
+      if (!is.null(offset)) {
+        eta <- eta + offset
+      }
+      family$linkinv(eta)
+    })
+
     # The mean rows are weighted by the standardization weight, so their root is
     # the mean of the fixed-exposure predictions over the target population
     # rather than over every unit. A marginal model predicts one value per
@@ -235,13 +281,7 @@ ipw_deli_sandwich <- function(
     # unweighted one and leaves the sandwich exactly where it was.
     mean_rows <- do.call(
       rbind,
-      lapply(seq_len(m), function(j) {
-        eta <- as.numeric(pieces[[j]]$design %*% beta)
-        if (!is.null(offset)) {
-          eta <- eta + offset
-        }
-        tilt * (family$linkinv(eta) - mean_theta[[j]])
-      })
+      lapply(seq_len(m), function(j) tilt * (fixed[[j]] - mean_theta[[j]]))
     )
 
     # The contrasts are deterministic functions of the means, so their rows are
@@ -254,7 +294,23 @@ ipw_deli_sandwich <- function(
       ncol = n
     )
 
-    rbind(hooks$psi, score, mean_rows, contrast_rows)
+    by_rows <- ipw_by_rows(
+      by_stack = by_stack,
+      fixed = fixed,
+      mean_theta = theta[p + q + m + k + seq_len(m_by)],
+      contrast_theta = theta[p + q + m + k + m_by + seq_len(k_by)],
+      continuous = continuous,
+      n = n
+    )
+
+    rbind(
+      hooks$psi,
+      score,
+      mean_rows,
+      contrast_rows,
+      by_rows$mean,
+      by_rows$contrast
+    )
   }
 
   validate_stacked_bread(
@@ -615,29 +671,176 @@ validate_stacked_bread <- function(
 # block and no need to say which contrast it belongs to, so its labels are the
 # bare measure names; a categorical exposure suffixes each label with the level
 # it compares, which is what keeps the names unique across blocks.
-ipw_contrast_values <- function(means, continuous) {
+#
+# `collapsible_only` drops the log odds ratio, which is the set of measures a
+# stratum and a contrast of strata report. An odds ratio is noncollapsible: the
+# odds ratio over a sample is not an average of the odds ratios within its
+# subgroups, and the difference of two of them is not the difference in effect
+# it reads as. The whole-sample rows keep it, since nothing there averages
+# anything over subgroups.
+ipw_contrast_values <- function(means, continuous, collapsible_only = FALSE) {
   reference <- means[[1]]
   values <- lapply(means[-1], function(mu) {
     if (continuous) {
       return(mu - reference)
     }
-    c(
-      mu - reference,
-      log(mu) - log(reference),
+    odds <- if (collapsible_only) {
+      numeric(0)
+    } else {
       log(mu / (1 - mu)) - log(reference / (1 - reference))
-    )
+    }
+    c(mu - reference, log(mu) - log(reference), odds)
   })
   unlist(values, use.names = FALSE)
 }
 
-ipw_contrast_names <- function(continuous, levels = NULL) {
+ipw_contrast_names <- function(
+  continuous,
+  levels = NULL,
+  collapsible_only = FALSE
+) {
   measures <- if (continuous) "diff" else c("rd", "log(rr)", "log(or)")
+  if (collapsible_only) {
+    measures <- setdiff(measures, "log(or)")
+  }
   if (is.null(levels)) {
     return(measures)
   }
   unlist(
     lapply(levels[-1], function(level) paste0(measures, "_", level)),
     use.names = FALSE
+  )
+}
+
+# The seed values and the stacked names of the blocks a `.by` request appends,
+# or `NULL` when no request was made. The means come first, one per exposure
+# level per stratum, stratum-major so a stratum's tuple sits together; then the
+# contrasts of those means, once per stratum, in the order the whole-sample
+# contrast block runs in and over the measures a stratum reports; then those
+# same contrasts once more for each non-reference stratum against the reference
+# one.
+#
+# The standardization weight is the whole-sample tilt restricted to a stratum,
+# which is what makes a stratum's means the g-computation means over that
+# stratum's share of the estimand's target population: every unit of it for a
+# pooled estimand and its focal units for a focal one. Reading the tilt from the
+# whole-sample block rather than rebuilding it is what keeps the two readings of
+# a focal estimand from drifting apart.
+ipw_by_stack <- function(by, pieces, tilt, continuous, levels, categorical) {
+  if (is.null(by)) {
+    return(NULL)
+  }
+
+  strata <- length(by$labels)
+  tilts <- lapply(
+    seq_len(strata),
+    function(s) tilt * by$indicators[, s]
+  )
+  means <- lapply(tilts, function(weight) {
+    vapply(
+      pieces,
+      function(piece) sum(weight * piece$mu) / sum(weight),
+      numeric(1)
+    )
+  })
+  stratum_contrasts <- lapply(
+    means,
+    function(mu) ipw_contrast_values(mu, continuous, collapsible_only = TRUE)
+  )
+  contrast_names <- ipw_contrast_names(
+    continuous,
+    if (categorical) levels else NULL,
+    collapsible_only = TRUE
+  )
+
+  list(
+    tilts = tilts,
+    strata = strata,
+    per_stratum = length(contrast_names),
+    means = unlist(means, use.names = FALSE),
+    contrasts = c(
+      unlist(stratum_contrasts, use.names = FALSE),
+      unlist(
+        lapply(
+          seq_len(strata - 1L),
+          function(s) stratum_contrasts[[s + 1L]] - stratum_contrasts[[1L]]
+        ),
+        use.names = FALSE
+      )
+    ),
+    mean_names = ipw_by_names(
+      ipw_mean_names(levels, categorical),
+      by$labels
+    ),
+    contrast_names = ipw_by_names(
+      contrast_names,
+      c(by$labels, by$em_labels)
+    )
+  )
+}
+
+# The stratum blocks of one evaluation of the stacked estimating functions.
+#
+# The mean rows are the whole-sample mean rows restricted to a stratum: the root
+# of the row weighted by that stratum's tilt is the tilt-weighted mean of the
+# fixed-exposure predictions over the stratum's units. They read the predictions
+# the whole-sample rows were built from rather than predicting again, so the two
+# sets of means cannot describe different counterfactuals.
+#
+# The contrast rows come in two groups, both deterministic and so constant
+# across units. A stratum's contrasts transform that stratum's means the way the
+# whole-sample contrasts transform theirs. The rows contrasting two strata are
+# read off the stratum contrast parameters rather than recomputed from the
+# means, so each is the difference of two parameters the system already carries
+# and its derivative is exact.
+ipw_by_rows <- function(
+  by_stack,
+  fixed,
+  mean_theta,
+  contrast_theta,
+  continuous,
+  n
+) {
+  if (is.null(by_stack)) {
+    return(list(mean = NULL, contrast = NULL))
+  }
+
+  n_levels <- length(fixed)
+  per_stratum <- by_stack$per_stratum
+  mean_rows <- do.call(
+    rbind,
+    lapply(seq_along(mean_theta), function(row) {
+      stratum <- (row - 1L) %/% n_levels + 1L
+      level <- (row - 1L) %% n_levels + 1L
+      by_stack$tilts[[stratum]] * (fixed[[level]] - mean_theta[[row]])
+    })
+  )
+
+  stratum_values <- unlist(
+    lapply(seq_len(by_stack$strata), function(s) {
+      ipw_contrast_values(
+        mean_theta[(s - 1L) * n_levels + seq_len(n_levels)],
+        continuous,
+        collapsible_only = TRUE
+      )
+    }),
+    use.names = FALSE
+  )
+  em_values <- unlist(
+    lapply(seq_len(by_stack$strata - 1L), function(s) {
+      contrast_theta[s * per_stratum + seq_len(per_stratum)] -
+        contrast_theta[seq_len(per_stratum)]
+    }),
+    use.names = FALSE
+  )
+
+  list(
+    mean = mean_rows,
+    contrast = matrix(
+      c(stratum_values, em_values) - contrast_theta,
+      nrow = length(contrast_theta),
+      ncol = n
+    )
   )
 }
 

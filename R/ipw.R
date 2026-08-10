@@ -215,6 +215,80 @@
 #' treatment of one it does, which is why the exposure-reading case is refused
 #' above.
 #'
+#' # Effect modification
+#'
+#' `.by` names a modifier, and a result carrying one reports the effects it
+#' reports without a request, then those same effects within each of the
+#' modifier's levels, then each non-reference level against the reference one.
+#' The estimates table gains a `group` column naming the subgroup each row was
+#' estimated in, placed after `contrast` where a categorical exposure names one
+#' and after `effect` where it does not, since a subgroup qualifies the whole
+#' comparison rather than one side of it. The whole-sample rows come first,
+#' under the group `"overall"`; a stratum's rows are named `"var = value"`, as
+#' `"sex = female"`; and a contrast of strata joins the two, as
+#' `"sex = female vs sex = male"`. The reference stratum is the modifier's first
+#' level, which for a factor is the first of its declared levels rather than the
+#' first in sorted order. A character modifier declares no levels, so it is read
+#' as a factor on the way in and its reference stratum is its alphabetically
+#' first value, whatever order the values appear in. Declare the column a factor
+#' to measure the contrasts against some other stratum.
+#'
+#' A stratum reports the collapsible measures alone. For a binary outcome that
+#' is `rd` and `log(rr)`; a continuous outcome reports `diff`, the only measure
+#' it has. The log odds ratio stays among the whole-sample rows. An odds ratio
+#' is noncollapsible, so the odds ratio over a sample is not an average of the
+#' odds ratios within its subgroups and the difference of two of them is not
+#' the difference in effect it reads as; nothing in the whole-sample rows
+#' averages anything over subgroups, which is why they keep it. A categorical
+#' exposure crosses its
+#' contrasts with the strata, so each subgroup block reports each contrast in
+#' the order the whole-sample block reports it.
+#'
+#' A stratum's marginal means are the g-computation means over that stratum
+#' alone, standardized the way the whole-sample means are: over every unit of
+#' the stratum for a pooled estimand, and over its focal units for `"att"` or
+#' `"atc"`. Sampling weights weight that average as well.
+#'
+#' Every row a request adds is a parameter of the same stacked system the
+#' whole-sample rows are parameters of. The blocks are appended after everything
+#' the ungrouped stack carries and nothing earlier reads a parameter of theirs,
+#' so the leading blocks are the ones an ungrouped fit produces and the
+#' whole-sample rows of a grouped result are the rows it reported. What that
+#' buys is the covariance: the subgroups share the weight parameters and the
+#' outcome model's coefficients, so their effects covary, and each contrast of
+#' strata is a parameter of the joint system rather than a difference of two
+#' separate fits, whose variance would have to be read as a sum. `fit$theta` and
+#' `fit$vcov` name the added blocks after the blocks they repeat, suffixed with
+#' the group: `mu0_sex = female` and `rd_sex = female vs sex = male`.
+#'
+#' A level of the modifier that no unit carries names an empty subgroup and is
+#' dropped rather than refused, which is what lets a modifier be subset without
+#' being recoded first. Four configurations are refused with
+#' `balancing_ipw_input_error`: a selection naming any number of columns other
+#' than one, a modifier that is neither a factor nor a character column, a
+#' modifier carrying missing values, and a modifier one of whose subgroups holds
+#' fewer than all of the exposure levels. That last one has no contrast to
+#' report in the subgroup that is short a level, and refitting either model does
+#' not supply a comparison the data do not hold. `.by` with a continuous
+#' exposure raises `balancing_ipw_unsupported_error`: what such a fit reports is
+#' the marginal structural model's own exposure coefficient rather than a
+#' contrast of standardized means, so there is no effect within a subgroup for
+#' the argument to name. A modifier that reaches the argument through `.data`
+#' carries that frame's row-order requirement with it, described under `.data`
+#' above: the strata are built from the rows it holds while the weights stay in
+#' the fit's order.
+#'
+#' An outcome model with no term reading both the exposure and the modifier
+#' raises `balancing_ipw_by_interaction_warning` and the result is still built.
+#' The subgroup effects are g-computation on the model as it was specified, so
+#' the effect differs across subgroups only where a term reads both columns, and
+#' that may be the modeling choice a caller meant to make. The warning reports
+#' which terms were read rather than announcing that the effect is the same in
+#' every subgroup, because a model may carry the modification through a column
+#' derived from the modifier instead: `y ~ exposure * sex_female` reported by
+#' `.by = sex` names no term reading `sex`, and its subgroup effects differ all
+#' the same.
+#'
 #' # Multiple imputation
 #'
 #' Missing covariate data is handled by imputing first and analyzing within each
@@ -276,6 +350,19 @@
 #'   column the fixed-exposure predictions are built from, so it has nothing to
 #'   supply for a continuous exposure, which makes no such predictions, and is
 #'   ignored there.
+#'
+#'   It must hold the rows both models were fitted on, in the same order.
+#'   Half of the stacked system reads it and half reads the fit: the
+#'   counterfactual predictions, the subgroup indicators, and a focal estimand's
+#'   standardization come from `.data`, while the weight equations and the
+#'   outcome-model score stay in the fit's order. A frame holding the right rows
+#'   in another order therefore leaves every effect estimate unchanged, since a
+#'   weighted mean does not care in which order it is summed, and makes every
+#'   standard error wrong. Each column `.data` and the outcome model frame name
+#'   in common is compared value by value, and a disagreement raises
+#'   `balancing_ipw_input_error` naming the column and the first row it
+#'   disagrees at. Columns the outcome model never saw, the modifier `.by` names
+#'   among them, are free.
 #' @param estimand The causal estimand. If `NULL`, the fit's estimand is used.
 #'   As in [balance()], `"atc"` is accepted as a synonym for `"atu"`. Supplying
 #'   an estimand that disagrees with the fit raises `balancing_estimand_error`.
@@ -300,6 +387,14 @@
 #'   own: the stored copy carries that block, the covariance of the fit's
 #'   weight parameters, and [stats::vcov()] on it reads the block back. The fit
 #'   that went into the call is untouched, and reports no covariance of its own.
+#' @param .by A modifier to report the effects within the levels of, given
+#'   unquoted and selected with tidyselect out of `.data` where one was supplied
+#'   and out of the outcome model frame otherwise. The default, `NULL`, is the
+#'   absence of a request: the result then reports the whole-sample effects
+#'   alone and names no subgroups at all. A selection reaching any number of
+#'   columns other than one is refused, since the effects are reported within
+#'   the levels of a single variable. The effect modification section below
+#'   describes the rows a request adds and the configurations it refuses.
 #' @param ... Ignored, for compatibility with the generic.
 #'
 #' @return An object of class `ipw`, an implementation of
@@ -319,14 +414,20 @@
 #'     contrast by measure and level, as `rd_b`. A continuous exposure carries
 #'     neither block, since the effect is one of the outcome-model coefficients;
 #'     that coefficient is named for the effect, as `slope`, in place of the
-#'     `beta_` name the others carry. The standard errors in `estimates` are
-#'     `sqrt(diag(fit$vcov))` read at those effect names.
+#'     `beta_` name the others carry. A `.by` request appends, after all of
+#'     those, a mean and a contrast block per stratum and a contrast block per
+#'     non-reference stratum against the reference one. Each of their names is
+#'     the name of the block it repeats, suffixed with its group, as
+#'     `mu0_sex = female` and `rd_sex = female vs sex = male`. The standard
+#'     errors in `estimates` are `sqrt(diag(fit$vcov))` read at those effect
+#'     names.
 #'
 #'   The `estimates` table carries the covariance of the reported effects as its
 #'   `ipw_vcov` attribute, which is what [stats::vcov()] returns in the marginal
 #'   reading. Both its dimnames are the display labels of the estimates rows: the
-#'   effect measure alone, or the measure and the contrast for a categorical
-#'   exposure, as `"rd b vs a"`. The stored `outcome_mod` is wrapped by
+#'   effect measure, then the contrast for a categorical exposure, then the
+#'   subgroup for a `.by` request, as `"rd b vs a sex = female"`. The stored
+#'   `outcome_mod` is wrapped by
 #'   [causalgenerics::new_ipw_model()], which carries the outcome-model block of
 #'   `fit$vcov` under the model's own coefficient names, so `vcov()` on it
 #'   reports the joint-estimation variance. The stored `wt_mod` carries the
@@ -374,6 +475,18 @@
 #' )
 #'
 #' ipw(fit, adjusted_mod)
+#'
+#' # `.by` reports the effects again within the levels of a modifier, then
+#' # contrasts each level against the first of them.
+#' df$grp <- factor(ifelse(x1 > 0, "high", "low"), levels = c("low", "high"))
+#' by_mod <- glm(
+#'   y ~ exposure * grp,
+#'   data = df,
+#'   family = quasibinomial(),
+#'   weights = .wts
+#' )
+#'
+#' ipw(fit, by_mod, .by = grp)
 #'
 #' # A categorical exposure reports each level against the reference level, and
 #' # the estimates table names the contrast.
@@ -520,6 +633,7 @@ method(causalgenerics_ipw, balancing) <- function(
   estimand = NULL,
   conf_level = 0.95,
   effects = c("marginal", "conditional"),
+  .by = NULL,
   ...
 ) {
   # The reading reaches only the constructor: it names no part of the stacked
@@ -528,6 +642,11 @@ method(causalgenerics_ipw, balancing) <- function(
   # model reports the reading rather than making the caller fix the model and
   # meet this refusal on the next attempt.
   effects <- rlang::arg_match(effects)
+
+  # The modifier is selected out of a frame this function has not resolved yet,
+  # so the request is defused here and evaluated below, once the frame the
+  # counterfactual designs are built from is in hand.
+  .by <- rlang::enquo(.by)
 
   container <- wt_mod@estimating_equations
   if (is.null(container)) {
@@ -544,6 +663,14 @@ method(causalgenerics_ipw, balancing) <- function(
   # a container and is turned away for that reason rather than for its exposure.
   categorical <- identical(wt_mod@exposure_type, "categorical")
   continuous_exposure <- identical(wt_mod@exposure_type, "continuous")
+
+  # A continuous exposure has no effect within a subgroup for a request to name,
+  # and that is settled by the fit alone. Refusing here rather than after the
+  # outcome model is inspected is what keeps a caller from being sent to fix a
+  # model whose result the request could not have been answered from anyway.
+  if (continuous_exposure) {
+    check_ipw_by_exposure(.by)
+  }
 
   estimand <- resolve_ipw_estimand(estimand, wt_mod@estimand)
 
@@ -594,6 +721,26 @@ method(causalgenerics_ipw, balancing) <- function(
     levels <- wt_mod@exposure_levels
     validate_ipw_exposure_levels(frame[[exposure_name]], levels, exposure_name)
 
+    # A supplied frame has to be the fit's rows in the fit's order, which the
+    # row count alone does not say. The exposure check runs first because a
+    # frame describing a different set of exposure levels is a more specific
+    # complaint than a misaligned one, and reporting it that way keeps the
+    # remedy pointed at the column the caller changed.
+    validate_ipw_frame_alignment(.data, outcome_mod)
+
+    # The modifier is read out of the same frame the counterfactual designs are
+    # built from, so the strata and the predictions they standardize describe
+    # one set of rows. The exposure goes with it, since a stratum holding only
+    # some of the exposure levels identifies no contrast there.
+    by <- ipw_resolve_by(
+      .by,
+      frame = frame,
+      exposure = frame[[exposure_name]],
+      exposure_levels = levels,
+      exposure_name = exposure_name,
+      outcome_mod = outcome_mod
+    )
+
     # The variance engine composes the sampling weights onto the weights the
     # container's own hook returns, so it takes the fit's sampling weights raw.
     # The preflight above compares against the composed weights instead, because
@@ -608,6 +755,7 @@ method(causalgenerics_ipw, balancing) <- function(
       exposure_name = exposure_name,
       levels = levels,
       categorical = categorical,
+      by = by,
       sampling_weights = wt_mod@sampling_weights,
       focal_level = wt_mod@focal_level,
       call = rlang::current_env()
@@ -618,7 +766,8 @@ method(causalgenerics_ipw, balancing) <- function(
       vcov = variance_system$vcov,
       conf_level = conf_level,
       continuous = is_gaussian_outcome(outcome_mod),
-      levels = if (categorical) levels else NULL
+      levels = if (categorical) levels else NULL,
+      by = by
     )
   }
 
@@ -695,6 +844,91 @@ resolve_ipw_frame <- function(
     )
   }
   frame
+}
+
+# Refuse a supplied frame whose rows are not the rows the models were fitted on,
+# in the same order.
+#
+# Half of the stacked system reads the fit's row order and the other half reads
+# `.data`. The weight-parameter equations, the outcome-model score, and every
+# cross term of the meat come from the fit and the fitted model; the
+# counterfactual designs, the stratum indicators, and a focal estimand's tilt
+# are built from `.data`. A frame carrying the right rows in the wrong order
+# pairs each unit's prediction with another unit's weight. The marginal means
+# survive that, since a weighted mean does not care in which order it is summed,
+# so the point estimates come back unchanged while every standard error moves,
+# which is the shape of mistake nothing downstream can notice.
+#
+# The comparison is against the outcome model's own frame, which is the one
+# object known to be in the fit's order: the weight preflight has already
+# compared its prior weights against the fit's weights unit by unit, so a model
+# fitted on reordered rows never reaches here. Every column the two frames name
+# in common is compared element by element, which catches a reordering and an
+# altered value alike.
+#
+# Values are compared rather than objects. A factor supplied with a level the
+# model frame's copy does not declare is the same column read under a wider
+# declaration, which is what the dropped-level path relies on, so factors are
+# read as their labels and two missing values count as agreeing.
+#
+# What the comparison reaches is the shared column names and no more, which is
+# worth stating because one workflow shares fewer of them than the rest. A model
+# whose formula transforms the exposure stores `factor(arm)` rather than `arm`,
+# so a frame supplied for that model is checked on whatever else it names in
+# common, which is usually the response alone, and a permutation that leaves the
+# response fixed would pass. Closing that means rebuilding the model's own
+# variables from the supplied frame and comparing those, which reaches every
+# model at the cost of a second design build.
+validate_ipw_frame_alignment <- function(
+  .data,
+  outcome_mod,
+  call = rlang::caller_env()
+) {
+  if (is.null(.data)) {
+    return(invisible(NULL))
+  }
+  model_frame <- stats::model.frame(outcome_mod)
+
+  for (column in intersect(names(model_frame), names(.data))) {
+    supplied <- alignment_values(.data[[column]])
+    fitted <- alignment_values(model_frame[[column]])
+
+    # Two missing values agree and one missing value does not, which takes
+    # writing out: a comparison against a missing value is itself missing, and
+    # `which()` drops a missing element rather than reporting it, so a row the
+    # two frames disagree about by one of them being absent would otherwise
+    # read as a row they agree about.
+    equal <- supplied == fitted
+    equal[is.na(equal)] <- FALSE
+    differs <- which(!equal & !(is.na(supplied) & is.na(fitted)))
+    if (length(differs) == 0L) {
+      next
+    }
+
+    position <- differs[[1L]]
+    abort(
+      c(
+        "{.arg .data} must hold the rows the models were fitted on, in the same order.",
+        x = "Its {.val {column}} column disagrees with the outcome model frame's at row {position}, and at {length(differs)} row{?s} in all.",
+        i = "The counterfactual predictions, the subgroup indicators, and a focal estimand's standardization are built from {.arg .data}, while the weight equations and the outcome-model score stay in the fit's order.",
+        i = "A frame holding the right rows in the wrong order therefore leaves the effect estimates unchanged and every standard error wrong.",
+        i = "Supply the frame the outcome model was fitted on, or omit {.arg .data} when the model frame already carries the exposure."
+      ),
+      error_class = "balancing_ipw_input_error",
+      call = call,
+      .envir = environment()
+    )
+  }
+  invisible(NULL)
+}
+
+# One column on the scale the alignment comparison reads it. A factor becomes
+# its labels, so that two columns holding the same values under different level
+# declarations agree; everything else is compared as it stands, which lets an
+# integer column and the double the model frame stored agree as numbers rather
+# than disagreeing as types.
+alignment_values <- function(x) {
+  if (is.factor(x)) as.character(x) else x
 }
 
 # The unsupported condition is shared by every configuration ipw() cannot
@@ -832,8 +1066,16 @@ is_gaussian_outcome <- function(outcome_mod) {
 # transformation costs is the model frame, which stores the transformed column
 # rather than the exposure, so such a model needs `.data`.
 model_term_variables <- function(outcome_mod) {
+  unique(unlist(model_term_variable_sets(outcome_mod)))
+}
+
+# The same reading term by term, which is what a check about two variables
+# entering one term needs: the union above says only that both are somewhere in
+# the model, and a model carrying each of them alone would answer that question
+# the same way as one carrying their interaction.
+model_term_variable_sets <- function(outcome_mod) {
   labels <- attr(stats::terms(outcome_mod), "term.labels")
-  unique(unlist(lapply(labels, function(label) all.vars(str2lang(label)))))
+  lapply(labels, function(label) all.vars(str2lang(label)))
 }
 
 # The outcome model may adjust for covariates, and may interact them with the
@@ -1326,24 +1568,80 @@ ipw_estimate_rows <- function(theta, vcov, conf_level, keys, effects) {
 # contract names, and every surface built from the table reads it from there. A
 # binary exposure has a single contrast and keeps the eight-column table, since a
 # column repeating one label on every row identifies nothing.
-ipw_estimates <- function(theta, vcov, conf_level, continuous, levels = NULL) {
+#
+# A `.by` request repeats the measures again across subgroups, so the table
+# gains a `group` column on the same terms, after the contrast column where
+# there is one and after `effect` where there is not, since a subgroup qualifies
+# the whole comparison rather than one side of it. The subgroup blocks follow
+# the whole-sample block and run subgroup-major, each of them repeating the
+# whole-sample block's own contrast-major order over the measures a subgroup
+# reports.
+ipw_estimates <- function(
+  theta,
+  vcov,
+  conf_level,
+  continuous,
+  levels = NULL,
+  by = NULL
+) {
   keys <- ipw_contrast_names(continuous, levels)
   measures <- ipw_contrast_names(continuous)
+  contrast_labels <- if (is.null(levels)) {
+    NULL
+  } else {
+    paste(levels[-1], "vs", levels[[1]])
+  }
+
+  effect <- rep(measures, times = length(keys) / length(measures))
+  contrast <- if (is.null(contrast_labels)) {
+    NULL
+  } else {
+    rep(contrast_labels, each = length(measures))
+  }
+  group <- NULL
+
+  if (!is.null(by)) {
+    groups <- c(by$labels, by$em_labels)
+    by_measures <- ipw_contrast_names(continuous, collapsible_only = TRUE)
+    by_keys <- ipw_contrast_names(continuous, levels, collapsible_only = TRUE)
+    group <- c(
+      rep(ipw_overall_group, length(effect)),
+      rep(groups, each = length(by_keys))
+    )
+    keys <- c(keys, ipw_by_names(by_keys, groups))
+    effect <- c(
+      effect,
+      rep(
+        rep(by_measures, times = length(by_keys) / length(by_measures)),
+        times = length(groups)
+      )
+    )
+    if (!is.null(contrast_labels)) {
+      contrast <- c(
+        contrast,
+        rep(
+          rep(contrast_labels, each = length(by_measures)),
+          times = length(groups)
+        )
+      )
+    }
+  }
+
   estimates <- ipw_estimate_rows(
     theta = theta,
     vcov = vcov,
     conf_level = conf_level,
     keys = keys,
-    effects = rep(measures, times = length(keys) / length(measures))
+    effects = effect
   )
-  if (!is.null(levels)) {
-    contrast <- rep(
-      paste(levels[-1], "vs", levels[[1]]),
-      each = length(measures)
-    )
+  identity_columns <- c(
+    if (!is.null(contrast)) list(contrast = contrast),
+    if (!is.null(group)) list(group = group)
+  )
+  if (length(identity_columns) > 0) {
     estimates <- cbind(
       estimates["effect"],
-      contrast = contrast,
+      as.data.frame(identity_columns, stringsAsFactors = FALSE),
       estimates[setdiff(names(estimates), "effect")]
     )
   }
@@ -1374,23 +1672,28 @@ attach_effect_covariance <- function(estimates, vcov, keys) {
   estimates
 }
 
-# The display label of each estimates row: the effect measure alone, or the
-# measure and the contrast where a categorical exposure has left the measure
-# repeating across contrasts. This is the rule causalgenerics labels the printed
-# rows and the accessor output by, restated here so the covariance's dimnames
-# name the effects the same way every other surface of the result does.
+# The display label of each estimates row: the effect measure, then the contrast
+# where a categorical exposure has left the measure repeating across contrasts,
+# then the subgroup where a `.by` request has left it repeating across those.
+# This is the rule causalgenerics labels the printed rows and the accessor
+# output by, restated here so the covariance's dimnames name the effects the
+# same way every other surface of the result does. The two rules have to grow
+# together: a label built from fewer columns than the table is keyed by repeats
+# itself, and a covariance carries that as duplicated dimnames rather than as an
+# error.
+#
+# The subgroup comes last because it qualifies the whole contrast rather than
+# one side of it, which is the order causalgenerics reads the identity columns
+# in.
 #
 # Only `attach_effect_covariance()` calls this, and its two callers both hand it
 # a frame built moments earlier in this file: the continuous route builds one
-# from `ipw_estimate_rows()` and never names a contrast at all, and
-# `ipw_estimates()` adds the column itself for a categorical exposure. The
-# canonical name is therefore the only one either frame can carry, so no alias
-# needs reading.
+# from `ipw_estimate_rows()` and never names a contrast or a subgroup at all,
+# and `ipw_estimates()` adds each column itself. The canonical names are
+# therefore the only ones either frame can carry, so no alias needs reading.
 ipw_effect_labels <- function(estimates) {
-  if (!"contrast" %in% names(estimates)) {
-    return(estimates$effect)
-  }
-  paste(estimates$effect, estimates$contrast)
+  columns <- intersect(c("effect", "contrast", "group"), names(estimates))
+  do.call(paste, unname(lapply(columns, function(column) estimates[[column]])))
 }
 
 # The outcome model with its own block of the stacked covariance carried

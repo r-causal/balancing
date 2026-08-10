@@ -16,7 +16,20 @@ exactly one term in the exposure.}
 values are taken from the outcome model frame. It carries the exposure
 column the fixed-exposure predictions are built from, so it has nothing to
 supply for a continuous exposure, which makes no such predictions, and is
-ignored there.}
+ignored there.
+
+It must hold the rows both models were fitted on, in the same order.
+Half of the stacked system reads it and half reads the fit: the
+counterfactual predictions, the subgroup indicators, and a focal estimand's
+standardization come from \code{.data}, while the weight equations and the
+outcome-model score stay in the fit's order. A frame holding the right rows
+in another order therefore leaves every effect estimate unchanged, since a
+weighted mean does not care in which order it is summed, and makes every
+standard error wrong. Each column \code{.data} and the outcome model frame name
+in common is compared value by value, and a disagreement raises
+\code{balancing_ipw_input_error} naming the column and the first row it
+disagrees at. Columns the outcome model never saw, the modifier \code{.by} names
+among them, are free.}
 
 \item{estimand}{The causal estimand. If \code{NULL}, the fit's estimand is used.
 As in \code{\link[=balance]{balance()}}, \code{"atc"} is accepted as a synonym for \code{"atu"}. Supplying
@@ -45,6 +58,15 @@ own: the stored copy carries that block, the covariance of the fit's
 weight parameters, and \code{\link[stats:vcov]{stats::vcov()}} on it reads the block back. The fit
 that went into the call is untouched, and reports no covariance of its own.}
 
+\item{.by}{A modifier to report the effects within the levels of, given
+unquoted and selected with tidyselect out of \code{.data} where one was supplied
+and out of the outcome model frame otherwise. The default, \code{NULL}, is the
+absence of a request: the result then reports the whole-sample effects
+alone and names no subgroups at all. A selection reaching any number of
+columns other than one is refused, since the effects are reported within
+the levels of a single variable. The effect modification section below
+describes the rows a request adds and the configurations it refuses.}
+
 \item{...}{Ignored, for compatibility with the generic.}
 }
 \value{
@@ -65,15 +87,21 @@ categorical exposure names each mean \code{mu_} followed by its level and each
 contrast by measure and level, as \code{rd_b}. A continuous exposure carries
 neither block, since the effect is one of the outcome-model coefficients;
 that coefficient is named for the effect, as \code{slope}, in place of the
-\code{beta_} name the others carry. The standard errors in \code{estimates} are
-\code{sqrt(diag(fit$vcov))} read at those effect names.
+\code{beta_} name the others carry. A \code{.by} request appends, after all of
+those, a mean and a contrast block per stratum and a contrast block per
+non-reference stratum against the reference one. Each of their names is
+the name of the block it repeats, suffixed with its group, as
+\code{mu0_sex = female} and \verb{rd_sex = female vs sex = male}. The standard
+errors in \code{estimates} are \code{sqrt(diag(fit$vcov))} read at those effect
+names.
 }
 
 The \code{estimates} table carries the covariance of the reported effects as its
 \code{ipw_vcov} attribute, which is what \code{\link[stats:vcov]{stats::vcov()}} returns in the marginal
 reading. Both its dimnames are the display labels of the estimates rows: the
-effect measure alone, or the measure and the contrast for a categorical
-exposure, as \code{"rd b vs a"}. The stored \code{outcome_mod} is wrapped by
+effect measure, then the contrast for a categorical exposure, then the
+subgroup for a \code{.by} request, as \code{"rd b vs a sex = female"}. The stored
+\code{outcome_mod} is wrapped by
 \code{\link[causalgenerics:new_ipw_model]{causalgenerics::new_ipw_model()}}, which carries the outcome-model block of
 \code{fit$vcov} under the model's own coefficient names, so \code{vcov()} on it
 reports the joint-estimation variance. The stored \code{wt_mod} carries the
@@ -294,6 +322,80 @@ is the right treatment of a quantity the exposure does not move and the wrong
 treatment of one it does, which is why the exposure-reading case is refused
 above.
 }
+\section{Effect modification}{
+\code{.by} names a modifier, and a result carrying one reports the effects it
+reports without a request, then those same effects within each of the
+modifier's levels, then each non-reference level against the reference one.
+The estimates table gains a \code{group} column naming the subgroup each row was
+estimated in, placed after \code{contrast} where a categorical exposure names one
+and after \code{effect} where it does not, since a subgroup qualifies the whole
+comparison rather than one side of it. The whole-sample rows come first,
+under the group \code{"overall"}; a stratum's rows are named \code{"var = value"}, as
+\code{"sex = female"}; and a contrast of strata joins the two, as
+\code{"sex = female vs sex = male"}. The reference stratum is the modifier's first
+level, which for a factor is the first of its declared levels rather than the
+first in sorted order. A character modifier declares no levels, so it is read
+as a factor on the way in and its reference stratum is its alphabetically
+first value, whatever order the values appear in. Declare the column a factor
+to measure the contrasts against some other stratum.
+
+A stratum reports the collapsible measures alone. For a binary outcome that
+is \code{rd} and \code{log(rr)}; a continuous outcome reports \code{diff}, the only measure
+it has. The log odds ratio stays among the whole-sample rows. An odds ratio
+is noncollapsible, so the odds ratio over a sample is not an average of the
+odds ratios within its subgroups and the difference of two of them is not
+the difference in effect it reads as; nothing in the whole-sample rows
+averages anything over subgroups, which is why they keep it. A categorical
+exposure crosses its
+contrasts with the strata, so each subgroup block reports each contrast in
+the order the whole-sample block reports it.
+
+A stratum's marginal means are the g-computation means over that stratum
+alone, standardized the way the whole-sample means are: over every unit of
+the stratum for a pooled estimand, and over its focal units for \code{"att"} or
+\code{"atc"}. Sampling weights weight that average as well.
+
+Every row a request adds is a parameter of the same stacked system the
+whole-sample rows are parameters of. The blocks are appended after everything
+the ungrouped stack carries and nothing earlier reads a parameter of theirs,
+so the leading blocks are the ones an ungrouped fit produces and the
+whole-sample rows of a grouped result are the rows it reported. What that
+buys is the covariance: the subgroups share the weight parameters and the
+outcome model's coefficients, so their effects covary, and each contrast of
+strata is a parameter of the joint system rather than a difference of two
+separate fits, whose variance would have to be read as a sum. \code{fit$theta} and
+\code{fit$vcov} name the added blocks after the blocks they repeat, suffixed with
+the group: \code{mu0_sex = female} and \verb{rd_sex = female vs sex = male}.
+
+A level of the modifier that no unit carries names an empty subgroup and is
+dropped rather than refused, which is what lets a modifier be subset without
+being recoded first. Four configurations are refused with
+\code{balancing_ipw_input_error}: a selection naming any number of columns other
+than one, a modifier that is neither a factor nor a character column, a
+modifier carrying missing values, and a modifier one of whose subgroups holds
+fewer than all of the exposure levels. That last one has no contrast to
+report in the subgroup that is short a level, and refitting either model does
+not supply a comparison the data do not hold. \code{.by} with a continuous
+exposure raises \code{balancing_ipw_unsupported_error}: what such a fit reports is
+the marginal structural model's own exposure coefficient rather than a
+contrast of standardized means, so there is no effect within a subgroup for
+the argument to name. A modifier that reaches the argument through \code{.data}
+carries that frame's row-order requirement with it, described under \code{.data}
+above: the strata are built from the rows it holds while the weights stay in
+the fit's order.
+
+An outcome model with no term reading both the exposure and the modifier
+raises \code{balancing_ipw_by_interaction_warning} and the result is still built.
+The subgroup effects are g-computation on the model as it was specified, so
+the effect differs across subgroups only where a term reads both columns, and
+that may be the modeling choice a caller meant to make. The warning reports
+which terms were read rather than announcing that the effect is the same in
+every subgroup, because a model may carry the modification through a column
+derived from the modifier instead: \code{y ~ exposure * sex_female} reported by
+\code{.by = sex} names no term reading \code{sex}, and its subgroup effects differ all
+the same.
+}
+
 \section{Multiple imputation}{
 Missing covariate data is handled by imputing first and analyzing within each
 completed dataset: impute, then balance, weight, and fit the outcome model
@@ -369,6 +471,18 @@ adjusted_mod <- glm(
 )
 
 ipw(fit, adjusted_mod)
+
+# `.by` reports the effects again within the levels of a modifier, then
+# contrasts each level against the first of them.
+df$grp <- factor(ifelse(x1 > 0, "high", "low"), levels = c("low", "high"))
+by_mod <- glm(
+  y ~ exposure * grp,
+  data = df,
+  family = quasibinomial(),
+  weights = .wts
+)
+
+ipw(fit, by_mod, .by = grp)
 
 # A categorical exposure reports each level against the reference level, and
 # the estimates table names the contrast.

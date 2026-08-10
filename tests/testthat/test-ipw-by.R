@@ -560,6 +560,64 @@ test_that("a .by att fit standardizes each stratum over its treated units", {
   }
 })
 
+# A factor carries its own level order and the reference stratum is the first of
+# them. A character column carries none, so it is read as a factor on the way in
+# and the reference stratum is whichever value sorts first. That is a rule about
+# the column's type rather than about the data, and the two readings disagree
+# whenever the values appear in an order other than their sorted one, so the
+# fixture below makes them disagree.
+
+test_that(".by measures a character modifier against its first sorted value", {
+  data <- ipw_by_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, modifier_hi),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+
+  # The modifier relabelled so that the value appearing first sorts last. Which
+  # of the two labels lands on the first row is read off the fixture rather than
+  # assumed, so the disagreement is built rather than hoped for.
+  first_seen <- as.character(data$modifier)[[1L]]
+  labelled <- data
+  labelled$letters <- ifelse(data$modifier == first_seen, "zebra", "alpha")
+  expect_identical(labelled$letters[[1L]], "zebra")
+
+  outcome_mod <- fit_by_outcome(
+    y ~ exposure * letters,
+    labelled,
+    w,
+    stats::binomial()
+  )
+
+  result <- expect_no_warning(ipw(fit, outcome_mod, .by = letters))
+  estimates <- result$estimates
+
+  expect_identical(
+    unique(estimates$group),
+    c(
+      "overall",
+      "letters = alpha",
+      "letters = zebra",
+      "letters = zebra vs letters = alpha"
+    )
+  )
+
+  # The contrast of strata is the non-reference stratum minus the reference one,
+  # so a reference read off first appearance rather than off sorted order would
+  # carry the opposite sign.
+  coerced <- as.data.frame(result)
+  expect_equal(
+    by_estimate(coerced, "rd", "letters = zebra vs letters = alpha"),
+    by_estimate(coerced, "rd", "letters = zebra") -
+      by_estimate(coerced, "rd", "letters = alpha"),
+    tolerance = 1e-10
+  )
+})
+
 # ---- The stacked system ----------------------------------------------------
 
 test_that("a .by fit appends a mean and a contrast block for every stratum", {
@@ -732,6 +790,89 @@ test_that("a .by fit's covariance couples the subgroups it reports", {
     tolerance = 1e-10
   )
   expect_false(isTRUE(all.equal(contrast, variance_lo + variance_hi)))
+})
+
+# A focal estimand standardizes each stratum over its focal units alone, and the
+# tilt that says so enters the mean rows of the stacked system rather than being
+# applied to them afterwards. So it reaches the covariance as well as the
+# estimates: an implementation that tilted the seed values and left the rows
+# pooled would report the focal means correctly and a covariance belonging to a
+# different pair of estimators, which the estimate assertions above could not
+# see. Reading the same coupling and the same variance identity off an att fit
+# is what pins the tilt into the sandwich.
+
+test_that("a .by att fit couples its subgroups through the focal tilt", {
+  data <- ipw_by_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, modifier_hi),
+    method = bw_entropy(),
+    estimand = "att"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_by_outcome(
+    y ~ exposure * modifier + x1,
+    data,
+    w,
+    stats::binomial()
+  )
+
+  covariance <- stats::vcov(ipw(fit, outcome_mod, .by = modifier))
+
+  couples <- list(
+    c("rd modifier = lo", "rd modifier = hi"),
+    c("rd overall", "rd modifier = hi"),
+    c("rd modifier = hi", "rd modifier = hi vs modifier = lo")
+  )
+  for (pair in couples) {
+    entry <- covariance[pair[[1L]], pair[[2L]]]
+    expect_true(is.finite(entry), label = paste(pair, collapse = " with "))
+    expect_gt(abs(entry), 1e-8, label = paste(pair, collapse = " with "))
+  }
+
+  variance_lo <- covariance["rd modifier = lo", "rd modifier = lo"]
+  variance_hi <- covariance["rd modifier = hi", "rd modifier = hi"]
+  coupling <- covariance["rd modifier = lo", "rd modifier = hi"]
+  contrast <- covariance[
+    "rd modifier = hi vs modifier = lo",
+    "rd modifier = hi vs modifier = lo"
+  ]
+  # The identity is exact in the system and approximate in the sandwich, since
+  # the row carrying it is differenced rather than written down, and a focal
+  # estimand standardizes each stratum over a quarter of the sample, which
+  # leaves the mean block's diagonal smaller and the difference less accurate.
+  # It holds here to about 1e-10 relative against the 1e-16 a pooled estimand
+  # reaches, so the tolerance is loosened to 1e-8, still five orders below the
+  # gap to the stitched sum that the next line pins.
+  expect_equal(
+    contrast,
+    variance_lo + variance_hi - 2 * coupling,
+    tolerance = 1e-8
+  )
+  expect_false(isTRUE(all.equal(contrast, variance_lo + variance_hi)))
+
+  # The att covariance is its own, not the ate one relabelled, so the tilt is
+  # doing work here rather than cancelling.
+  pooled_fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, modifier_hi),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  pooled_w <- as.numeric(stats::weights(pooled_fit))
+  pooled_mod <- fit_by_outcome(
+    y ~ exposure * modifier + x1,
+    data,
+    pooled_w,
+    stats::binomial()
+  )
+  pooled <- stats::vcov(ipw(pooled_fit, pooled_mod, .by = modifier))
+  expect_false(isTRUE(all.equal(
+    covariance["rd modifier = lo", "rd modifier = hi"],
+    pooled["rd modifier = lo", "rd modifier = hi"]
+  )))
 })
 
 # ---- Labels ----------------------------------------------------------------
@@ -1116,6 +1257,132 @@ test_that(".by drops a modifier level no unit carries", {
   expect_false(any(grepl("none", estimates$group, fixed = TRUE)))
 })
 
+# ---- The rows a supplied frame holds ---------------------------------------
+
+# `.by` makes `.data` the channel the modifier arrives on, so what that frame
+# holds decides which units each subgroup is built from. Half of the stacked
+# system reads it and half reads the fit's own order: the counterfactual
+# predictions, the stratum indicators, and a focal estimand's standardization
+# come from `.data`, while the weight equations, the outcome-model score, and
+# every cross term of the meat come from the fit. A frame carrying the fit's
+# rows in another order pairs each unit's prediction with another unit's weight,
+# which a weighted mean is blind to and a sandwich is not: the effects come back
+# unchanged and the standard errors are wrong. Nothing downstream can notice, so
+# the frame is checked against the outcome model's own, which the weight
+# preflight has already pinned to the fit's order.
+
+test_that(".data must hold the fit's rows in the fit's order", {
+  data <- ipw_by_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, modifier_hi),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_by_outcome(
+    y ~ exposure * modifier,
+    data,
+    w,
+    stats::binomial()
+  )
+  # Sorted by the modifier, which is the reordering a caller is most likely to
+  # arrive at and the one that moves the standard errors furthest, since it
+  # groups the units each stratum indicator selects.
+  sorted <- data[order(data$modifier), , drop = FALSE]
+
+  expect_error(
+    ipw(fit, outcome_mod, .data = sorted, .by = modifier),
+    class = "balancing_ipw_input_error"
+  )
+
+  # The mechanism is not `.by`'s. An ungrouped result reads the same frame for
+  # its counterfactual designs, so the refusal covers that call as well.
+  expect_error(
+    ipw(fit, outcome_mod, .data = sorted),
+    class = "balancing_ipw_input_error"
+  )
+})
+
+# Reordering is one way a frame stops describing the fit's rows and replacing a
+# value is the other. A modifier edited in one row moves that unit between
+# strata while every count and every level stays as it was, so the check has to
+# compare values rather than shapes.
+
+test_that(".data must hold the values the models were fitted on", {
+  data <- ipw_by_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, modifier_hi),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_by_outcome(
+    y ~ exposure * modifier,
+    data,
+    w,
+    stats::binomial()
+  )
+  edited <- data
+  first_lo <- which(data$modifier == "lo")[[1L]]
+  edited$modifier[[first_lo]] <- "hi"
+
+  expect_identical(nrow(edited), nrow(data))
+  expect_identical(levels(edited$modifier), levels(data$modifier))
+
+  expect_error(
+    ipw(fit, outcome_mod, .data = edited, .by = modifier),
+    class = "balancing_ipw_input_error"
+  )
+})
+
+# The check compares the columns the two frames name in common, so a frame
+# carrying columns the outcome model never saw is still the frame it was fitted
+# on. That is the shape every `.by` workflow supplies, since the modifier
+# arrives beside the model's own variables.
+
+test_that(".data carrying columns the model never saw is still aligned", {
+  data <- ipw_by_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, modifier_hi),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_by_outcome(
+    y ~ exposure * modifier,
+    data,
+    w,
+    stats::binomial()
+  )
+  supplied <- data
+  supplied$unused <- withr::with_seed(31, stats::rnorm(nrow(data)))
+
+  supplied_result <- ipw(fit, outcome_mod, .data = supplied, .by = modifier)
+  frame_result <- ipw(fit, outcome_mod, .by = modifier)
+
+  expect_identical(nrow(supplied_result$estimates), 9L)
+  expect_identical(
+    supplied_result$estimates$group,
+    frame_result$estimates$group
+  )
+  expect_equal(
+    supplied_result$estimates$estimate,
+    frame_result$estimates$estimate,
+    tolerance = 1e-12
+  )
+  expect_equal(
+    supplied_result$estimates$std.err,
+    frame_result$estimates$std.err,
+    tolerance = 1e-12
+  )
+})
+
 # ---- Refusals --------------------------------------------------------------
 
 # A continuous exposure reports a coefficient of its marginal structural model
@@ -1326,4 +1593,232 @@ test_that(".by warns when the outcome model has no exposure-by-modifier term", {
   expect_s3_class(result, "ipw")
   expect_true("group" %in% names(result$estimates))
   expect_identical(nrow(result$estimates), 9L)
+})
+
+# The diagnostic reads the terms of the outcome model, and a model may carry the
+# effect modification through a column derived from the modifier rather than
+# through the modifier itself. `y ~ exposure * modifier_hi` reported by
+# `.by = modifier` is that case: no term names `modifier`, so the diagnostic
+# reports, while the subgroup effects it reports differ by as much as the
+# fixture was drawn with. What the message says has to stay true here, which is
+# why it reports which terms were read rather than announcing that the effect is
+# the same in every subgroup.
+
+test_that(".by reports the terms it read for a modifier carried by an indicator", {
+  data <- ipw_by_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, modifier_hi),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_by_outcome(
+    y ~ exposure * modifier_hi,
+    data,
+    w,
+    stats::binomial()
+  )
+
+  expect_warning(
+    result <- ipw(fit, outcome_mod, .data = data, .by = modifier),
+    class = "balancing_ipw_by_interaction_warning"
+  )
+
+  estimates <- as.data.frame(result)
+  expect_equal(
+    by_estimate(estimates, "rd", "modifier = hi vs modifier = lo"),
+    by_estimate(estimates, "rd", "modifier = hi") -
+      by_estimate(estimates, "rd", "modifier = lo"),
+    tolerance = 1e-10
+  )
+  expect_gt(
+    abs(by_estimate(estimates, "rd", "modifier = hi vs modifier = lo")),
+    0.1
+  )
+})
+
+# ---- Recorded messages -----------------------------------------------------
+
+# The wording and the condition class of everything `.by` refuses, and of the
+# one thing it diagnoses. The warning is recorded off an invisible call rather
+# than off the call itself: what the snapshot is for is the message, and letting
+# the result print would carry nine rows of estimates into it alongside.
+
+test_that("balancing_ipw_input_error: .by selects no column", {
+  data <- ipw_by_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, modifier_hi),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_by_outcome(
+    y ~ exposure * modifier,
+    data,
+    w,
+    stats::binomial()
+  )
+
+  expect_balancing_error(
+    ipw(fit, outcome_mod, .by = tidyselect::starts_with("no_such_column"))
+  )
+})
+
+test_that("balancing_ipw_input_error: .by selects two columns", {
+  data <- ipw_by_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, modifier_hi),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  # The model adjusts for `x1` so that the selection below reaches two columns
+  # of the model frame. Named against a frame holding one of them, the selection
+  # is tidyselect's own out-of-bounds failure rather than this refusal.
+  outcome_mod <- fit_by_outcome(
+    y ~ exposure * modifier + x1,
+    data,
+    w,
+    stats::binomial()
+  )
+
+  expect_balancing_error(ipw(fit, outcome_mod, .by = c(modifier, x1)))
+})
+
+test_that("balancing_ipw_input_error: .by names a modifier with missing values", {
+  data <- ipw_by_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, modifier_hi),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_by_outcome(
+    y ~ exposure * modifier,
+    data,
+    w,
+    stats::binomial()
+  )
+  supplied <- data
+  supplied$patchy <- supplied$modifier
+  supplied$patchy[c(3L, 17L, 42L)] <- NA
+
+  expect_balancing_error(
+    ipw(fit, outcome_mod, .data = supplied, .by = patchy)
+  )
+})
+
+test_that("balancing_ipw_input_error: .by names a numeric modifier", {
+  data <- ipw_by_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, modifier_hi),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_by_outcome(
+    y ~ exposure * modifier,
+    data,
+    w,
+    stats::binomial()
+  )
+
+  expect_balancing_error(ipw(fit, outcome_mod, .data = data, .by = modifier_hi))
+})
+
+test_that("balancing_ipw_input_error: a stratum holds one exposure level", {
+  data <- ipw_by_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, modifier_hi),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_by_outcome(
+    y ~ exposure * modifier,
+    data,
+    w,
+    stats::binomial()
+  )
+  supplied <- data
+  supplied$thin <- factor(
+    ifelse(data$exposure == 1L & data$x2 > 0.8, "narrow", "wide"),
+    levels = c("wide", "narrow")
+  )
+
+  expect_balancing_error(ipw(fit, outcome_mod, .data = supplied, .by = thin))
+})
+
+test_that("balancing_ipw_input_error: .data holds the fit's rows out of order", {
+  data <- ipw_by_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, modifier_hi),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_by_outcome(
+    y ~ exposure * modifier,
+    data,
+    w,
+    stats::binomial()
+  )
+  sorted <- data[order(data$modifier), , drop = FALSE]
+
+  expect_balancing_error(ipw(fit, outcome_mod, .data = sorted, .by = modifier))
+})
+
+test_that("balancing_ipw_unsupported_error: .by on a continuous exposure", {
+  data <- ipw_by_fixture()
+  data$dose <- withr::with_seed(
+    12,
+    0.5 * data$x1 - 0.3 * data$x2 + stats::rnorm(nrow(data))
+  )
+  fit <- balance(
+    data,
+    dose,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  data$.wts <- as.numeric(stats::weights(fit))
+  outcome_mod <- stats::lm(y_cont ~ dose, data = data, weights = .wts)
+
+  expect_balancing_error(ipw(fit, outcome_mod, .by = modifier))
+})
+
+test_that("balancing_ipw_by_interaction_warning: no term reads both columns", {
+  data <- ipw_by_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, modifier_hi),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_by_outcome(
+    y ~ exposure + modifier,
+    data,
+    w,
+    stats::binomial()
+  )
+
+  expect_balancing_warning(
+    invisible(ipw(fit, outcome_mod, .by = modifier))
+  )
 })
