@@ -33,7 +33,10 @@
 #' block of measures per non-reference level, and the estimates table gains a
 #' `contrast` column, placed after `effect`, naming each contrast as
 #' `"<level> vs <reference>"`. A binary exposure keeps the table it has always
-#' returned, with no `contrast` column.
+#' returned, with no `contrast` column. A categorical exposure declared as a
+#' crossing of two treatments by [causalgenerics::joint_exposure()] replaces
+#' those level-against-reference rows with the surface described under Joint
+#' exposures below.
 #'
 #' A continuous exposure has no levels to contrast, so there is no pair of
 #' marginal means to difference. What the method reports instead is the
@@ -113,13 +116,26 @@
 #' from estimating the weights included, where a bare refit of the same weighted
 #' model treats the weights as fixed and understates it.
 #'
-#' That covariance is a large-sample one, and how large a sample it takes
-#' differs by exposure. The binary risk-difference standard error is calibrated
-#' at a few hundred observations; the continuous slope's is anticonservative
-#' there. Over 500 draws its ratio of mean standard error to the standard
-#' deviation of the estimates was 0.836 at 300 observations and 0.942 at 1200.
-#' Read a continuous interval as the asymptotic statement it is, and prefer the
-#' bootstrap of the inference vignette at small sample sizes.
+#' A row's display label is built from the identity columns of the estimates
+#' table, in the order the table carries them: the effect measure, then the
+#' contrast where the surface names one, then the group where it names one. A
+#' contrast names a categorical exposure's pair of levels, a continuous
+#' surface's basis coefficient, or a joint exposure's treatment; a group names
+#' the subgroup a `.by` request reports the row within, or the level a joint
+#' exposure holds the other treatment at. That one label names the row wherever
+#' a caller reads it, so the printed table, the names of [stats::coef()], the
+#' dimnames of [stats::vcov()], and the rownames of [stats::confint()] agree row
+#' for row with the estimates table. The stacked `fit$theta` and `fit$vcov`
+#' carry names of their own, which name blocks of the estimating-equation
+#' system rather than reported rows and are described under Value.
+#'
+#' The sandwich covariance is a large-sample one, and how large a sample it
+#' takes differs by exposure. The binary risk-difference standard error is
+#' calibrated at a few hundred observations; the continuous slope's is
+#' anticonservative there. Over 500 draws its ratio of mean standard error to
+#' the standard deviation of the estimates was 0.836 at 300 observations and
+#' 0.942 at 1200. Read a continuous interval as the asymptotic statement it is,
+#' and prefer the bootstrap of the inference vignette at small sample sizes.
 #'
 #' The method is available only for fits whose weights solve smooth estimating
 #' equations: the estimating-equation family (entropy balancing, inverse
@@ -241,16 +257,16 @@
 #' estimated in, placed after `contrast` where a categorical exposure names one
 #' and after `effect` where it does not, since a subgroup qualifies the whole
 #' comparison rather than one side of it. The whole-sample rows come first,
-#' under the group `"overall"`; a stratum's rows are named `"var = value"`, as
-#' `"sex = female"`; and a contrast of strata joins the two, as
-#' `"sex = female vs sex = male"`. The reference stratum is the modifier's first
+#' under the group `"overall"`; a subgroup's rows are named `"var = value"`, as
+#' `"sex = female"`; and a contrast of subgroups joins the two, as
+#' `"sex = female vs sex = male"`. The reference subgroup is the modifier's first
 #' level, which for a factor is the first of its declared levels rather than the
 #' first in sorted order. A character modifier declares no levels, so it is read
-#' as a factor on the way in and its reference stratum is its alphabetically
+#' as a factor on the way in and its reference subgroup is its alphabetically
 #' first value, whatever order the values appear in. Declare the column a factor
-#' to measure the contrasts against some other stratum.
+#' to measure the contrasts against some other subgroup.
 #'
-#' A stratum reports the collapsible measures alone. For a binary outcome that
+#' A subgroup reports the collapsible measures alone. For a binary outcome that
 #' is `rd` and `log(rr)`; a continuous outcome reports `diff`, the only measure
 #' it has. The log odds ratio stays among the whole-sample rows. An odds ratio
 #' is noncollapsible, so the odds ratio over a sample is not an average of the
@@ -258,12 +274,12 @@
 #' the difference in effect it reads as; nothing in the whole-sample rows
 #' averages anything over subgroups, which is why they keep it. A categorical
 #' exposure crosses its
-#' contrasts with the strata, so each subgroup block reports each contrast in
+#' contrasts with the subgroups, so each subgroup block reports each contrast in
 #' the order the whole-sample block reports it.
 #'
-#' A stratum's marginal means are the g-computation means over that stratum
+#' A subgroup's marginal means are the g-computation means over that subgroup
 #' alone, standardized the way the whole-sample means are: over every unit of
-#' the stratum for a pooled estimand, and over its focal units for `"att"` or
+#' the subgroup for a pooled estimand, and over its focal units for `"att"` or
 #' `"atc"`. Sampling weights weight that average as well.
 #'
 #' Every row a request adds is a parameter of the same stacked system the
@@ -273,10 +289,8 @@
 #' whole-sample rows of a grouped result are the rows it reported. What that
 #' buys is the covariance: the subgroups share the weight parameters and the
 #' outcome model's coefficients, so their effects covary, and each contrast of
-#' strata is a parameter of the joint system rather than a difference of two
-#' separate fits, whose variance would have to be read as a sum. `fit$theta` and
-#' `fit$vcov` name the added blocks after the blocks they repeat, suffixed with
-#' the group: `mu0_sex = female` and `rd_sex = female vs sex = male`.
+#' subgroups is a parameter of the joint system rather than a difference of two
+#' separate fits, whose variance would have to be read as a sum.
 #'
 #' A level of the modifier that no unit carries names an empty subgroup and is
 #' dropped rather than refused, which is what lets a modifier be subset without
@@ -290,10 +304,11 @@
 #' exposure raises `balancing_ipw_unsupported_error`: what such a fit reports is
 #' the marginal structural model's own exposure coefficients rather than
 #' contrasts of standardized means, so there is no effect within a subgroup for
-#' the argument to name. A modifier that reaches the argument through `.data`
-#' carries that frame's row-order requirement with it, described under `.data`
-#' above: the strata are built from the rows it holds while the weights stay in
-#' the fit's order.
+#' the argument to name, and `.by` with a declared joint exposure raises it for
+#' the reason given under Joint exposures below. A modifier that reaches the
+#' argument through `.data` carries that frame's row-order requirement with it,
+#' described under `.data` above: the subgroups are built from the rows it holds
+#' while the weights stay in the fit's order.
 #'
 #' An outcome model with no term reading both the exposure and the modifier
 #' raises `balancing_ipw_by_interaction_warning` and the result is still built.
@@ -318,9 +333,10 @@
 #' the reference cell, under contrasts like `"a = 1, e = 0 vs a = 0, e = 0"`.
 #' Those rows are arithmetically right and they answer a question nobody asked.
 #' A declared crossing is reported in the two treatments instead, and the
-#' cell-against-cell rows are replaced rather than supplemented, so they appear
-#' in no estimates column, no coefficient name, no covariance dimname, and no
-#' printed row. The surface holds three kinds of row:
+#' cell-against-cell rows are replaced rather than supplemented, so their labels
+#' appear nowhere a row is named: in no estimates column, no coefficient name,
+#' no covariance dimname, no interval rowname, and no printed row. The surface
+#' holds three kinds of row:
 #'
 #' * the counterfactual mean of each cell, under the effect label `"mean"`, with
 #'   the cell as its contrast and `"overall"` as its group;
@@ -328,7 +344,7 @@
 #'   other, with the treatment as the contrast, written `"a: 1 vs 0"`, and the
 #'   level the other is held at as the group, written `"e = 0"`. These include
 #'   the comparisons cell-against-cell reporting cannot express at all, such as
-#'   the first treatment's effect among units taking the second;
+#'   the first treatment's effect with the second set to one;
 #' * the interaction, the difference between two of the first treatment's simple
 #'   effects, with the two compared levels of the second as its group, written
 #'   `"e = 1 vs e = 0"`. It is reported once. Interaction is symmetric in the two
@@ -340,7 +356,14 @@
 #' four means, four simple effects on each of two scales, and the interaction on
 #' each of them. A continuous outcome reports nine, since it has one scale.
 #'
-#' No contrast row carries a log odds ratio, for the reason no stratum row does:
+#' The group column names something different here than it names under `.by`. A
+#' group naming a level of the other treatment names the value that treatment is
+#' set to in the two cell means the row contrasts, which is a setting of the
+#' intervention rather than a subgroup of units. Every row on this surface, the
+#' cell means included, standardizes over the whole sample, so the contrasts are
+#' differences and double differences of cell means over one population.
+#'
+#' No contrast row carries a log odds ratio, for the reason no subgroup row does:
 #' an odds ratio is noncollapsible, so neither a simple effect reported beside
 #' one nor a difference of two of them says what it appears to. The `"mean"`
 #' rows are means and carry no scale of their own.
@@ -503,10 +526,10 @@
 #'     neither block, since its effects are outcome-model coefficients; each of
 #'     those coefficients is named for the label its estimates row carries, as
 #'     `slope` or `coef I(exposure^2)`, in place of the `beta_` name the others
-#'     keep. A `.by` request appends, after all of
-#'     those, a mean and a contrast block per stratum and a contrast block per
-#'     non-reference stratum against the reference one. Each of their names is
-#'     the name of the block it repeats, suffixed with its group, as
+#'     keep. A `.by` request appends, after all of those, a mean and a contrast
+#'     block per subgroup and a contrast block per non-reference subgroup
+#'     against the reference one. Each of their names is the name of the block
+#'     it repeats, suffixed with its group, as
 #'     `mu0_sex = female` and `rd_sex = female vs sex = male`. A declared joint
 #'     exposure keeps the mean block and replaces the contrast block, naming
 #'     each of its own contrasts for the measure and the row, as
@@ -515,12 +538,8 @@
 #'
 #'   The `estimates` table carries the covariance of the reported effects as its
 #'   `ipw_vcov` attribute, which is what [stats::vcov()] returns in the marginal
-#'   reading. Both its dimnames are the display labels of the estimates rows: the
-#'   effect measure, then the contrast where the surface names one, which is a
-#'   categorical exposure's pair of levels or a continuous exposure's basis
-#'   coefficient, then the subgroup for a `.by` request, as
-#'   `"rd b vs a sex = female"`. The stored
-#'   `outcome_mod` is wrapped by
+#'   reading. Both its dimnames are the display labels described above, as
+#'   `"rd b vs a sex = female"`. The stored `outcome_mod` is wrapped by
 #'   [causalgenerics::new_ipw_model()], which carries the outcome-model block of
 #'   `fit$vcov` under the model's own coefficient names, so `vcov()` on it
 #'   reports the joint-estimation variance. The stored `wt_mod` carries the
@@ -612,8 +631,9 @@
 #'
 #' ipw(arm_fit, arm_mod)
 #'
-#' # A continuous exposure reports one effect, the exposure coefficient of a
-#' # weighted marginal structural model, named for that model's link.
+#' # A continuous exposure reports the dose response of a weighted marginal
+#' # structural model. An exposure entering through one design column is that
+#' # response's slope, reported as one row named for the model's link.
 #' df$dose <- 0.7 * x1 + rnorm(n)
 #' df$score <- 2 + 0.5 * df$dose + 0.4 * x1 + rnorm(n)
 #'
@@ -622,6 +642,12 @@
 #' dose_mod <- lm(score ~ dose, data = df, weights = .dose_wts)
 #'
 #' ipw(dose_fit, dose_mod)
+#'
+#' # An exposure entering through several columns reports one row per
+#' # coefficient, named after the coefficient the fit names.
+#' curve_mod <- lm(score ~ poly(dose, 2), data = df, weights = .dose_wts)
+#'
+#' ipw(dose_fit, curve_mod)
 #'
 #' @examplesIf requireNamespace("mice", quietly = TRUE)
 #' # With missing covariate data, analyze within each completed dataset and

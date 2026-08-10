@@ -70,9 +70,9 @@
     Condition <balancing_ipw_unsupported_error>
       Error in `ipw()`:
       ! `ipw()` does not support `.by` for a continuous exposure.
-      x A continuous exposure reports the marginal structural model's own exposure coefficient rather than a contrast of standardized means, so there is no effect within a subgroup to report.
-      i Omit `.by` to report the whole-sample effect.
-      i Fitting each subgroup on its own subset reports a coefficient per subgroup and no covariance between them, so the difference between two subgroups cannot be tested from those fits.
+      x A continuous exposure reports the marginal structural model's own exposure coefficients rather than contrasts of standardized means, so there is no effect within a subgroup to report.
+      i Omit `.by` to report the whole-sample effects.
+      i Fitting each subgroup on its own subset reports a set of coefficients per subgroup and no covariance between them, so the difference between two subgroups cannot be tested from those fits.
 
 # balancing_ipw_by_interaction_warning: no term reads both columns
 

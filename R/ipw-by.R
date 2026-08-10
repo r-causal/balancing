@@ -26,12 +26,13 @@ ipw_by_absent <- function(.by) {
 
 # Refuse `.by` for a continuous exposure, the one exposure type whose result
 # reports no contrast of standardized means to modify. What the method reports
-# there is the marginal structural model's own exposure coefficient, a single
-# number for the whole sample with no per-stratum counterpart the stacked blocks
-# could build. Fitting the model within each stratum instead reports a
-# coefficient apiece and no covariance between them, so the difference between
-# two strata could not be tested from those fits; the refusal names that route
-# rather than quietly taking it.
+# there is the marginal structural model's own exposure coefficients, one per
+# design column the exposure enters through and each a whole-sample quantity
+# with no per-stratum counterpart the stacked blocks could build. Fitting the
+# model within each stratum instead reports a set of coefficients apiece and no
+# covariance between them, so the difference between two strata could not be
+# tested from those fits; the refusal names that route rather than quietly
+# taking it.
 check_ipw_by_exposure <- function(.by, call = rlang::caller_env()) {
   if (ipw_by_absent(.by)) {
     return(invisible(NULL))
@@ -40,9 +41,9 @@ check_ipw_by_exposure <- function(.by, call = rlang::caller_env()) {
   abort(
     c(
       "{.fun ipw} does not support {.arg .by} for a continuous exposure.",
-      x = "A continuous exposure reports the marginal structural model's own exposure coefficient rather than a contrast of standardized means, so there is no effect within a subgroup to report.",
-      i = "Omit {.arg .by} to report the whole-sample effect.",
-      i = "Fitting each subgroup on its own subset reports a coefficient per subgroup and no covariance between them, so the difference between two subgroups cannot be tested from those fits."
+      x = "A continuous exposure reports the marginal structural model's own exposure coefficients rather than contrasts of standardized means, so there is no effect within a subgroup to report.",
+      i = "Omit {.arg .by} to report the whole-sample effects.",
+      i = "Fitting each subgroup on its own subset reports a set of coefficients per subgroup and no covariance between them, so the difference between two subgroups cannot be tested from those fits."
     ),
     error_class = "balancing_ipw_unsupported_error",
     call = call

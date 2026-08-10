@@ -225,6 +225,11 @@ fit_method <- new_generic("fit_method", "method", function(method, prepared) {
 #' @param moments The highest covariate power to balance. A single whole number
 #'   or a named integer vector; `NULL` (the default) resolves to first moments.
 #' @param interactions Whether to add pairwise interactions of the base columns.
+#'   These expand the constraint set the weights must balance, adding the
+#'   pairwise products of the base columns to the covariate functions equated
+#'   across exposure groups. They say nothing about causal interaction between
+#'   two exposures, which is an effect rather than a constraint and is reported
+#'   for a joint exposure by [`ipw()`][ipw.balancing].
 #' @param quantiles Quantile probabilities in `(0, 1)`: a numeric vector applied
 #'   to every continuous covariate, a named list of probabilities per covariate,
 #'   or `NULL` for none.
