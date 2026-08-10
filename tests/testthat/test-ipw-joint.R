@@ -694,12 +694,18 @@ test_that("a declared crossing's covariance couples the rows it reports", {
   expect_true(is.finite(coupling))
   expect_gt(abs(coupling), 1e-8)
 
+  # The entries combined here are finite-difference results, so the identity is
+  # exact algebra read off independently rounded numbers, and the last bits of
+  # the cancellation follow the platform's BLAS and compiler. The tolerance is
+  # the one every assertion of this shape carries: loose enough for that
+  # spread, three orders below the gap to the stitched sum the next assertion
+  # refuses.
   expect_equal(
     covariance[interaction, interaction],
     covariance[at_zero, at_zero] +
       covariance[at_one, at_one] -
       2 * coupling,
-    tolerance = 1e-10
+    tolerance = 1e-6
   )
   expect_false(isTRUE(all.equal(
     covariance[interaction, interaction],

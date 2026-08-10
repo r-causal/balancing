@@ -777,6 +777,14 @@ test_that("a .by fit's covariance couples the subgroups it reports", {
   # variance is the joint variance of the difference. A stitched assembly would
   # have to read the sum of the two variances instead, which the coupling above
   # makes a different number.
+  #
+  # The identity is exact algebra, but every entry it combines comes out of the
+  # finite-difference bread inversion, so the comparison cancels independently
+  # rounded numbers whose last bits follow whichever BLAS and compiler the
+  # platform provides. Release Linux and Windows builds have fallen outside
+  # 1e-10 relative where this machine reads 2e-16, so every assertion of this
+  # shape in the suite reads at 1e-6. That still sits three orders below the
+  # smallest gap to the stitched sum any of them refuses, which is 1.5e-3.
   variance_lo <- covariance["rd modifier = lo", "rd modifier = lo"]
   variance_hi <- covariance["rd modifier = hi", "rd modifier = hi"]
   coupling <- covariance["rd modifier = lo", "rd modifier = hi"]
@@ -787,7 +795,7 @@ test_that("a .by fit's covariance couples the subgroups it reports", {
   expect_equal(
     contrast,
     variance_lo + variance_hi - 2 * coupling,
-    tolerance = 1e-10
+    tolerance = 1e-6
   )
   expect_false(isTRUE(all.equal(contrast, variance_lo + variance_hi)))
 })
@@ -842,13 +850,13 @@ test_that("a .by att fit couples its subgroups through the focal tilt", {
   # the row carrying it is differenced rather than written down, and a focal
   # estimand standardizes each stratum over a quarter of the sample, which
   # leaves the mean block's diagonal smaller and the difference less accurate.
-  # It holds here to about 1e-10 relative against the 1e-16 a pooled estimand
-  # reaches, so the tolerance is loosened to 1e-8, still five orders below the
-  # gap to the stitched sum that the next line pins.
+  # It reads 1e-10 relative here against the 1e-16 a pooled estimand reaches.
+  # Both are asserted at the tolerance the whole class carries, which is sized
+  # for the spread across platforms rather than for either measurement.
   expect_equal(
     contrast,
     variance_lo + variance_hi - 2 * coupling,
-    tolerance = 1e-8
+    tolerance = 1e-6
   )
   expect_false(isTRUE(all.equal(contrast, variance_lo + variance_hi)))
 
