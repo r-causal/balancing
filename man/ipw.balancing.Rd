@@ -453,7 +453,14 @@ keeps no memory of the crossing, so it is the frame and not the fit that
 decides which surface is reported, and dropping the declaration with
 \code{factor(x)} returns the cell-against-cell rows.
 
-Two configurations raise \code{balancing_ipw_unsupported_error}. A declared
+A crossing whose two treatments carry one name, as in
+\code{joint_exposure(a = x, a = y)}, raises \code{balancing_ipw_input_error}. Every row
+is keyed by the treatment it contrasts and the level the other is held at,
+both written from the component names, so one name over two treatments names
+two different effects the same way. Declare each treatment under a name of its
+own.
+
+Two further configurations raise \code{balancing_ipw_unsupported_error}. A declared
 crossing with \code{.by} is refused: effect modification of a joint intervention
 is a three-way question, the interaction between two treatments within the
 levels of a third variable, and this surface reports neither that nor a

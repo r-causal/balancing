@@ -65,6 +65,24 @@ ipw_joint_fixture <- function(n = 700) {
   })
 }
 
+# The same two treatments crossed under one name, which
+# `causalgenerics::joint_exposure()` builds: it checks each component in turn,
+# and the cells it writes stay distinct strings, so nothing upstream has cause to
+# compare the two names against each other.
+#
+# The components are named and then splatted rather than written as
+# `joint_exposure(a = data$a, a = data$e)`, which is the same call and is a lint
+# the package holds itself to everywhere else. What the crossing carries is
+# asserted where it is used, so the indirection cannot quietly build something
+# else.
+ipw_joint_collision_fixture <- function() {
+  data <- ipw_joint_fixture()
+  components <- list(data$a, data$e)
+  names(components) <- c("a", "a")
+  data$joint <- do.call(causalgenerics::joint_exposure, components)
+  data
+}
+
 # The cells, in the order the crossing declares them: the first component varies
 # fastest, so the reference cell crosses the two reference levels and comes
 # first.
@@ -810,6 +828,42 @@ test_that("an undeclared crossing still reports each cell against the reference"
 
 # ---- Refusals --------------------------------------------------------------
 
+# Every row of the surface is keyed by the treatment it contrasts and the level
+# the other treatment is held at, and both of those are written from the
+# component names. Two treatments under one name therefore write one key over
+# two different effects, and since the rows are read back by name, the reported
+# table would carry the first of each colliding pair twice in place of the two
+# effects the crossing holds. The declaration is turned away instead.
+
+test_that("a declared crossing refuses two treatments under one name", {
+  data <- ipw_joint_collision_fixture()
+
+  # The crossing itself is well formed, which is why the refusal is balancing's
+  # to carry: the cells are distinct and every one of them is populated, and it
+  # is only reporting in the two treatments that the shared name is a defect.
+  expect_true(causalgenerics::is_joint_exposure(data$joint))
+  expect_identical(
+    names(causalgenerics::joint_components(data$joint)),
+    c("a", "a")
+  )
+  expect_identical(anyDuplicated(levels(data$joint)), 0L)
+  expect_true(all(table(data$joint) > 0L))
+
+  fit <- fit_joint_weights(data)
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_joint_outcome(
+    y ~ joint + x1,
+    data,
+    w,
+    stats::binomial()
+  )
+
+  expect_joint_quiet(expect_error(
+    ipw(fit, outcome_mod),
+    class = "balancing_ipw_input_error"
+  ))
+})
+
 # A joint exposure already reports an interaction between two treatments.
 # Reporting it again within the levels of a modifier is a three-way question,
 # and the surface answers a two-way one, so the combination is turned away
@@ -860,11 +914,25 @@ test_that("a declared crossing is reported for the ate estimand alone", {
 
 # ---- Recorded messages -----------------------------------------------------
 
-# The wording and the condition class of the two configurations a declared
-# crossing turns away. Both refuse before any counterfactual design is built, so
-# neither snapshot carries a declaration-loss warning alongside the refusal, and
-# a change that moved either check after the designs would show up here as well
-# as in the gates above.
+# The wording and the condition class of the three configurations a declared
+# crossing turns away. Each of them refuses before any counterfactual design is
+# built, so no snapshot here carries a declaration-loss warning alongside the
+# refusal, and a change that moved any of the checks after the designs would show
+# up here as well as in the gates above.
+
+test_that("balancing_ipw_input_error: two treatments under one name", {
+  data <- ipw_joint_collision_fixture()
+  fit <- fit_joint_weights(data)
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_joint_outcome(
+    y ~ joint + x1,
+    data,
+    w,
+    stats::binomial()
+  )
+
+  expect_balancing_error(ipw(fit, outcome_mod))
+})
 
 test_that("balancing_ipw_unsupported_error: .by on a declared crossing", {
   data <- ipw_joint_fixture()

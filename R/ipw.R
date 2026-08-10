@@ -343,7 +343,14 @@
 #' decides which surface is reported, and dropping the declaration with
 #' `factor(x)` returns the cell-against-cell rows.
 #'
-#' Two configurations raise `balancing_ipw_unsupported_error`. A declared
+#' A crossing whose two treatments carry one name, as in
+#' `joint_exposure(a = x, a = y)`, raises `balancing_ipw_input_error`. Every row
+#' is keyed by the treatment it contrasts and the level the other is held at,
+#' both written from the component names, so one name over two treatments names
+#' two different effects the same way. Declare each treatment under a name of its
+#' own.
+#'
+#' Two further configurations raise `balancing_ipw_unsupported_error`. A declared
 #' crossing with `.by` is refused: effect modification of a joint intervention
 #' is a three-way question, the interaction between two treatments within the
 #' levels of a third variable, and this surface reports neither that nor a
@@ -800,14 +807,18 @@ method(causalgenerics_ipw, balancing) <- function(
     # declaration can be read, and it is read once, whichever arm filled the
     # frame in.
     #
-    # Both refusals come before anything is reported, since each of them is
+    # All three refusals come before anything is reported, since each of them is
     # about whether the surface can be written at all rather than about what it
-    # would say.
+    # would say. The shared-name check comes first among them: it asks whether
+    # the declaration can be named at all, where the other two ask whether this
+    # surface can be reported for the estimand the fit carries and beside a
+    # modifier.
     joint <- ipw_joint_plan(
       frame[[exposure_name]],
       levels,
       is_gaussian_outcome(outcome_mod)
     )
+    check_ipw_joint_components(joint, frame[[exposure_name]])
     check_ipw_joint_estimand(joint, estimand)
     check_ipw_joint_by(joint, .by)
 

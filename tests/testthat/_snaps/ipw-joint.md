@@ -1,3 +1,14 @@
+# balancing_ipw_input_error: two treatments under one name
+
+    Code
+      ipw(fit, outcome_mod)
+    Condition <balancing_ipw_input_error>
+      Error in `ipw()`:
+      ! `ipw()` cannot report a joint exposure whose two treatments share a name.
+      x Both components of the crossing are named "a".
+      i Every row is keyed by the treatment it contrasts and the level the other treatment is held at, so one name over two treatments names two different effects the same way.
+      i Declare the crossing with a name of its own for each treatment, as in `joint_exposure(a = x, b = y)`.
+
 # balancing_ipw_unsupported_error: .by on a declared crossing
 
     Code

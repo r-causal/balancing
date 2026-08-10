@@ -250,6 +250,52 @@ ipw_joint_bare <- function(exposure) {
 
 # ---- Refusals --------------------------------------------------------------
 
+# Refuse a crossing whose two components carry one name. Every row of the
+# surface is keyed by the treatment it contrasts and the level the other
+# treatment is held at, and both of those are written from the component names,
+# so one name over two treatments writes one key over two different effects.
+# The rows are read back out of the stacked system by name, so what a caller
+# would get is the first of each colliding pair reported twice in place of the
+# two effects the crossing holds.
+#
+# causalgenerics builds such a crossing: it checks each component in turn, and
+# the cells it writes stay distinct, so the pair of names is a defect only once
+# something reports in the two treatments rather than in the cells. That is why
+# the refusal belongs here, and why it is an input error rather than an
+# unsupported one: nothing about the surface is missing, and the crossing means
+# what it was declared to mean as soon as each treatment carries its own name.
+#
+# The names come off the declaration through the same accessor the plan reads
+# them with. Recovering them from the labels the plan built would ask which of
+# two treatments a colliding label was written from, which is the question the
+# collision makes unanswerable.
+check_ipw_joint_components <- function(
+  joint,
+  exposure,
+  call = rlang::caller_env()
+) {
+  if (is.null(joint)) {
+    return(invisible(NULL))
+  }
+
+  component_names <- names(causalgenerics::joint_components(exposure))
+  if (!identical(component_names[[1L]], component_names[[2L]])) {
+    return(invisible(NULL))
+  }
+
+  abort(
+    c(
+      "{.fun ipw} cannot report a joint exposure whose two treatments share a name.",
+      x = "Both components of the crossing are named {.val {component_names[[1L]]}}.",
+      i = "Every row is keyed by the treatment it contrasts and the level the other treatment is held at, so one name over two treatments names two different effects the same way.",
+      i = "Declare the crossing with a name of its own for each treatment, as in {.code joint_exposure(a = x, b = y)}."
+    ),
+    error_class = "balancing_ipw_input_error",
+    call = call,
+    .envir = environment()
+  )
+}
+
 # Refuse a focal estimand on a declared crossing. The surface standardizes every
 # cell mean to one population, and a focal estimand names one cell as that
 # population. The cell means would then be the outcomes among the units treated
