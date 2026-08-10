@@ -43,7 +43,7 @@
       i The model may adjust for covariates alongside the exposure, and may carry the exposure inside a transformation such as `factor()`.
       i An offset is not a term, so an exposure that reaches the model only through one is not carried by it.
 
-# ipw() asks a continuous outcome model for the exposure as its own term
+# ipw() asks a continuous outcome model for a term that reads the exposure
 
     Code
       stop(cnd)
@@ -51,7 +51,7 @@
       Error in `ipw()`:
       ! `outcome_mod` must include the exposure among its predictors.
       x The exposure "exposure" appears in none of its terms.
-      i The model may adjust for covariates alongside the exposure, which must enter as a term of its own.
+      i The model may adjust for covariates alongside the exposure, and may carry the exposure inside a transformation such as `poly()`, so long as no term reads a covariate alongside it.
 
 # ipw() refuses a continuous outcome model with an unnamed link
 

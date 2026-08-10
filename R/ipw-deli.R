@@ -26,10 +26,10 @@
 #
 # A continuous exposure has no levels to fix, so the last two blocks are absent
 # and the stack stops at the outcome-model coefficients. What it reports is the
-# exposure coefficient of a weighted marginal structural model, which is already
-# a parameter of the stack, so the same reading applies: the effect's standard
-# error is on the diagonal of the returned covariance under the name that
-# coefficient carries.
+# exposure coefficients of a weighted marginal structural model, each of which is
+# already a parameter of the stack, so the same reading applies: every effect's
+# standard error is on the diagonal of the returned covariance under the name its
+# own coefficient carries.
 #
 # A `.by` request adds two more blocks at the end: the marginal means within
 # each stratum of the modifier, then the contrasts of those means within each
@@ -349,11 +349,11 @@ ipw_deli_sandwich <- function(
 #' exposure levels to fix and no pair of marginal means to contrast, so the
 #' stack is `[theta_w | beta]` alone: the weight parameters, then the
 #' coefficients of the weighted marginal structural model whose score they
-#' enter. The reported effect is one of those coefficients, the exposure's, so
-#' it needs no parameter of its own and no contrast row to carry it. Naming that
-#' entry for the outcome model's link is what puts it on the same footing as the
-#' discrete path's contrasts, whose standard errors are read off the same
-#' diagonal under the same names.
+#' enter. The reported effects are the exposure's own coefficients, so they need
+#' no parameters of their own and no contrast rows to carry them. Naming those
+#' entries for the labels the estimates table reports them under is what puts
+#' them on the same footing as the discrete path's contrasts, whose standard
+#' errors are read off the same diagonal under the same names.
 #'
 #' The weights the score carries come straight from the container's hook. The
 #' reported scale for a continuous fit carries the whole sample to one total,
@@ -362,8 +362,9 @@ ipw_deli_sandwich <- function(
 #'
 #' @param container The fit's [balancing_estimating_equations].
 #' @param outcome_mod The fitted weighted marginal structural model.
-#' @param exposure_name The exposure column name, which names the design column
-#'   the reported effect is read from once it is quoted as the model writes it.
+#' @param exposure_name The exposure column name, which decides which design
+#'   columns the reported effects are read from: those the model's
+#'   exposure-reading terms expanded to.
 #' @param sampling_weights The fit's sampling weights, or `NULL`.
 #' @param call The frame a refusal reports as the failing call, on the same
 #'   terms as the discrete engine's.
@@ -400,8 +401,12 @@ ipw_deli_msm_sandwich <- function(
     paste0("theta_w", seq_len(p)),
     paste0("beta_", colnames(design))
   )
-  effect_position <- p + match(quoted_name(exposure_name), colnames(design))
-  names(theta)[[effect_position]] <- msm_effect_name(outcome_mod)
+  # The reported effects are coefficients the stack already carries, so naming
+  # them is the whole of what this route does with the surface: each
+  # exposure-reading column takes the label its estimates row is read under, in
+  # place of the `beta_` name a covariate's column keeps.
+  surface <- msm_coefficient_identity(outcome_mod, exposure_name, call = call)
+  names(theta)[p + surface$columns] <- surface$keys
 
   weights_at <- function(weight_theta) {
     as.numeric(container@weights_fn(weight_theta))
@@ -560,33 +565,97 @@ stacked_covariance <- function(
   covariance
 }
 
-# The name the single continuous effect is reported under, which is set by the
-# outcome model's link, since the link is what the exposure coefficient is a
-# one-unit effect on. An identity link moves the mean itself, so the coefficient
-# is a slope; a logit moves the log odds, so it is a log odds ratio; a log link
-# moves the log mean, so it is a log risk ratio.
+# The surface a continuous exposure reports: which columns of the outcome design
+# carry the dose response, what each of their rows is called, and the stacked
+# name each row is read under. Nothing is standardized on this route, so a row is
+# exactly a coefficient of the weighted fit and the description is the whole of
+# what separates one shape of marginal structural model from another.
 #
-# Another link leaves the coefficient without a name of that kind: a probit
-# coefficient is a shift in a latent standard normal scale, which is neither a
-# slope on the response nor the log of any ratio, and reporting it under one of
-# those labels would name an effect the model does not estimate. Such a model is
-# refused rather than labeled.
-msm_effect_name <- function(outcome_mod, call = rlang::caller_env()) {
+# The columns are found by variable membership rather than by name. Every term
+# reading the exposure reads it alone, which the validator has already settled,
+# so the columns those terms expanded to are the exposure's however the terms are
+# written: one for a bare or singly transformed exposure, several for a curve
+# written out term by term or handed to a basis constructor. The design's own
+# `assign` attribute is what maps a term back to its columns, which is why a
+# basis needs no frame and no rebuilding of the design.
+#
+# The rows are named on the same footing as every other surface in the package.
+# An exposure entering through one column is the whole of the dose response, so
+# its coefficient is that response's slope everywhere, the row keeps the word the
+# link gives it, and nothing further is named: a contrast column repeating one
+# value down a one-row table would read as a contrast that was named. An exposure
+# entering through several has no such row, since a curve has a different slope
+# at every dose, so each row is named after the coefficient it reports and the
+# scale word steps back to `coef` at an identity link.
+msm_coefficient_identity <- function(
+  outcome_mod,
+  exposure_name,
+  call = rlang::caller_env()
+) {
+  design <- stats::model.matrix(outcome_mod)
+  reads_exposure <- vapply(
+    model_term_variable_sets(outcome_mod),
+    function(variables) exposure_name %in% variables,
+    logical(1)
+  )
+  columns <- which(attr(design, "assign") %in% which(reads_exposure))
+
+  named <- length(columns) > 1L
+  effect <- msm_effect_name(outcome_mod, named = named, call = call)
+  contrast <- if (named) colnames(design)[columns]
+  list(
+    columns = columns,
+    keys = if (named) paste(effect, contrast) else effect,
+    effect = rep(effect, length(columns)),
+    contrast = contrast,
+    group = NULL
+  )
+}
+
+# The name a reported continuous effect is measured under, which is set by the
+# outcome model's link, since the link is what a coefficient of that model is a
+# one-unit effect on. A logit moves the log odds, so the coefficient is a log
+# odds ratio; a log link moves the log mean, so it is a log risk ratio. Both
+# words are honest of a coefficient whatever column it multiplies, so neither
+# depends on how the exposure entered.
+#
+# An identity link is the one that does. It moves the mean itself, so a lone
+# exposure column's coefficient is the slope of the dose response, while one of
+# several is no slope at all and the row is named after its own coefficient
+# instead, under the word `coef`, which claims nothing beyond that. Keeping the
+# two apart is what stops `slope` from meaning an evaluated-at claim in one place
+# and a bare coefficient in another.
+#
+# Another link leaves the coefficient without a name of any of those kinds: a
+# probit coefficient is a shift in a latent standard normal scale, which is
+# neither a slope on the response nor the log of any ratio, and reporting it
+# under one of those labels would name an effect the model does not estimate.
+# Such a model is refused rather than labeled.
+msm_effect_name <- function(
+  outcome_mod,
+  named = FALSE,
+  call = rlang::caller_env()
+) {
   link <- stats::family(outcome_mod)$link
-  named <- c(identity = "slope", logit = "log(or)", log = "log(rr)")
-  if (!link %in% names(named)) {
+  supported <- c("identity", "logit", "log")
+  if (!link %in% supported) {
     abort(
       c(
         "{.arg outcome_mod} must use a link the continuous effect can be named for.",
         x = "Its link is {.val {link}}.",
-        i = "The supported links are {.val {names(named)}}, whose exposure coefficients are a slope, a log odds ratio, and a log risk ratio.",
+        i = "The supported links are {.val {supported}}, whose exposure coefficients are a slope, a log odds ratio, and a log risk ratio.",
         i = "See the inference vignette for a bootstrap workflow with other links."
       ),
       error_class = "balancing_ipw_input_error",
       call = call
     )
   }
-  named[[link]]
+  switch(
+    link,
+    identity = if (named) "coef" else "slope",
+    logit = "log(or)",
+    log = "log(rr)"
+  )
 }
 
 # Refuse a stacked system whose weight parameters are not identified in a

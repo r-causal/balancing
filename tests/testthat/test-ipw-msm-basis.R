@@ -773,6 +773,84 @@ test_that("the basis standard errors account for having estimated the weights", 
   }
 })
 
+# Everything above reads the reported standard errors against the surface's own
+# arithmetic: they are the diagonal of the covariance the accessors carry, they
+# are not the ones a weighted regression reports when it treats its weights as
+# fixed, and two parameterizations of one curve report the same pair of them.
+# None of that says they are the right size. A nonparametric bootstrap does, and
+# it says it for a basis the way the single-term specs say it for a slope: the
+# whole procedure is repeated on resampled data, weights and curve together, and
+# the spread of the coefficients it produces is what the reported standard errors
+# are held against.
+#
+# The tolerance is set by two measured quantities rather than a guess. The
+# resampling standard deviation carries its own noise, of order five percent at
+# this replicate count, and the stacked standard error is anticonservative at a
+# few hundred observations, which `ipw()` documents as a ratio of 0.836 at 300
+# observations for a slope. Over the seeds 2024, 11 and 777 the reported standard
+# error came to 0.92, 0.99 and 1.02 of the bootstrap's for the linear
+# coefficient and to 0.87, 0.88 and 0.91 of it for the curvature one. Twenty
+# percent is what those two together leave.
+#
+# A tolerance that wide separates a standard error of the wrong magnitude rather
+# than one of the wrong calibration, which is the whole of what an external
+# anchor is asked for here: whether the spread the surface reports is the spread
+# repeating the procedure produces. The weights-fixed sandwich the test above
+# rules out is not ruled out by this one, since on this fixture it sits inside
+# the same twenty percent, which is why that comparison is made separately and
+# exactly. Each coefficient is compared on its own, so neither of them passes on
+# the other's agreement.
+
+test_that("the quadratic basis standard errors track a nonparametric bootstrap", {
+  skip_on_cran()
+  data <- msm_basis_fixture()
+  fit <- msm_basis_fit(data)
+  outcome_mod <- fit_basis_msm(
+    y_cont ~ exposure + I(exposure^2),
+    data,
+    as.numeric(stats::weights(fit))
+  )
+  estimates <- ipw(fit, outcome_mod)$estimates
+
+  n <- nrow(data)
+  boot <- withr::with_seed(2024, {
+    vapply(
+      seq_len(200),
+      function(b) {
+        idx <- sample.int(n, n, replace = TRUE)
+        resampled <- data[idx, , drop = FALSE]
+        # A resampled data set can legitimately fail to converge; that replicate
+        # drops out through the error handler, and its convergence warning is
+        # suppressed so it does not leak into the suite output.
+        tryCatch(
+          suppressWarnings({
+            boot_fit <- msm_basis_fit(resampled)
+            boot_mod <- fit_basis_msm(
+              y_cont ~ exposure + I(exposure^2),
+              resampled,
+              as.numeric(stats::weights(boot_fit))
+            )
+            stats::coef(boot_mod)[c("exposure", "I(exposure^2)")]
+          }),
+          error = function(e) c(NA_real_, NA_real_)
+        )
+      },
+      numeric(2)
+    )
+  })
+  boot_se <- apply(boot, 1L, stats::sd, na.rm = TRUE)
+
+  expect_identical(estimates$contrast, c("exposure", "I(exposure^2)"))
+  for (index in seq_len(nrow(estimates))) {
+    expect_equal(
+      estimates$std.err[[index]],
+      unname(boot_se[[index]]),
+      tolerance = 0.2,
+      label = estimates$contrast[[index]]
+    )
+  }
+})
+
 # ---- The call and the readings ---------------------------------------------
 
 # A model frame records the term rather than the variables inside it, so the

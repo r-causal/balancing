@@ -9,8 +9,8 @@
 \item{outcome_mod}{A weighted outcome model of class \code{\link[stats:glm]{stats::glm()}} or
 \code{\link[stats:lm]{stats::lm()}}, fitted with the balancing weights and carrying the exposure
 among its predictors. It may adjust for covariates alongside the exposure.
-For a continuous exposure it is a marginal structural model carrying
-exactly one term in the exposure.}
+For a continuous exposure it is a marginal structural model whose every
+exposure-reading term reads the exposure alone.}
 
 \item{.data}{The data frame holding the exposure and outcome. If \code{NULL}, the
 values are taken from the outcome model frame. It carries the exposure
@@ -86,9 +86,10 @@ then the marginal means and one name per contrast. A binary exposure names
 its means \code{mu0} and \code{mu1} and its contrasts by measure alone; a
 categorical exposure names each mean \code{mu_} followed by its level and each
 contrast by measure and level, as \code{rd_b}. A continuous exposure carries
-neither block, since the effect is one of the outcome-model coefficients;
-that coefficient is named for the effect, as \code{slope}, in place of the
-\code{beta_} name the others carry. A \code{.by} request appends, after all of
+neither block, since its effects are outcome-model coefficients; each of
+those coefficients is named for the label its estimates row carries, as
+\code{slope} or \verb{coef I(exposure^2)}, in place of the \code{beta_} name the others
+keep. A \code{.by} request appends, after all of
 those, a mean and a contrast block per stratum and a contrast block per
 non-reference stratum against the reference one. Each of their names is
 the name of the block it repeats, suffixed with its group, as
@@ -102,8 +103,10 @@ each of its own contrasts for the measure and the row, as
 The \code{estimates} table carries the covariance of the reported effects as its
 \code{ipw_vcov} attribute, which is what \code{\link[stats:vcov]{stats::vcov()}} returns in the marginal
 reading. Both its dimnames are the display labels of the estimates rows: the
-effect measure, then the contrast for a categorical exposure, then the
-subgroup for a \code{.by} request, as \code{"rd b vs a sex = female"}. The stored
+effect measure, then the contrast where the surface names one, which is a
+categorical exposure's pair of levels or a continuous exposure's basis
+coefficient, then the subgroup for a \code{.by} request, as
+\code{"rd b vs a sex = female"}. The stored
 \code{outcome_mod} is wrapped by
 \code{\link[causalgenerics:new_ipw_model]{causalgenerics::new_ipw_model()}}, which carries the outcome-model block of
 \code{fit$vcov} under the model's own coefficient names, so \code{vcov()} on it
@@ -147,19 +150,30 @@ returned, with no \code{contrast} column.
 
 A continuous exposure has no levels to contrast, so there is no pair of
 marginal means to difference. What the method reports instead is the
-dose-response coefficient of a weighted marginal structural model: the
-balancing weights break the exposure-covariate association, the outcome model
-carries exactly one term in the exposure, and that term's coefficient is the
-effect of a one-unit change in the exposure on the model's own link scale. The
-estimates table holds a single row, keeping the columns it holds for every
-other exposure and gaining no \code{contrast} column, and that row is named for
-the link: \code{slope} for an identity link, whether the model arrives as a
-\code{\link[stats:lm]{stats::lm()}} or as a gaussian \code{\link[stats:glm]{stats::glm()}}; \code{log(or)} for a logit; and
-\code{log(rr)} for a log link. Another link raises \code{balancing_ipw_input_error},
-since its coefficient is none of those three. A continuous fit targets the
-average treatment effect and nothing else, so an \code{estimand} supplied
-alongside it either agrees or raises \code{balancing_estimand_error}, as it does
-for any other fit.
+dose response of a weighted marginal structural model: the balancing weights
+break the exposure-covariate association, and every coefficient of the outcome
+model that reads the exposure is an effect on the model's own link scale. The
+estimates table holds one row per such coefficient, read straight off the
+weighted fit, since nothing is standardized here.
+
+An exposure entering through one design column, whether as a bare term or as a
+transformation of one, is the whole of the dose response, so its coefficient
+is that response's slope everywhere. Such a model keeps the single-row table
+it has always returned, with the columns every other exposure's table holds
+and no \code{contrast} column, and the row is named for the link: \code{slope} for an
+identity link, whether the model arrives as a \code{\link[stats:lm]{stats::lm()}} or as a gaussian
+\code{\link[stats:glm]{stats::glm()}}; \code{log(or)} for a logit; and \code{log(rr)} for a log link.
+
+An exposure entering through several columns, as in \code{y ~ exposure + I(exposure^2)} or \code{y ~ splines::ns(exposure, 3)}, has no such row, since a
+curve has a different slope at every dose. The table then holds one row per
+column, gains a \code{contrast} column naming each row after the coefficient the
+fit names, and the scale word steps back to \code{coef} at an identity link. A
+logit still reports \code{log(or)} and a log link \code{log(rr)}, because a coefficient
+of those models is a log ratio whatever column it multiplies. Another link
+raises \code{balancing_ipw_input_error} either way, since its coefficients are none
+of those things. A continuous fit targets the average treatment effect and
+nothing else, so an \code{estimand} supplied alongside it either agrees or raises
+\code{balancing_estimand_error}, as it does for any other fit.
 
 The standard errors come from a stacked M-estimator that the deli package
 differentiates and sandwiches. The stacked parameter vector holds four
@@ -182,8 +196,9 @@ and returns its empirical sandwich covariance.
 A continuous exposure stacks the same system with the g-computation half
 removed. There are no fixed-exposure predictions to standardize and no
 contrasts to form, so the stack holds the weight parameters and the marginal
-structural model's coefficients alone, and the effect is already one of those
-coefficients rather than a parameter derived from them.
+structural model's coefficients alone, and each reported effect is already one
+of those coefficients rather than a parameter derived from them. A basis
+widens that stack by its own columns and changes nothing else.
 
 Nothing is re-solved along the way. Every parameter enters at the value its
 own fit already found, and the stacked estimating functions are only
@@ -243,15 +258,19 @@ exposure term raises \code{balancing_ipw_input_error}, since its fixed-exposure
 predictions would all be the same prediction and every contrast it reported
 would be zero.
 
-A continuous exposure narrows that to exactly one term, the exposure itself,
-since what it reports is one coefficient of the model rather than a contrast
-of predictions from it. \code{y ~ exposure} and \code{y ~ exposure + x1} are supported,
-while \code{y ~ exposure + I(exposure^2)}, \code{y ~ poly(exposure, 2)}, and
-\code{y ~ exposure * x1} raise \code{balancing_ipw_input_error}: each carries a second
-design column in the exposure, so the effect of a one-unit change depends on
-where it is read and no single coefficient is it. The check reads the model's
-terms rather than the text of its formula, so a transformed or interacted
-exposure term is caught however it is written.
+A continuous exposure narrows that by variable membership, since what it
+reports are coefficients of the model rather than contrasts of predictions
+from it. Every term reading the exposure must read the exposure alone, however
+many design columns it expands to, so \code{y ~ exposure}, \code{y ~ exposure + x1},
+\code{y ~ exposure + I(exposure^2)}, \code{y ~ sin(exposure)}, \code{y ~ poly(exposure, 2)}
+and \code{y ~ splines::ns(exposure, 3)} are all supported. A term reading a
+covariate alongside the exposure raises \code{balancing_ipw_input_error}, so
+\code{y ~ exposure * x1}, \code{y ~ exposure + exposure:x1} and \code{y ~ I(exposure * x1)}
+are refused: each contributes a coefficient that is a change in the dose
+response per unit of that covariate, so there is no one effect for a row to
+report and no covariate value a row could name it at. The check reads the
+model's terms rather than the text of its formula, so the mixing is caught
+however it is written.
 
 An offset reaches the linear predictor without being a term, so it is checked
 on its own, and for every exposure type. An offset expression naming the
@@ -380,8 +399,8 @@ fewer than all of the exposure levels. That last one has no contrast to
 report in the subgroup that is short a level, and refitting either model does
 not supply a comparison the data do not hold. \code{.by} with a continuous
 exposure raises \code{balancing_ipw_unsupported_error}: what such a fit reports is
-the marginal structural model's own exposure coefficient rather than a
-contrast of standardized means, so there is no effect within a subgroup for
+the marginal structural model's own exposure coefficients rather than
+contrasts of standardized means, so there is no effect within a subgroup for
 the argument to name. A modifier that reaches the argument through \code{.data}
 carries that frame's row-order requirement with it, described under \code{.data}
 above: the strata are built from the rows it holds while the weights stay in

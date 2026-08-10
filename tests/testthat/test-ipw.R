@@ -2951,7 +2951,7 @@ test_that("ipw() refuses a continuous outcome model mixing the exposure with a c
 # arrives here is one whose transformed exposure was computed into a column of
 # its own beforehand, leaving the exposure named nowhere in the formula.
 
-test_that("ipw() asks a continuous outcome model for the exposure as its own term", {
+test_that("ipw() asks a continuous outcome model for a term that reads the exposure", {
   data <- ipw_continuous_fixture()
   data$exposure_scaled <- data$exposure / 10
   fit <- balance(

@@ -37,19 +37,31 @@
 #'
 #' A continuous exposure has no levels to contrast, so there is no pair of
 #' marginal means to difference. What the method reports instead is the
-#' dose-response coefficient of a weighted marginal structural model: the
-#' balancing weights break the exposure-covariate association, the outcome model
-#' carries exactly one term in the exposure, and that term's coefficient is the
-#' effect of a one-unit change in the exposure on the model's own link scale. The
-#' estimates table holds a single row, keeping the columns it holds for every
-#' other exposure and gaining no `contrast` column, and that row is named for
-#' the link: `slope` for an identity link, whether the model arrives as a
-#' [stats::lm()] or as a gaussian [stats::glm()]; `log(or)` for a logit; and
-#' `log(rr)` for a log link. Another link raises `balancing_ipw_input_error`,
-#' since its coefficient is none of those three. A continuous fit targets the
-#' average treatment effect and nothing else, so an `estimand` supplied
-#' alongside it either agrees or raises `balancing_estimand_error`, as it does
-#' for any other fit.
+#' dose response of a weighted marginal structural model: the balancing weights
+#' break the exposure-covariate association, and every coefficient of the outcome
+#' model that reads the exposure is an effect on the model's own link scale. The
+#' estimates table holds one row per such coefficient, read straight off the
+#' weighted fit, since nothing is standardized here.
+#'
+#' An exposure entering through one design column, whether as a bare term or as a
+#' transformation of one, is the whole of the dose response, so its coefficient
+#' is that response's slope everywhere. Such a model keeps the single-row table
+#' it has always returned, with the columns every other exposure's table holds
+#' and no `contrast` column, and the row is named for the link: `slope` for an
+#' identity link, whether the model arrives as a [stats::lm()] or as a gaussian
+#' [stats::glm()]; `log(or)` for a logit; and `log(rr)` for a log link.
+#'
+#' An exposure entering through several columns, as in `y ~ exposure +
+#' I(exposure^2)` or `y ~ splines::ns(exposure, 3)`, has no such row, since a
+#' curve has a different slope at every dose. The table then holds one row per
+#' column, gains a `contrast` column naming each row after the coefficient the
+#' fit names, and the scale word steps back to `coef` at an identity link. A
+#' logit still reports `log(or)` and a log link `log(rr)`, because a coefficient
+#' of those models is a log ratio whatever column it multiplies. Another link
+#' raises `balancing_ipw_input_error` either way, since its coefficients are none
+#' of those things. A continuous fit targets the average treatment effect and
+#' nothing else, so an `estimand` supplied alongside it either agrees or raises
+#' `balancing_estimand_error`, as it does for any other fit.
 #'
 #' The standard errors come from a stacked M-estimator that the deli package
 #' differentiates and sandwiches. The stacked parameter vector holds four
@@ -72,8 +84,9 @@
 #' A continuous exposure stacks the same system with the g-computation half
 #' removed. There are no fixed-exposure predictions to standardize and no
 #' contrasts to form, so the stack holds the weight parameters and the marginal
-#' structural model's coefficients alone, and the effect is already one of those
-#' coefficients rather than a parameter derived from them.
+#' structural model's coefficients alone, and each reported effect is already one
+#' of those coefficients rather than a parameter derived from them. A basis
+#' widens that stack by its own columns and changes nothing else.
 #'
 #' Nothing is re-solved along the way. Every parameter enters at the value its
 #' own fit already found, and the stacked estimating functions are only
@@ -133,15 +146,19 @@
 #' predictions would all be the same prediction and every contrast it reported
 #' would be zero.
 #'
-#' A continuous exposure narrows that to exactly one term, the exposure itself,
-#' since what it reports is one coefficient of the model rather than a contrast
-#' of predictions from it. `y ~ exposure` and `y ~ exposure + x1` are supported,
-#' while `y ~ exposure + I(exposure^2)`, `y ~ poly(exposure, 2)`, and
-#' `y ~ exposure * x1` raise `balancing_ipw_input_error`: each carries a second
-#' design column in the exposure, so the effect of a one-unit change depends on
-#' where it is read and no single coefficient is it. The check reads the model's
-#' terms rather than the text of its formula, so a transformed or interacted
-#' exposure term is caught however it is written.
+#' A continuous exposure narrows that by variable membership, since what it
+#' reports are coefficients of the model rather than contrasts of predictions
+#' from it. Every term reading the exposure must read the exposure alone, however
+#' many design columns it expands to, so `y ~ exposure`, `y ~ exposure + x1`,
+#' `y ~ exposure + I(exposure^2)`, `y ~ sin(exposure)`, `y ~ poly(exposure, 2)`
+#' and `y ~ splines::ns(exposure, 3)` are all supported. A term reading a
+#' covariate alongside the exposure raises `balancing_ipw_input_error`, so
+#' `y ~ exposure * x1`, `y ~ exposure + exposure:x1` and `y ~ I(exposure * x1)`
+#' are refused: each contributes a coefficient that is a change in the dose
+#' response per unit of that covariate, so there is no one effect for a row to
+#' report and no covariate value a row could name it at. The check reads the
+#' model's terms rather than the text of its formula, so the mixing is caught
+#' however it is written.
 #'
 #' An offset reaches the linear predictor without being a term, so it is checked
 #' on its own, and for every exposure type. An offset expression naming the
@@ -271,8 +288,8 @@
 #' report in the subgroup that is short a level, and refitting either model does
 #' not supply a comparison the data do not hold. `.by` with a continuous
 #' exposure raises `balancing_ipw_unsupported_error`: what such a fit reports is
-#' the marginal structural model's own exposure coefficient rather than a
-#' contrast of standardized means, so there is no effect within a subgroup for
+#' the marginal structural model's own exposure coefficients rather than
+#' contrasts of standardized means, so there is no effect within a subgroup for
 #' the argument to name. A modifier that reaches the argument through `.data`
 #' carries that frame's row-order requirement with it, described under `.data`
 #' above: the strata are built from the rows it holds while the weights stay in
@@ -413,8 +430,8 @@
 #' @param outcome_mod A weighted outcome model of class [stats::glm()] or
 #'   [stats::lm()], fitted with the balancing weights and carrying the exposure
 #'   among its predictors. It may adjust for covariates alongside the exposure.
-#'   For a continuous exposure it is a marginal structural model carrying
-#'   exactly one term in the exposure.
+#'   For a continuous exposure it is a marginal structural model whose every
+#'   exposure-reading term reads the exposure alone.
 #' @param .data The data frame holding the exposure and outcome. If `NULL`, the
 #'   values are taken from the outcome model frame. It carries the exposure
 #'   column the fixed-exposure predictions are built from, so it has nothing to
@@ -483,9 +500,10 @@
 #'     its means `mu0` and `mu1` and its contrasts by measure alone; a
 #'     categorical exposure names each mean `mu_` followed by its level and each
 #'     contrast by measure and level, as `rd_b`. A continuous exposure carries
-#'     neither block, since the effect is one of the outcome-model coefficients;
-#'     that coefficient is named for the effect, as `slope`, in place of the
-#'     `beta_` name the others carry. A `.by` request appends, after all of
+#'     neither block, since its effects are outcome-model coefficients; each of
+#'     those coefficients is named for the label its estimates row carries, as
+#'     `slope` or `coef I(exposure^2)`, in place of the `beta_` name the others
+#'     keep. A `.by` request appends, after all of
 #'     those, a mean and a contrast block per stratum and a contrast block per
 #'     non-reference stratum against the reference one. Each of their names is
 #'     the name of the block it repeats, suffixed with its group, as
@@ -498,8 +516,10 @@
 #'   The `estimates` table carries the covariance of the reported effects as its
 #'   `ipw_vcov` attribute, which is what [stats::vcov()] returns in the marginal
 #'   reading. Both its dimnames are the display labels of the estimates rows: the
-#'   effect measure, then the contrast for a categorical exposure, then the
-#'   subgroup for a `.by` request, as `"rd b vs a sex = female"`. The stored
+#'   effect measure, then the contrast where the surface names one, which is a
+#'   categorical exposure's pair of levels or a continuous exposure's basis
+#'   coefficient, then the subgroup for a `.by` request, as
+#'   `"rd b vs a sex = female"`. The stored
 #'   `outcome_mod` is wrapped by
 #'   [causalgenerics::new_ipw_model()], which carries the outcome-model block of
 #'   `fit$vcov` under the model's own coefficient names, so `vcov()` on it
@@ -759,8 +779,10 @@ method(causalgenerics_ipw, balancing) <- function(
   # A continuous exposure has no counterfactual designs to build, so it needs
   # neither the model frame nor the exposure levels: its whole stack is the
   # weight parameters and the marginal structural model's coefficients, and the
-  # effect it reports is one of those coefficients rather than a contrast of
-  # marginal means.
+  # effects it reports are among those coefficients rather than contrasts of
+  # marginal means. A basis is reported from the fitted objects alone for the
+  # same reason, which is what lets one whose model frame records the basis and
+  # carries no exposure column be reported without `.data`.
   if (continuous_exposure) {
     variance_system <- ipw_deli_msm_sandwich(
       container = container,
@@ -769,18 +791,11 @@ method(causalgenerics_ipw, balancing) <- function(
       sampling_weights = wt_mod@sampling_weights,
       call = rlang::current_env()
     )
-    effect <- msm_effect_name(outcome_mod)
-    estimates <- ipw_estimate_rows(
+    estimates <- ipw_estimates_from_identity(
+      msm_coefficient_identity(outcome_mod, exposure_name),
       theta = variance_system$theta,
       vcov = variance_system$vcov,
-      conf_level = conf_level,
-      keys = effect,
-      effects = effect
-    )
-    estimates <- attach_effect_covariance(
-      estimates,
-      vcov = variance_system$vcov,
-      keys = effect
+      conf_level = conf_level
     )
   } else {
     frame <- resolve_ipw_frame(outcome_mod, .data, exposure_name, wt_mod@n)
@@ -1219,11 +1234,13 @@ validate_ipw_outcome_model <- function(
     # What the model may do with the exposure depends on the exposure type. A
     # discrete exposure is read through predictions with the exposure fixed to
     # each level, so a transformation of it is fine and `factor()` is the usual
-    # one. A continuous exposure reports the exposure's own coefficient, and the
-    # slope check below refuses every transformation, so offering one here would
-    # send that caller to a second refusal.
+    # one. A continuous exposure reports the coefficients of the terms reading
+    # the exposure, so a transformation is fine there as well while a term
+    # reading a covariate alongside it is not, and the check below refuses that
+    # one; offering the covariate latitude here would send that caller to a
+    # second refusal.
     latitude <- if (continuous_exposure) {
-      "The model may adjust for covariates alongside the exposure, which must enter as a term of its own."
+      "The model may adjust for covariates alongside the exposure, and may carry the exposure inside a transformation such as {.fun poly}, so long as no term reads a covariate alongside it."
     } else {
       "The model may adjust for covariates alongside the exposure, and may carry the exposure inside a transformation such as {.fun factor}."
     }
@@ -1253,7 +1270,7 @@ validate_ipw_outcome_model <- function(
   # before the branch rather than inside it.
   validate_ipw_exposure_offset(outcome_mod, exposure_name, call = call)
   if (continuous_exposure) {
-    validate_ipw_exposure_slope(outcome_mod, exposure_name, call = call)
+    validate_ipw_exposure_terms(outcome_mod, exposure_name, call = call)
     # The link names the reported effect, so a link no effect name describes is
     # refused here, where the frame the message describes is still the ipw()
     # call the caller made rather than the variance engine they never named.
@@ -1341,57 +1358,57 @@ validate_ipw_outcome_family <- function(
   )
 }
 
-# A continuous exposure reports one coefficient of the outcome model, so the
-# model has to have one coefficient to report: exactly one term reading the
-# exposure, and that term the exposure itself. A second term in the exposure, a
-# term that expands to several columns, or an interaction with a covariate all
-# describe a dose-response surface whose effect depends on where it is read, and
-# no single coefficient of such a model is the effect the table would name.
+# A continuous exposure reports coefficients of the outcome model rather than
+# contrasts of predictions from it, so what the model may say about the exposure
+# is set by which variables each of its terms reads. A term reading the exposure
+# alone contributes coefficients of the dose response itself, however it is
+# written and however many design columns it expands to, and each of them is a
+# row of the reported surface. A term reading a covariate as well contributes a
+# coefficient that is a change in the dose response per unit of that covariate,
+# so the effect it describes is defined only at a value of the covariate no row
+# could name, and such a model is refused.
 #
-# The check reads the model's terms rather than its formula text, so an exposure
-# that arrives transformed or interacted is caught however it is written:
-# `y ~ a + I(a^2)`, `y ~ poly(a, 2)`, and `y ~ a * x1` are refused while `y ~ a`
-# and `y ~ a + v` are accepted. Covariates that do not interact with the exposure
-# stay free, since they leave the exposure's own column and its coefficient in
-# place. An offset is not a term and so is not this check's to see; the check
-# below reads it.
-validate_ipw_exposure_slope <- function(
+# The check reads the model's terms rather than its formula text, so the mixing
+# is caught however it is written: `y ~ a * x1`, `y ~ a + a:x1`, `y ~ I(a * x1)`
+# and `y ~ poly(a, 2):x1` are refused while `y ~ a`, `y ~ a + v`,
+# `y ~ a + I(a^2)`, `y ~ sin(a)` and `y ~ splines::ns(a, 3)` are accepted.
+# Covariates that do not enter a term with the exposure stay free, since they
+# leave the exposure's own columns and their coefficients in place. An offset is
+# not a term and so is not this check's to see; the check below reads it.
+validate_ipw_exposure_terms <- function(
   outcome_mod,
   exposure_name,
   call = rlang::caller_env()
 ) {
   labels <- attr(stats::terms(outcome_mod), "term.labels")
+  term_variables <- model_term_variable_sets(outcome_mod)
   reads_exposure <- vapply(
-    labels,
-    function(label) exposure_name %in% all.vars(str2lang(label)),
-    logical(1),
-    USE.NAMES = FALSE
+    term_variables,
+    function(variables) exposure_name %in% variables,
+    logical(1)
   )
-  exposure_terms <- labels[reads_exposure]
-
-  # The coefficient the term contributes has to be there under the exposure's own
-  # name, which is what the reported effect is read from. A lone exposure term
-  # entering as anything but a numeric column would carry the right label and the
-  # wrong design. Both comparisons run against the quoted spelling, since a term
-  # label and a coefficient name carry the back-quotes a non-syntactic column
-  # needs while the fit records the bare name.
-  quoted <- quoted_name(exposure_name)
-  linear <- identical(exposure_terms, quoted) &&
-    quoted %in% names(stats::coef(outcome_mod))
-  if (!linear) {
-    abort(
-      c(
-        "{.arg outcome_mod} must carry exactly one coefficient in the exposure.",
-        x = "The exposure {.val {exposure_name}} enters through {.val {exposure_terms}}.",
-        i = "A continuous exposure reports the coefficient of {.code {quoted}} itself, which a second exposure term, a transformation, or an interaction leaves undefined.",
-        i = "The model may adjust for covariates that do not interact with the exposure."
-      ),
-      error_class = "balancing_ipw_input_error",
-      call = call,
-      .envir = environment()
-    )
+  reads_more <- vapply(
+    term_variables,
+    function(variables) length(setdiff(variables, exposure_name)) > 0,
+    logical(1)
+  )
+  mixed <- labels[reads_exposure & reads_more]
+  if (length(mixed) == 0) {
+    return(invisible(NULL))
   }
-  invisible(NULL)
+
+  abort(
+    c(
+      "{.arg outcome_mod} must read the exposure in terms that read nothing else.",
+      x = "{cli::qty(mixed)}The term{?s} {.val {mixed}} {?reads/read} the exposure {.val {exposure_name}} alongside another variable.",
+      i = "Such a term contributes a coefficient that is a change in the dose response per unit of what it reads, so there is no one effect for a row to report and no value a row could name it at.",
+      i = "A term reading the exposure alone is admitted however it is written, so {.code {exposure_name} + I({exposure_name}^2)} and {.code poly({exposure_name}, 2)} each report one row per coefficient.",
+      i = "The model may adjust for covariates that do not enter a term with the exposure."
+    ),
+    error_class = "balancing_ipw_input_error",
+    call = call,
+    .envir = environment()
+  )
 }
 
 # Both places an offset can enter a fitted model, since neither records the
@@ -1457,9 +1474,8 @@ validate_ipw_exposure_offset <- function(
     return(invisible(NULL))
   }
   # The offending expressions are spelled the way the model writes them, which
-  # back-quotes a name R cannot parse as a symbol. An offset supplied through the
-  # argument is often a bare column name, so this is the spelling the slope
-  # message already uses for the exposure and the two agree.
+  # back-quotes a name R cannot parse as a symbol, so an offset supplied through
+  # the argument as a bare column name is reported as the model records it.
   offending <- vapply(
     expressions[reads_exposure],
     function(expression) deparse1(expression, backtick = TRUE),
@@ -1477,14 +1493,6 @@ validate_ipw_exposure_offset <- function(
     call = call,
     .envir = environment()
   )
-}
-
-# A column name R cannot parse as a symbol is back-quoted wherever the model
-# writes it down, so a term label, a coefficient name, and a design column all
-# carry the quotes while the fit records the bare name. Comparisons against any
-# of those run through here, which leaves a syntactic name exactly as it is.
-quoted_name <- function(name) {
-  deparse1(as.name(name), backtick = TRUE)
 }
 
 # The stacked variance differentiates the outcome-model score through the
@@ -1643,10 +1651,11 @@ fixed_exposure_pieces <- function(
 # formulas stated once, in the stack itself.
 #
 # `keys` names the stacked entries the rows are read from and `effects` names
-# what each row is called, which are the same strings for a continuous exposure,
-# whose one effect is the exposure coefficient under the name that coefficient
-# already carries in the stack, and differ for a categorical one, whose measures
-# repeat once per contrast under distinct stacked names.
+# what each row is called. The two are the same strings for a continuous exposure
+# entering through one column, whose single effect is that column's coefficient
+# under the name it already carries in the stack, and differ wherever a measure
+# repeats: across the contrasts of a categorical exposure, across the subgroups
+# of a `.by` request, and across the coefficients of a basis dose response.
 ipw_estimate_rows <- function(theta, vcov, conf_level, keys, effects) {
   estimate <- unname(theta[keys])
   std_err <- unname(sqrt(diag(vcov)[keys]))
@@ -1699,7 +1708,21 @@ ipw_estimates <- function(
   } else {
     ipw_joint_identity(joint)
   }
+  ipw_estimates_from_identity(
+    identity,
+    theta = theta,
+    vcov = vcov,
+    conf_level = conf_level
+  )
+}
 
+# The estimates table of any surface, given the description of its rows: which
+# entries of the stack they are read from, and which identity columns name them.
+# Both exposure types meet here, since a continuous exposure describes its own
+# rows rather than deriving them from levels and a modifier, and what follows is
+# the same for either: read the rows, add the identity columns that name
+# something, attach the covariance.
+ipw_estimates_from_identity <- function(identity, theta, vcov, conf_level) {
   estimates <- ipw_estimate_rows(
     theta = theta,
     vcov = vcov,
@@ -1808,11 +1831,10 @@ attach_effect_covariance <- function(estimates, vcov, keys) {
 # one side of it, which is the order causalgenerics reads the identity columns
 # in.
 #
-# Only `attach_effect_covariance()` calls this, and its two callers both hand it
-# a frame built moments earlier in this file: the continuous route builds one
-# from `ipw_estimate_rows()` and never names a contrast or a subgroup at all,
-# and `ipw_estimates()` adds each column itself. The canonical names are
-# therefore the only ones either frame can carry, so no alias needs reading.
+# Only `attach_effect_covariance()` calls this, and the frame it is handed was
+# built moments earlier by `ipw_estimates_from_identity()`, which adds each
+# identity column itself. The canonical names are therefore the only ones that
+# frame can carry, so no alias needs reading.
 ipw_effect_labels <- function(estimates) {
   columns <- intersect(c("effect", "contrast", "group"), names(estimates))
   do.call(paste, unname(lapply(columns, function(column) estimates[[column]])))
@@ -1825,7 +1847,7 @@ ipw_effect_labels <- function(estimates) {
 #
 # The block is addressed by position rather than by name, since the model's
 # coefficient names are not the stack's: the stack prefixes them with `beta_`,
-# and a continuous exposure renames the one entry its reported effect is read
+# and a continuous exposure renames the entries its reported effects are read
 # from. Position says the same thing for either stack, because the weight
 # parameters lead and the outcome-model coefficients follow in both.
 wrap_outcome_model <- function(outcome_mod, vcov, weight_parameters) {
