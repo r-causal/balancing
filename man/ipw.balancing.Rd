@@ -65,7 +65,8 @@ absence of a request: the result then reports the whole-sample effects
 alone and names no subgroups at all. A selection reaching any number of
 columns other than one is refused, since the effects are reported within
 the levels of a single variable. The effect modification section below
-describes the rows a request adds and the configurations it refuses.}
+describes the rows a request adds and the configurations it refuses, and
+the joint exposure section describes why a declared crossing takes none.}
 
 \item{...}{Ignored, for compatibility with the generic.}
 }
@@ -91,9 +92,11 @@ that coefficient is named for the effect, as \code{slope}, in place of the
 those, a mean and a contrast block per stratum and a contrast block per
 non-reference stratum against the reference one. Each of their names is
 the name of the block it repeats, suffixed with its group, as
-\code{mu0_sex = female} and \verb{rd_sex = female vs sex = male}. The standard
-errors in \code{estimates} are \code{sqrt(diag(fit$vcov))} read at those effect
-names.
+\code{mu0_sex = female} and \verb{rd_sex = female vs sex = male}. A declared joint
+exposure keeps the mean block and replaces the contrast block, naming
+each of its own contrasts for the measure and the row, as
+\verb{rd_a: 1 vs 0 e = 0}. The standard errors in \code{estimates} are
+\code{sqrt(diag(fit$vcov))} read at those effect names.
 }
 
 The \code{estimates} table carries the covariance of the reported effects as its
@@ -394,6 +397,70 @@ every subgroup, because a model may carry the modification through a column
 derived from the modifier instead: \code{y ~ exposure * sex_female} reported by
 \code{.by = sex} names no term reading \code{sex}, and its subgroup effects differ all
 the same.
+}
+
+\section{Joint exposures}{
+\code{\link[causalgenerics:joint_exposure]{causalgenerics::joint_exposure()}} crosses two discrete treatments into one
+categorical exposure and records the crossing on the vector. The result is a
+factor, so \code{\link[=balance]{balance()}} weights it as it weights any factor over those cells,
+and the crossing changes which effects are reported rather than which
+population is balanced.
+
+Reported as a plain categorical exposure, such a fit gives each cell against
+the reference cell, under contrasts like \code{"a = 1, e = 0 vs a = 0, e = 0"}.
+Those rows are arithmetically right and they answer a question nobody asked.
+A declared crossing is reported in the two treatments instead, and the
+cell-against-cell rows are replaced rather than supplemented, so they appear
+in no estimates column, no coefficient name, no covariance dimname, and no
+printed row. The surface holds three kinds of row:
+\itemize{
+\item the counterfactual mean of each cell, under the effect label \code{"mean"}, with
+the cell as its contrast and \code{"overall"} as its group;
+\item the simple effects, each treatment's effect within a fixed level of the
+other, with the treatment as the contrast, written \code{"a: 1 vs 0"}, and the
+level the other is held at as the group, written \code{"e = 0"}. These include
+the comparisons cell-against-cell reporting cannot express at all, such as
+the first treatment's effect among units taking the second;
+\item the interaction, the difference between two of the first treatment's simple
+effects, with the two compared levels of the second as its group, written
+\code{"e = 1 vs e = 0"}. It is reported once. Interaction is symmetric in the two
+treatments, so the difference between the first's simple effects is the
+difference between the second's, and reporting both would put one quantity
+in the table under two names.
+}
+
+A two-by-two crossing therefore reports fourteen rows for a binary outcome:
+four means, four simple effects on each of two scales, and the interaction on
+each of them. A continuous outcome reports nine, since it has one scale.
+
+No contrast row carries a log odds ratio, for the reason no stratum row does:
+an odds ratio is noncollapsible, so neither a simple effect reported beside
+one nor a difference of two of them says what it appears to. The \code{"mean"}
+rows are means and carry no scale of their own.
+
+Every row is a parameter of the same stacked system. The cell means are the
+block the categorical path already carries, and the contrast block is written
+over those same means, so a simple effect and the cell-against-cell contrast
+that happens to equal it report the same estimate and the same standard
+error. Each interaction row is the difference of two simple-effect
+parameters, which makes it the double difference of the four means by
+construction rather than by two arithmetics that have to agree.
+
+The declaration is read off the exposure column of the frame the method
+resolves, which is \code{.data} where the caller supplied one and the outcome
+model's own frame otherwise. The fit records its levels as plain strings and
+keeps no memory of the crossing, so it is the frame and not the fit that
+decides which surface is reported, and dropping the declaration with
+\code{factor(x)} returns the cell-against-cell rows.
+
+Two configurations raise \code{balancing_ipw_unsupported_error}. A declared
+crossing with \code{.by} is refused: effect modification of a joint intervention
+is a three-way question, the interaction between two treatments within the
+levels of a third variable, and this surface reports neither that nor a
+projection of it. A declared crossing weighted for anything but \code{"ate"} is
+refused as well: every cell mean here standardizes to one population, and a
+tilted estimand standardizes each of them to a population the simple effects
+and the interaction are not defined over.
 }
 
 \section{Multiple imputation}{

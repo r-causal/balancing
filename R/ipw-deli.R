@@ -84,6 +84,10 @@
 #'   one contrast block per stratum, and one contrast block per non-reference
 #'   stratum against the reference one, after every block the ungrouped system
 #'   carries.
+#' @param joint The surface a declared crossing is reported under, as
+#'   `ipw_joint_plan()` resolves it, or `NULL` when the exposure declares none.
+#'   A declared crossing keeps the mean block and replaces the contrast block
+#'   with the simple effects and their interaction, rather than adding to it.
 #' @param sampling_weights The fit's sampling weights, or `NULL`.
 #' @param focal_level The fit's focal exposure level, or `NULL` for a pooled
 #'   estimand. It names the target population the marginal means standardize
@@ -105,6 +109,7 @@ ipw_deli_sandwich <- function(
   levels,
   categorical = FALSE,
   by = NULL,
+  joint = NULL,
   sampling_weights = NULL,
   focal_level = NULL,
   call = rlang::current_env()
@@ -182,8 +187,16 @@ ipw_deli_sandwich <- function(
     numeric(1)
   )
   m <- length(means)
+  # A declared crossing reports the same means under contrasts written in the
+  # two treatments, so it takes the contrast block over rather than sitting
+  # beside it. Everything before that block is what it always was, which is what
+  # makes the two surfaces agree on the rows both report.
   contrasts <- ipw_contrast_values(means, continuous)
   effects <- ipw_contrast_names(continuous, if (categorical) levels else NULL)
+  if (!is.null(joint)) {
+    contrasts <- ipw_joint_values(joint, means, continuous)
+    effects <- ipw_joint_names(joint)
+  }
   k <- length(effects)
 
   # The stratum blocks are seeded from the same pieces and the same tilt the
@@ -288,11 +301,15 @@ ipw_deli_sandwich <- function(
     # the same value for every unit. They contribute nothing to the meat at the
     # solution, where that value is zero, and everything to the bread, which is
     # what carries their standard errors without a delta method.
-    contrast_rows <- matrix(
-      ipw_contrast_values(mean_theta, continuous) - contrast_theta,
-      nrow = k,
-      ncol = n
-    )
+    contrast_rows <- if (is.null(joint)) {
+      matrix(
+        ipw_contrast_values(mean_theta, continuous) - contrast_theta,
+        nrow = k,
+        ncol = n
+      )
+    } else {
+      ipw_joint_rows(joint, mean_theta, contrast_theta, continuous, n)
+    }
 
     by_rows <- ipw_by_rows(
       by_stack = by_stack,

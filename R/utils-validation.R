@@ -220,7 +220,15 @@ validate_finite_data <- function(
       call = call
     )
   }
-  exposure_infinite <- sum(is.infinite(exposure_vec))
+  # `is.infinite()` is an internal generic, and a vctrs-backed factor subclass
+  # such as a declared joint exposure sends it to a method the class does not
+  # carry, so the caller meets a failure naming nothing they wrote. A
+  # non-numeric exposure holds no infinity to find either way, so it is tested
+  # as its labels, where the generic is defined and the answer is uniformly
+  # false.
+  exposure_infinite <- sum(is.infinite(
+    if (is.numeric(exposure_vec)) exposure_vec else as.character(exposure_vec)
+  ))
   if (exposure_infinite > 0) {
     abort_infinite(".exposure", count = exposure_infinite, call = call)
   }

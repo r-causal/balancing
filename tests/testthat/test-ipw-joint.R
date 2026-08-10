@@ -858,6 +858,48 @@ test_that("a declared crossing is reported for the ate estimand alone", {
   ))
 })
 
+# ---- Recorded messages -----------------------------------------------------
+
+# The wording and the condition class of the two configurations a declared
+# crossing turns away. Both refuse before any counterfactual design is built, so
+# neither snapshot carries a declaration-loss warning alongside the refusal, and
+# a change that moved either check after the designs would show up here as well
+# as in the gates above.
+
+test_that("balancing_ipw_unsupported_error: .by on a declared crossing", {
+  data <- ipw_joint_fixture()
+  fit <- fit_joint_weights(data)
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_joint_outcome(
+    y ~ joint * modifier + x1,
+    data,
+    w,
+    stats::binomial()
+  )
+
+  expect_balancing_error(ipw(fit, outcome_mod, .by = modifier))
+})
+
+test_that("balancing_ipw_unsupported_error: a focal estimand on a crossing", {
+  data <- ipw_joint_fixture()
+  fit <- fit_joint_weights(
+    data,
+    estimand = "att",
+    focal_level = "a = 1, e = 1"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_joint_outcome(
+    y ~ joint + x1,
+    data,
+    w,
+    stats::binomial()
+  )
+
+  expect_balancing_error(ipw(fit, outcome_mod))
+})
+
+# ---- Components that cannot be crossed -------------------------------------
+
 # A continuous component cannot be declared in the first place. Crossing a
 # treatment with a continuous variable puts one unit in almost every cell and
 # none in the rest, and a crossing with an empty cell is not identified, so

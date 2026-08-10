@@ -289,6 +289,69 @@
 #' `.by = sex` names no term reading `sex`, and its subgroup effects differ all
 #' the same.
 #'
+#' # Joint exposures
+#'
+#' [causalgenerics::joint_exposure()] crosses two discrete treatments into one
+#' categorical exposure and records the crossing on the vector. The result is a
+#' factor, so [balance()] weights it as it weights any factor over those cells,
+#' and the crossing changes which effects are reported rather than which
+#' population is balanced.
+#'
+#' Reported as a plain categorical exposure, such a fit gives each cell against
+#' the reference cell, under contrasts like `"a = 1, e = 0 vs a = 0, e = 0"`.
+#' Those rows are arithmetically right and they answer a question nobody asked.
+#' A declared crossing is reported in the two treatments instead, and the
+#' cell-against-cell rows are replaced rather than supplemented, so they appear
+#' in no estimates column, no coefficient name, no covariance dimname, and no
+#' printed row. The surface holds three kinds of row:
+#'
+#' * the counterfactual mean of each cell, under the effect label `"mean"`, with
+#'   the cell as its contrast and `"overall"` as its group;
+#' * the simple effects, each treatment's effect within a fixed level of the
+#'   other, with the treatment as the contrast, written `"a: 1 vs 0"`, and the
+#'   level the other is held at as the group, written `"e = 0"`. These include
+#'   the comparisons cell-against-cell reporting cannot express at all, such as
+#'   the first treatment's effect among units taking the second;
+#' * the interaction, the difference between two of the first treatment's simple
+#'   effects, with the two compared levels of the second as its group, written
+#'   `"e = 1 vs e = 0"`. It is reported once. Interaction is symmetric in the two
+#'   treatments, so the difference between the first's simple effects is the
+#'   difference between the second's, and reporting both would put one quantity
+#'   in the table under two names.
+#'
+#' A two-by-two crossing therefore reports fourteen rows for a binary outcome:
+#' four means, four simple effects on each of two scales, and the interaction on
+#' each of them. A continuous outcome reports nine, since it has one scale.
+#'
+#' No contrast row carries a log odds ratio, for the reason no stratum row does:
+#' an odds ratio is noncollapsible, so neither a simple effect reported beside
+#' one nor a difference of two of them says what it appears to. The `"mean"`
+#' rows are means and carry no scale of their own.
+#'
+#' Every row is a parameter of the same stacked system. The cell means are the
+#' block the categorical path already carries, and the contrast block is written
+#' over those same means, so a simple effect and the cell-against-cell contrast
+#' that happens to equal it report the same estimate and the same standard
+#' error. Each interaction row is the difference of two simple-effect
+#' parameters, which makes it the double difference of the four means by
+#' construction rather than by two arithmetics that have to agree.
+#'
+#' The declaration is read off the exposure column of the frame the method
+#' resolves, which is `.data` where the caller supplied one and the outcome
+#' model's own frame otherwise. The fit records its levels as plain strings and
+#' keeps no memory of the crossing, so it is the frame and not the fit that
+#' decides which surface is reported, and dropping the declaration with
+#' `factor(x)` returns the cell-against-cell rows.
+#'
+#' Two configurations raise `balancing_ipw_unsupported_error`. A declared
+#' crossing with `.by` is refused: effect modification of a joint intervention
+#' is a three-way question, the interaction between two treatments within the
+#' levels of a third variable, and this surface reports neither that nor a
+#' projection of it. A declared crossing weighted for anything but `"ate"` is
+#' refused as well: every cell mean here standardizes to one population, and a
+#' tilted estimand standardizes each of them to a population the simple effects
+#' and the interaction are not defined over.
+#'
 #' # Multiple imputation
 #'
 #' Missing covariate data is handled by imputing first and analyzing within each
@@ -394,7 +457,8 @@
 #'   alone and names no subgroups at all. A selection reaching any number of
 #'   columns other than one is refused, since the effects are reported within
 #'   the levels of a single variable. The effect modification section below
-#'   describes the rows a request adds and the configurations it refuses.
+#'   describes the rows a request adds and the configurations it refuses, and
+#'   the joint exposure section describes why a declared crossing takes none.
 #' @param ... Ignored, for compatibility with the generic.
 #'
 #' @return An object of class `ipw`, an implementation of
@@ -418,9 +482,11 @@
 #'     those, a mean and a contrast block per stratum and a contrast block per
 #'     non-reference stratum against the reference one. Each of their names is
 #'     the name of the block it repeats, suffixed with its group, as
-#'     `mu0_sex = female` and `rd_sex = female vs sex = male`. The standard
-#'     errors in `estimates` are `sqrt(diag(fit$vcov))` read at those effect
-#'     names.
+#'     `mu0_sex = female` and `rd_sex = female vs sex = male`. A declared joint
+#'     exposure keeps the mean block and replaces the contrast block, naming
+#'     each of its own contrasts for the measure and the row, as
+#'     `rd_a: 1 vs 0 e = 0`. The standard errors in `estimates` are
+#'     `sqrt(diag(fit$vcov))` read at those effect names.
 #'
 #'   The `estimates` table carries the covariance of the reported effects as its
 #'   `ipw_vcov` attribute, which is what [stats::vcov()] returns in the marginal
@@ -728,6 +794,32 @@ method(causalgenerics_ipw, balancing) <- function(
     # remedy pointed at the column the caller changed.
     validate_ipw_frame_alignment(.data, outcome_mod)
 
+    # A crossing is declared on the exposure column rather than recorded by the
+    # fit, which stores its levels as plain strings and keeps no memory of what
+    # they were built from. So the frame resolved above is the only place the
+    # declaration can be read, and it is read once, whichever arm filled the
+    # frame in.
+    #
+    # Both refusals come before anything is reported, since each of them is
+    # about whether the surface can be written at all rather than about what it
+    # would say.
+    joint <- ipw_joint_plan(
+      frame[[exposure_name]],
+      levels,
+      is_gaussian_outcome(outcome_mod)
+    )
+    check_ipw_joint_estimand(joint, estimand)
+    check_ipw_joint_by(joint, .by)
+
+    # The counterfactual designs fix the exposure to one cell at a time, and a
+    # declared crossing asked to give up its other cells gives up its
+    # declaration and says so. The plan is read off the declaration above and
+    # everything below works from the cells alone, so the column goes on as a
+    # plain factor over them.
+    if (!is.null(joint)) {
+      frame[[exposure_name]] <- ipw_joint_bare(frame[[exposure_name]])
+    }
+
     # The modifier is read out of the same frame the counterfactual designs are
     # built from, so the strata and the predictions they standardize describe
     # one set of rows. The exposure goes with it, since a stratum holding only
@@ -756,6 +848,7 @@ method(causalgenerics_ipw, balancing) <- function(
       levels = levels,
       categorical = categorical,
       by = by,
+      joint = joint,
       sampling_weights = wt_mod@sampling_weights,
       focal_level = wt_mod@focal_level,
       call = rlang::current_env()
@@ -767,7 +860,8 @@ method(causalgenerics_ipw, balancing) <- function(
       conf_level = conf_level,
       continuous = is_gaussian_outcome(outcome_mod),
       levels = if (categorical) levels else NULL,
-      by = by
+      by = by,
+      joint = joint
     )
   }
 
@@ -1576,14 +1670,52 @@ ipw_estimate_rows <- function(theta, vcov, conf_level, keys, effects) {
 # the whole-sample block and run subgroup-major, each of them repeating the
 # whole-sample block's own contrast-major order over the measures a subgroup
 # reports.
+# A declared crossing replaces the vs-reference block rather than adding to it,
+# so its rows are described on their own terms in R/ipw-joint.R and the two
+# grammars meet here, where each of them is read the same way: keys into the
+# stack, and the identity columns the rows are named by.
 ipw_estimates <- function(
   theta,
   vcov,
   conf_level,
   continuous,
   levels = NULL,
-  by = NULL
+  by = NULL,
+  joint = NULL
 ) {
+  identity <- if (is.null(joint)) {
+    ipw_contrast_identity(continuous, levels, by)
+  } else {
+    ipw_joint_identity(joint)
+  }
+
+  estimates <- ipw_estimate_rows(
+    theta = theta,
+    vcov = vcov,
+    conf_level = conf_level,
+    keys = identity$keys,
+    effects = identity$effect
+  )
+  identity_columns <- c(
+    if (!is.null(identity$contrast)) list(contrast = identity$contrast),
+    if (!is.null(identity$group)) list(group = identity$group)
+  )
+  if (length(identity_columns) > 0) {
+    estimates <- cbind(
+      estimates["effect"],
+      as.data.frame(identity_columns, stringsAsFactors = FALSE),
+      estimates[setdiff(names(estimates), "effect")]
+    )
+  }
+  # The covariance is attached last because `cbind()` rebuilds the table, which
+  # would drop an attribute attached before it, and because the labels it is
+  # named by are read off the finished table.
+  attach_effect_covariance(estimates, vcov = vcov, keys = identity$keys)
+}
+
+# The stacked keys and the identity columns of the vs-reference surface, which
+# is what every exposure reports when nothing else is declared or requested.
+ipw_contrast_identity <- function(continuous, levels, by) {
   keys <- ipw_contrast_names(continuous, levels)
   measures <- ipw_contrast_names(continuous)
   contrast_labels <- if (is.null(levels)) {
@@ -1627,28 +1759,7 @@ ipw_estimates <- function(
     }
   }
 
-  estimates <- ipw_estimate_rows(
-    theta = theta,
-    vcov = vcov,
-    conf_level = conf_level,
-    keys = keys,
-    effects = effect
-  )
-  identity_columns <- c(
-    if (!is.null(contrast)) list(contrast = contrast),
-    if (!is.null(group)) list(group = group)
-  )
-  if (length(identity_columns) > 0) {
-    estimates <- cbind(
-      estimates["effect"],
-      as.data.frame(identity_columns, stringsAsFactors = FALSE),
-      estimates[setdiff(names(estimates), "effect")]
-    )
-  }
-  # The covariance is attached last because `cbind()` rebuilds the table, which
-  # would drop an attribute attached before it, and because the labels it is
-  # named by are read off the finished table.
-  attach_effect_covariance(estimates, vcov = vcov, keys = keys)
+  list(keys = keys, effect = effect, contrast = contrast, group = group)
 }
 
 # The covariance of the reported effects, carried on the estimates table as the
