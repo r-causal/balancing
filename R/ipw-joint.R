@@ -23,7 +23,7 @@
 # rather than merely unreported. A simple effect is a contrast of two mean
 # parameters, and an interaction row is the difference of two simple-effect
 # parameters, so the double difference is exact by construction rather than by
-# two arithmetics that have to agree to the last bits.
+# two arithmetic routes that have to agree to the last bits.
 #
 # The odds ratio is off every contrast row here for the reason it is off a
 # stratum row: it is noncollapsible, so neither a simple effect reported beside

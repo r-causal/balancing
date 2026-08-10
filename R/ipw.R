@@ -374,7 +374,7 @@
 #' that happens to equal it report the same estimate and the same standard
 #' error. Each interaction row is the difference of two simple-effect
 #' parameters, which makes it the double difference of the four means by
-#' construction rather than by two arithmetics that have to agree.
+#' construction rather than by two arithmetic routes that have to agree.
 #'
 #' The declaration is read off the exposure column of the frame the method
 #' resolves, which is `.data` where the caller supplied one and the outcome
