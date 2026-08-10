@@ -62,13 +62,58 @@
 - [`ipw()`](https://r-causal.github.io/causalgenerics/reference/ipw.html)
   also accepts a continuous exposure from an entropy balancing fit with
   exact balance, whose estimand is the average treatment effect. It
-  reports the exposure coefficient of a weighted marginal structural
-  model, which must carry exactly one term in the exposure, as a single
-  row named for the outcome model’s link: `slope` for an identity link,
-  `log(or)` for a logit, and `log(rr)` for a log link. The standard
-  error comes from the same stacked M-estimator, the weight parameters
-  above the outcome-model score, and is a large-sample one: at a few
-  hundred observations it runs anticonservative.
+  reports the dose response of a weighted marginal structural model. An
+  exposure entering through one design column is the whole of that
+  response, so its coefficient is the response’s slope and the table
+  holds a single row named for the outcome model’s link: `slope` for an
+  identity link, `log(or)` for a logit, and `log(rr)` for a log link.
+  The standard error comes from the same stacked M-estimator, the weight
+  parameters above the outcome-model score, and is a large-sample one:
+  at a few hundred observations it runs anticonservative.
+
+- A continuous marginal structural model may spread the exposure over
+  several design columns, as in `y ~ exposure + I(exposure^2)` or
+  `y ~ splines::ns(exposure, 3)`. What it has to keep is variable
+  membership: every term reading the exposure reads the exposure alone,
+  and a term reading a covariate alongside it is refused, since its
+  coefficient is a change in the dose response per unit of that
+  covariate rather than an effect a row could name. Such a model reports
+  one row per exposure coefficient and gains a `contrast` column naming
+  each row after the coefficient the fit names. The scale word steps
+  back to `coef` at an identity link, since a curve has a different
+  slope at every dose; a logit still reports `log(or)` and a log link
+  `log(rr)`, because a coefficient of those models is a log ratio
+  whatever column it multiplies.
+
+- [`ipw()`](https://r-causal.github.io/causalgenerics/reference/ipw.html)
+  takes a `.by` argument naming a modifier to report the effects within
+  the levels of. A result carrying one reports the whole-sample effects,
+  then those same effects within each subgroup, then each non-reference
+  subgroup against the reference one, and the estimates table gains a
+  `group` column naming the subgroup each row was estimated in. A
+  subgroup row carries the collapsible measures alone, since the odds
+  ratio over a sample is not an average of the odds ratios within its
+  subgroups. Every added row is a parameter of the same stacked system,
+  so the subgroups covary and a contrast of two of them is estimated
+  rather than differenced after the fact. An outcome model with no term
+  reading both the exposure and the modifier is reported with a warning
+  rather than refused, and a continuous exposure, which reports
+  coefficients rather than contrasts of standardized means, has no
+  subgroup effect for the argument to name and refuses it.
+
+- An exposure declared as a crossing of two treatments by
+  causalgenerics’ `joint_exposure()` is reported in those two treatments
+  rather than cell against cell: the counterfactual mean of each cell,
+  the simple effects of each treatment within a fixed level of the
+  other, and the interaction between the two treatments, reported once
+  because it is symmetric in them. The cell-against-cell rows are
+  replaced rather than supplemented, so their labels appear nowhere a
+  row is named. Every row is a parameter of the same stacked system,
+  which makes each interaction a double difference of cell means by
+  construction. A crossing whose two treatments carry one name is
+  refused, since every row is keyed by the treatment it contrasts and
+  the level the other is held at, and a declared crossing is refused
+  with `.by` or with an estimand other than the ATE.
 
 - Missing covariate data is handled by imputing first and analyzing
   within each completed dataset. Balance, weight, and estimate once per

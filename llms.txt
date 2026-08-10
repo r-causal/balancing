@@ -99,8 +99,8 @@ the fit and the weighted outcome model to
 [`ipw()`](https://r-causal.github.io/causalgenerics/reference/ipw.html)
 to get effect estimates with standard errors that account for having
 estimated the weights. Binary, categorical, and continuous exposures are
-supported; with a continuous exposure the reported effect is the
-exposure coefficient of a weighted marginal structural model.
+supported; with a continuous exposure the reported effects are the
+exposure coefficients of a weighted marginal structural model.
 
 ``` r
 

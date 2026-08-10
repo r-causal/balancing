@@ -26,8 +26,8 @@ having estimated the weights.
   [`stats::lm()`](https://rdrr.io/r/stats/lm.html), fitted with the
   balancing weights and carrying the exposure among its predictors. It
   may adjust for covariates alongside the exposure. For a continuous
-  exposure it is a marginal structural model carrying exactly one term
-  in the exposure.
+  exposure it is a marginal structural model whose every
+  exposure-reading term reads the exposure alone.
 
 - .data:
 
@@ -36,6 +36,19 @@ having estimated the weights.
   the fixed-exposure predictions are built from, so it has nothing to
   supply for a continuous exposure, which makes no such predictions, and
   is ignored there.
+
+  It must hold the rows both models were fitted on, in the same order.
+  Half of the stacked system reads it and half reads the fit: the
+  counterfactual predictions, the subgroup indicators, and a focal
+  estimand's standardization come from `.data`, while the weight
+  equations and the outcome-model score stay in the fit's order. A frame
+  holding the right rows in another order therefore leaves every effect
+  estimate unchanged, since a weighted mean does not care in which order
+  it is summed, and makes every standard error wrong. Each column
+  `.data` and the outcome model frame name in common is compared value
+  by value, and a disagreement raises `balancing_ipw_input_error` naming
+  the column and the first row it disagrees at. Columns the outcome
+  model never saw, the modifier `.by` names among them, are free.
 
 - estimand:
 
@@ -76,6 +89,19 @@ having estimated the weights.
   block back. The fit that went into the call is untouched, and reports
   no covariance of its own.
 
+- .by:
+
+  A modifier to report the effects within the levels of, given unquoted
+  and selected with tidyselect out of `.data` where one was supplied and
+  out of the outcome model frame otherwise. The default, `NULL`, is the
+  absence of a request: the result then reports the whole-sample effects
+  alone and names no subgroups at all. A selection reaching any number
+  of columns other than one is refused, since the effects are reported
+  within the levels of a single variable. The effect modification
+  section below describes the rows a request adds and the configurations
+  it refuses, and the joint exposure section describes why a declared
+  crossing takes none.
+
 - ...:
 
   Ignored, for compatibility with the generic.
@@ -99,18 +125,26 @@ the result carries two fields describing the variance:
   names its means `mu0` and `mu1` and its contrasts by measure alone; a
   categorical exposure names each mean `mu_` followed by its level and
   each contrast by measure and level, as `rd_b`. A continuous exposure
-  carries neither block, since the effect is one of the outcome-model
-  coefficients; that coefficient is named for the effect, as `slope`, in
-  place of the `beta_` name the others carry. The standard errors in
-  `estimates` are `sqrt(diag(fit$vcov))` read at those effect names.
+  carries neither block, since its effects are outcome-model
+  coefficients; each of those coefficients is named for the label its
+  estimates row carries, as `slope` or `coef I(exposure^2)`, in place of
+  the `beta_` name the others keep. A `.by` request appends, after all
+  of those, every subgroup's mean block in subgroup order, then every
+  subgroup's contrast block in that same order, then one contrast block
+  per non-reference subgroup against the reference one. Each of their
+  names is the name of the block it repeats, suffixed with its group, as
+  `mu0_sex = female` and `rd_sex = female vs sex = male`. A declared
+  joint exposure keeps the mean block and replaces the contrast block,
+  naming each of its own contrasts for the measure and the row, as
+  `rd_a: 1 vs 0 e = 0`. The standard errors in `estimates` are
+  `sqrt(diag(fit$vcov))` read at those effect names.
 
 The `estimates` table carries the covariance of the reported effects as
 its `ipw_vcov` attribute, which is what
 [`stats::vcov()`](https://rdrr.io/r/stats/vcov.html) returns in the
-marginal reading. Both its dimnames are the display labels of the
-estimates rows: the effect measure alone, or the measure and the
-contrast for a categorical exposure, as `"rd b vs a"`. The stored
-`outcome_mod` is wrapped by
+marginal reading. Both its dimnames are the display labels described
+above, as `"rd b vs a sex = female"`. The stored `outcome_mod` is
+wrapped by
 [`causalgenerics::new_ipw_model()`](https://r-causal.github.io/causalgenerics/reference/new_ipw_model.html),
 which carries the outcome-model block of `fit$vcov` under the model's
 own coefficient names, so [`vcov()`](https://rdrr.io/r/stats/vcov.html)
@@ -148,25 +182,42 @@ contributes K marginal means and one block of measures per non-reference
 level, and the estimates table gains a `contrast` column, placed after
 `effect`, naming each contrast as `"<level> vs <reference>"`. A binary
 exposure keeps the table it has always returned, with no `contrast`
-column.
+column. A categorical exposure declared as a crossing of two treatments
+by
+[`causalgenerics::joint_exposure()`](https://r-causal.github.io/causalgenerics/reference/joint_exposure.html)
+replaces those level-against-reference rows with the surface described
+under Joint exposures below.
 
 A continuous exposure has no levels to contrast, so there is no pair of
 marginal means to difference. What the method reports instead is the
-dose-response coefficient of a weighted marginal structural model: the
-balancing weights break the exposure-covariate association, the outcome
-model carries exactly one term in the exposure, and that term's
-coefficient is the effect of a one-unit change in the exposure on the
-model's own link scale. The estimates table holds a single row, keeping
-the columns it holds for every other exposure and gaining no `contrast`
-column, and that row is named for the link: `slope` for an identity
-link, whether the model arrives as a
-[`stats::lm()`](https://rdrr.io/r/stats/lm.html) or as a gaussian
+dose response of a weighted marginal structural model: the balancing
+weights break the exposure-covariate association, and every coefficient
+of the outcome model that reads the exposure is an effect on the model's
+own link scale. The estimates table holds one row per such coefficient,
+read straight off the weighted fit, since nothing is standardized here.
+
+An exposure entering through one design column, whether as a bare term
+or as a transformation of one, is the whole of the dose response, so its
+coefficient is that response's slope everywhere. Such a model keeps the
+single-row table it has always returned, with the columns every other
+exposure's table holds and no `contrast` column, and the row is named
+for the link: `slope` for an identity link, whether the model arrives as
+a [`stats::lm()`](https://rdrr.io/r/stats/lm.html) or as a gaussian
 [`stats::glm()`](https://rdrr.io/r/stats/glm.html); `log(or)` for a
-logit; and `log(rr)` for a log link. Another link raises
-`balancing_ipw_input_error`, since its coefficient is none of those
-three. A continuous fit targets the average treatment effect and nothing
-else, so an `estimand` supplied alongside it either agrees or raises
-`balancing_estimand_error`, as it does for any other fit.
+logit; and `log(rr)` for a log link.
+
+An exposure entering through several columns, as in
+`y ~ exposure + I(exposure^2)` or `y ~ splines::ns(exposure, 3)`, has no
+such row, since a curve has a different slope at every dose. The table
+then holds one row per column, gains a `contrast` column naming each row
+after the coefficient the fit names, and the scale word steps back to
+`coef` at an identity link. A logit still reports `log(or)` and a log
+link `log(rr)`, because a coefficient of those models is a log ratio
+whatever column it multiplies. Another link raises
+`balancing_ipw_input_error` either way, since its coefficients are none
+of those things. A continuous fit targets the average treatment effect
+and nothing else, so an `estimand` supplied alongside it either agrees
+or raises `balancing_estimand_error`, as it does for any other fit.
 
 The standard errors come from a stacked M-estimator that the deli
 package differentiates and sandwiches. The stacked parameter vector
@@ -191,9 +242,10 @@ empirical sandwich covariance.
 A continuous exposure stacks the same system with the g-computation half
 removed. There are no fixed-exposure predictions to standardize and no
 contrasts to form, so the stack holds the weight parameters and the
-marginal structural model's coefficients alone, and the effect is
-already one of those coefficients rather than a parameter derived from
-them.
+marginal structural model's coefficients alone, and each reported effect
+is already one of those coefficients rather than a parameter derived
+from them. A basis widens that stack by its own columns and changes
+nothing else.
 
 Nothing is re-solved along the way. Every parameter enters at the value
 its own fit already found, and the stacked estimating functions are only
@@ -227,8 +279,24 @@ of its coefficients with the uncertainty from estimating the weights
 included, where a bare refit of the same weighted model treats the
 weights as fixed and understates it.
 
-That covariance is a large-sample one, and how large a sample it takes
-differs by exposure. The binary risk-difference standard error is
+A row's display label is built from the identity columns of the
+estimates table, in the order the table carries them: the effect
+measure, then the contrast where the surface names one, then the group
+where it names one. A contrast names a categorical exposure's pair of
+levels, a continuous surface's basis coefficient, or a joint exposure's
+treatment; a group names the subgroup a `.by` request reports the row
+within, or the level a joint exposure holds the other treatment at. That
+one label names the row wherever a caller reads it, so the printed
+table, the names of
+[`stats::coef()`](https://rdrr.io/r/stats/coef.html), the dimnames of
+[`stats::vcov()`](https://rdrr.io/r/stats/vcov.html), and the rownames
+of [`stats::confint()`](https://rdrr.io/r/stats/confint.html) agree row
+for row with the estimates table. The stacked `fit$theta` and `fit$vcov`
+carry names of their own, which name blocks of the estimating-equation
+system rather than reported rows and are described under Value.
+
+The sandwich covariance is a large-sample one, and how large a sample it
+takes differs by exposure. The binary risk-difference standard error is
 calibrated at a few hundred observations; the continuous slope's is
 anticonservative there. Over 500 draws its ratio of mean standard error
 to the standard deviation of the estimates was 0.836 at 300 observations
@@ -262,16 +330,20 @@ contrasts. A model without an exposure term raises
 `balancing_ipw_input_error`, since its fixed-exposure predictions would
 all be the same prediction and every contrast it reported would be zero.
 
-A continuous exposure narrows that to exactly one term, the exposure
-itself, since what it reports is one coefficient of the model rather
-than a contrast of predictions from it. `y ~ exposure` and
-`y ~ exposure + x1` are supported, while `y ~ exposure + I(exposure^2)`,
-`y ~ poly(exposure, 2)`, and `y ~ exposure * x1` raise
-`balancing_ipw_input_error`: each carries a second design column in the
-exposure, so the effect of a one-unit change depends on where it is read
-and no single coefficient is it. The check reads the model's terms
-rather than the text of its formula, so a transformed or interacted
-exposure term is caught however it is written.
+A continuous exposure narrows that by variable membership, since what it
+reports are coefficients of the model rather than contrasts of
+predictions from it. Every term reading the exposure must read the
+exposure alone, however many design columns it expands to, so
+`y ~ exposure`, `y ~ exposure + x1`, `y ~ exposure + I(exposure^2)`,
+`y ~ sin(exposure)`, `y ~ poly(exposure, 2)` and
+`y ~ splines::ns(exposure, 3)` are all supported. A term reading a
+covariate alongside the exposure raises `balancing_ipw_input_error`, so
+`y ~ exposure * x1`, `y ~ exposure + exposure:x1` and
+`y ~ I(exposure * x1)` are refused: each contributes a coefficient that
+is a change in the dose response per unit of that covariate, so there is
+no one effect for a row to report and no covariate value a row could
+name it at. The check reads the model's terms rather than the text of
+its formula, so the mixing is caught however it is written.
 
 An offset reaches the linear predictor without being a term, so it is
 checked on its own, and for every exposure type. An offset expression
@@ -352,6 +424,172 @@ are the g-computation means with each unit's offset held at its observed
 value. That is the right treatment of a quantity the exposure does not
 move and the wrong treatment of one it does, which is why the
 exposure-reading case is refused above.
+
+## Effect modification
+
+`.by` names a modifier, and a result carrying one reports the effects it
+reports without a request, then those same effects within each of the
+modifier's levels, then each non-reference level against the reference
+one. The estimates table gains a `group` column naming the subgroup each
+row was estimated in, placed after `contrast` where a categorical
+exposure names one and after `effect` where it does not, since a
+subgroup qualifies the whole comparison rather than one side of it. The
+whole-sample rows come first, under the group `"overall"`; a subgroup's
+rows are named `"var = value"`, as `"sex = female"`; and a contrast of
+subgroups joins the two, as `"sex = female vs sex = male"`. The
+reference subgroup is the modifier's first level, which for a factor is
+the first of its declared levels rather than the first in sorted order.
+A character modifier declares no levels, so it is read as a factor on
+the way in and its reference subgroup is its alphabetically first value,
+whatever order the values appear in. Declare the column a factor to
+measure the contrasts against some other subgroup.
+
+A subgroup reports the collapsible measures alone. For a binary outcome
+that is `rd` and `log(rr)`; a continuous outcome reports `diff`, the
+only measure it has. The log odds ratio stays among the whole-sample
+rows. An odds ratio is noncollapsible, so the odds ratio over a sample
+is not an average of the odds ratios within its subgroups and the
+difference of two of them is not the difference in effect it reads as;
+nothing in the whole-sample rows averages anything over subgroups, which
+is why they keep it. A categorical exposure crosses its contrasts with
+the subgroups, so each subgroup block reports each contrast in the order
+the whole-sample block reports it.
+
+A subgroup's marginal means are the g-computation means over that
+subgroup alone, standardized the way the whole-sample means are: over
+every unit of the subgroup for a pooled estimand, and over its focal
+units for `"att"` or `"atc"`. Sampling weights weight that average as
+well.
+
+Every row a request adds is a parameter of the same stacked system the
+whole-sample rows are parameters of. The blocks are appended after
+everything the ungrouped stack carries and nothing earlier reads a
+parameter of theirs, so the leading blocks are the ones an ungrouped fit
+produces and the whole-sample rows of a grouped result are the rows it
+reported. What that buys is the covariance: the subgroups share the
+weight parameters and the outcome model's coefficients, so their effects
+covary, and each contrast of subgroups is a parameter of the joint
+system rather than a difference of two separate fits, whose variance
+would have to be read as a sum.
+
+A level of the modifier that no unit carries names an empty subgroup and
+is dropped rather than refused, which is what lets a modifier be subset
+without being recoded first. Four configurations are refused with
+`balancing_ipw_input_error`: a selection naming any number of columns
+other than one, a modifier that is neither a factor nor a character
+column, a modifier carrying missing values, and a modifier one of whose
+subgroups holds fewer than all of the exposure levels. That last one has
+no contrast to report in the subgroup that is short a level, and
+refitting either model does not supply a comparison the data do not
+hold. `.by` with a continuous exposure raises
+`balancing_ipw_unsupported_error`: what such a fit reports is the
+marginal structural model's own exposure coefficients rather than
+contrasts of standardized means, so there is no effect within a subgroup
+for the argument to name, and `.by` with a declared joint exposure
+raises it for the reason given under Joint exposures below. A modifier
+that reaches the argument through `.data` carries that frame's row-order
+requirement with it, described under `.data` above: the subgroups are
+built from the rows it holds while the weights stay in the fit's order.
+
+An outcome model with no term reading both the exposure and the modifier
+raises `balancing_ipw_by_interaction_warning` and the result is still
+built. The subgroup effects are g-computation on the model as it was
+specified, so the effect differs across subgroups only where a term
+reads both columns, and that may be the modeling choice a caller meant
+to make. The warning reports which terms were read rather than
+announcing that the effect is the same in every subgroup, because a
+model may carry the modification through a column derived from the
+modifier instead: `y ~ exposure * sex_female` reported by `.by = sex`
+names no term reading `sex`, and its subgroup effects differ all the
+same.
+
+## Joint exposures
+
+[`causalgenerics::joint_exposure()`](https://r-causal.github.io/causalgenerics/reference/joint_exposure.html)
+crosses two discrete treatments into one categorical exposure and
+records the crossing on the vector. The result is a factor, so
+[`balance()`](https://r-causal.github.io/balancing/reference/balance.md)
+weights it as it weights any factor over those cells, and the crossing
+changes which effects are reported rather than which population is
+balanced.
+
+Reported as a plain categorical exposure, such a fit gives each cell
+against the reference cell, under contrasts like
+`"a = 1, e = 0 vs a = 0, e = 0"`. Those rows are arithmetically right
+and they answer a question nobody asked. A declared crossing is reported
+in the two treatments instead, and the cell-against-cell rows are
+replaced rather than supplemented, so their labels appear nowhere a row
+is named: in no estimates column, no coefficient name, no covariance
+dimname, no interval rowname, and no printed row. The surface holds
+three kinds of row:
+
+- the counterfactual mean of each cell, under the effect label `"mean"`,
+  with the cell as its contrast and `"overall"` as its group;
+
+- the simple effects, each treatment's effect within a fixed level of
+  the other, with the treatment as the contrast, written `"a: 1 vs 0"`,
+  and the level the other is held at as the group, written `"e = 0"`.
+  These include the comparisons cell-against-cell reporting cannot
+  express at all, such as the first treatment's effect with the second
+  set to one;
+
+- the interaction, the difference between two of the first treatment's
+  simple effects, with the two compared levels of the second as its
+  group, written `"e = 1 vs e = 0"`. It is reported once. Interaction is
+  symmetric in the two treatments, so the difference between the first's
+  simple effects is the difference between the second's, and reporting
+  both would put one quantity in the table under two names.
+
+A two-by-two crossing therefore reports fourteen rows for a binary
+outcome: four means, four simple effects on each of two scales, and the
+interaction on each of them. A continuous outcome reports nine, since it
+has one scale.
+
+The group column names something different here than it names under
+`.by`. A group naming a level of the other treatment names the value
+that treatment is set to in the two cell means the row contrasts, which
+is a setting of the intervention rather than a subgroup of units. Every
+row on this surface, the cell means included, standardizes over the
+whole sample, so the contrasts are differences and double differences of
+cell means over one population.
+
+No contrast row carries a log odds ratio, for the reason no subgroup row
+does: an odds ratio is noncollapsible, so neither a simple effect
+reported beside one nor a difference of two of them says what it appears
+to. The `"mean"` rows are means and carry no scale of their own.
+
+Every row is a parameter of the same stacked system. The cell means are
+the block the categorical path already carries, and the contrast block
+is written over those same means, so a simple effect and the
+cell-against-cell contrast that happens to equal it report the same
+estimate and the same standard error. Each interaction row is the
+difference of two simple-effect parameters, which makes it the double
+difference of the four means by construction rather than by two
+arithmetic routes that have to agree.
+
+The declaration is read off the exposure column of the frame the method
+resolves, which is `.data` where the caller supplied one and the outcome
+model's own frame otherwise. The fit records its levels as plain strings
+and keeps no memory of the crossing, so it is the frame and not the fit
+that decides which surface is reported, and dropping the declaration
+with `factor(x)` returns the cell-against-cell rows.
+
+A crossing whose two treatments carry one name, as in
+`joint_exposure(a = x, a = y)`, raises `balancing_ipw_input_error`.
+Every row is keyed by the treatment it contrasts and the level the other
+is held at, both written from the component names, so one name over two
+treatments names two different effects the same way. Declare each
+treatment under a name of its own.
+
+Two further configurations raise `balancing_ipw_unsupported_error`. A
+declared crossing with `.by` is refused: effect modification of a joint
+intervention is a three-way question, the interaction between two
+treatments within the levels of a third variable, and this surface
+reports neither that nor a projection of it. A declared crossing
+weighted for anything but `"ate"` is refused as well: every cell mean
+here standardizes to one population, and a tilted estimand standardizes
+each of them to a population the simple effects and the interaction are
+not defined over.
 
 ## Multiple imputation
 
@@ -492,6 +730,31 @@ ipw(fit, adjusted_mod)
 #> ---
 #> Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
 
+# `.by` reports the effects again within the levels of a modifier, then
+# contrasts each level against the first of them.
+df$grp <- factor(ifelse(x1 > 0, "high", "low"), levels = c("low", "high"))
+by_mod <- glm(
+  y ~ exposure * grp,
+  data = df,
+  family = quasibinomial(),
+  weights = .wts
+)
+
+ipw(fit, by_mod, .by = grp)
+#> Inverse Probability Weight Estimator
+#> Estimand: ATE 
+#> 
+#> Propensity Score Model:
+#>   Call: NULL 
+#> 
+#> Outcome Model:
+#>   Call: glm(formula = y ~ exposure * grp, family = quasibinomial(), data = df, 
+#>     weights = .wts) 
+#> 
+#> Estimates:
+#> Warning: non-unique values when setting 'row.names': ‘log(rr)’, ‘rd’
+#> Error in `.rowNamesDF<-`(x, value = value): duplicate 'row.names' are not allowed
+
 # A categorical exposure reports each level against the reference level, and
 # the estimates table names the contrast.
 odds_b <- exp(0.6 * x1)
@@ -537,8 +800,9 @@ ipw(arm_fit, arm_mod)
 #> Warning: non-unique values when setting 'row.names': ‘log(or)’, ‘log(rr)’, ‘rd’
 #> Error in `.rowNamesDF<-`(x, value = value): duplicate 'row.names' are not allowed
 
-# A continuous exposure reports one effect, the exposure coefficient of a
-# weighted marginal structural model, named for that model's link.
+# A continuous exposure reports the dose response of a weighted marginal
+# structural model. An exposure entering through one design column is that
+# response's slope, reported as one row named for the model's link.
 df$dose <- 0.7 * x1 + rnorm(n)
 df$score <- 2 + 0.5 * df$dose + 0.4 * x1 + rnorm(n)
 
@@ -562,6 +826,24 @@ ipw(dose_fit, dose_mod)
 #> slope  0.48987 0.076449 6.407895     0.34  0.63971       0.95 1.475e-10 ***
 #> ---
 #> Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+# An exposure entering through several columns reports one row per
+# coefficient, named after the coefficient the fit names.
+curve_mod <- lm(score ~ poly(dose, 2), data = df, weights = .dose_wts)
+
+ipw(dose_fit, curve_mod)
+#> Inverse Probability Weight Estimator
+#> Estimand: ATE 
+#> 
+#> Propensity Score Model:
+#>   Call: NULL 
+#> 
+#> Outcome Model:
+#>   Call: lm(formula = score ~ poly(dose, 2), data = df, weights = .dose_wts) 
+#> 
+#> Estimates:
+#> Warning: non-unique value when setting 'row.names': ‘coef’
+#> Error in `.rowNamesDF<-`(x, value = value): duplicate 'row.names' are not allowed
 
 # With missing covariate data, analyze within each completed dataset and
 # pool the results afterward.

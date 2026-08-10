@@ -205,7 +205,14 @@ squaring a zero/one column reproduces it.
 to `TRUE`, excluding products of two indicators of the same factor. This
 balances the joint distribution of pairs of covariates, not just their
 marginals, and adds the product terms to the constraint count the
-printed summary reports.
+printed summary reports. The word names a constraint here rather than a
+causal quantity: `interactions = TRUE` expands the set of covariate
+functions the weights must balance, equating them across the exposure
+groups of a discrete exposure and driving them to zero correlation with
+a continuous one, and says nothing about two treatments acting together,
+which is an effect
+[`ipw()`](https://r-causal.github.io/causalgenerics/reference/ipw.html)
+reports for a joint exposure rather than a constraint requested here.
 
 ``` r
 

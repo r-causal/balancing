@@ -147,12 +147,12 @@ supported natively, written either as an
 [`offset()`](https://rdrr.io/r/stats/offset.html) term in the formula or
 passed through the model’s `offset` argument, and are carried through
 both the outcome-model score and the marginal means. A continuous
-exposure reports a coefficient rather than a contrast of predictions, so
-an offset that reads the exposure moves that coefficient off the effect
-it names and is refused there; an exposure-free offset, such as the
-person-time offset of a rate model, is supported as it is everywhere
-else. That refusal reads the offset expression, so an offset arriving as
-a precomputed vector is beyond it and keeping the exposure out of one is
+exposure reports coefficients rather than contrasts of predictions, so
+an offset that reads the exposure moves them off the effects they name
+and is refused there; an exposure-free offset, such as the person-time
+offset of a rate model, is supported as it is everywhere else. That
+refusal reads the offset expression, so an offset arriving as a
+precomputed vector is beyond it and keeping the exposure out of one is
 yours to honor.
 
 ### Categorical exposures
@@ -245,16 +245,27 @@ covariates, the marginal means standardize over the estimand’s target
 population, and the standard errors account for having estimated the
 weights.
 
+A categorical exposure that
+[`causalgenerics::joint_exposure()`](https://r-causal.github.io/causalgenerics/reference/joint_exposure.html)
+declares as a crossing of two treatments is reported in those treatments
+instead of cell against cell: the cell means, each treatment’s simple
+effects within the levels of the other, and their interaction. See
+[`?ipw.balancing`](https://r-causal.github.io/balancing/reference/ipw.balancing.md)
+for that surface.
+[`ipw()`](https://r-causal.github.io/causalgenerics/reference/ipw.html)
+also takes a `.by` argument, which reports the effects again within the
+levels of a modifier and contrasts the subgroups, documented on the same
+page.
+
 ### Continuous exposures
 
 A continuous exposure has no levels to contrast, so there is no pair of
 marginal means to difference.
 [`ipw()`](https://r-causal.github.io/causalgenerics/reference/ipw.html)
-reports the dose-response coefficient of a weighted marginal structural
-model instead: entropy balancing removes the association between the
-exposure and the covariates, the outcome model carries exactly one term
-in the exposure, and that term’s coefficient is the effect of a one-unit
-change in the exposure on the model’s own link scale.
+reports the dose response of a weighted marginal structural model
+instead: entropy balancing removes the association between the exposure
+and the covariates, and every coefficient of the outcome model that
+reads the exposure is an effect on the model’s own link scale.
 
 ``` r
 
@@ -291,14 +302,62 @@ ipw(dose_fit, dose_mod)
 #> Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 ```
 
-The table holds one row, named for the link: `slope` for an identity
-link, `log(or)` for a logit, and `log(rr)` for a log link. The model may
-adjust for covariates, but exactly one of its terms may read the
-exposure: `response ~ dose + age` is accepted, while
-`response ~ poly(dose, 2)` and `response ~ dose * age` are refused,
-since no single coefficient of either is the effect the row would name.
-Only entropy balancing at exact balance reaches this path, and only for
-the ATE, which is the only estimand a continuous fit targets.
+An exposure entering through one design column is the whole of the dose
+response, so its coefficient is that response’s slope everywhere. The
+table holds one row, named for the link: `slope` for an identity link,
+`log(or)` for a logit, and `log(rr)` for a log link.
+
+The exposure may also enter through several columns. What the model has
+to keep is variable membership: every term reading the exposure must
+read the exposure alone, however many columns it expands to, so a curve
+written out term by term and one handed to a basis constructor are both
+reported.
+
+``` r
+
+curve_mod <- lm(response ~ splines::ns(dose, 3), data = study, weights = dose_w)
+
+ipw(dose_fit, curve_mod)
+#> Inverse Probability Weight Estimator
+#> Estimand: ATE 
+#> Effects: marginal (population-averaged) 
+#> 
+#> Weight Estimator:
+#>   Call: balance(.data = study, .exposure = dose, .covariates = c(age, 
+#>     score), method = bw_entropy(), estimand = "ate") 
+#> 
+#> Outcome Model:
+#>   Call: lm(formula = response ~ splines::ns(dose, 3), data = study, weights = dose_w) 
+#> 
+#> Marginal estimates:
+#>                            estimate std.err      z ci.lower ci.upper conf.level
+#> coef splines::ns(dose, 3)1  1.49752 0.48211 3.1062   0.5526   2.4424       0.95
+#> coef splines::ns(dose, 3)2  3.07443 2.09429 1.4680  -1.0303   7.1792       0.95
+#> coef splines::ns(dose, 3)3  3.53318 0.86708 4.0748   1.8337   5.2326       0.95
+#>                              p.value    
+#> coef splines::ns(dose, 3)1  0.001895 ** 
+#> coef splines::ns(dose, 3)2  0.142102    
+#> coef splines::ns(dose, 3)3 4.605e-05 ***
+#> ---
+#> Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+```
+
+The table then holds one row per coefficient and gains a `contrast`
+column naming each row after the coefficient the fit names. The scale
+word steps back to `coef` at an identity link, since a curve has a
+different slope at every dose and no one of its coefficients is that
+slope; a logit still reports `log(or)` and a log link `log(rr)`, because
+a coefficient of those models is a log ratio whatever column it
+multiplies. Nothing is standardized on this path either way, so each row
+is a coefficient of the weighted fit and what the stack adds is the
+standard error.
+
+A term reading a covariate alongside the exposure is refused.
+`response ~ dose * age` contributes a coefficient that is a change in
+the dose response per unit of `age`, so there is no one effect for a row
+to report and no value of `age` a row could name it at. Only entropy
+balancing at exact balance reaches this path, and only for the ATE,
+which is the only estimand a continuous fit targets.
 
 The continuous standard error reaches its nominal coverage more slowly
 than the binary risk difference does. Over 500 draws, its ratio of mean

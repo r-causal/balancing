@@ -27,7 +27,14 @@ balance_terms(
 
 - interactions:
 
-  Whether to add pairwise interactions of the base columns.
+  Whether to add pairwise interactions of the base columns. These expand
+  the constraint set the weights must balance, adding the pairwise
+  products of the base columns to the covariate functions a fit
+  constrains: equated across the exposure groups of a discrete exposure,
+  and driven to zero correlation with a continuous one. They say nothing
+  about causal interaction between two exposures, which is an effect
+  rather than a constraint and is reported for a joint exposure by
+  [`ipw()`](https://r-causal.github.io/balancing/reference/ipw.balancing.md).
 
 - quantiles:
 
