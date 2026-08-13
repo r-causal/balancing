@@ -11,6 +11,19 @@
   categorical, and continuous exposures across the ATE, ATT, ATU, and (for the
   covariate balancing propensity score) ATO estimands.
 
+* `balance()` resolves its exposure type through causalgenerics, which owns the
+  detection heuristics, the announcement, and the refusal of a declared type
+  across the r-causal packages. Four things change with the move. Missing values
+  no longer count as a level of their own, so a two-valued exposure that also
+  carries missingness reads as binary rather than continuous; `balance()` refuses
+  a missing exposure before it reads a type, so no fit reaches the new reading. A
+  factor or character exposure taking a single level reads as binary rather than
+  categorical, and is refused for taking one level either way. The announcement
+  of a detected type loses its trailing period. An `exposure_type` the data
+  cannot carry is refused with the `causalgenerics_forced_exposure_type`
+  condition rather than `balancing_exposure_type_error`, which stays the class of
+  balancing's own refusal of an exposure type the method cannot fit.
+
 * Added `balance_terms()` to specify the covariate functions a method balances,
   covering moments, pairwise interactions, quantile indicators, and per-covariate
   balance tolerances.

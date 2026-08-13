@@ -1,7 +1,9 @@
 # Snapshot the message and condition class of every classed error reachable in
 # the entropy slice. `expect_balancing_error()` records with cnd_class = TRUE so
 # the subclass is captured alongside the text. Snapshots record on the first
-# successful run once the implementation exists.
+# successful run once the implementation exists. Not every condition recorded
+# here is balancing's own: an `exposure_type` the data cannot carry is refused
+# by causalgenerics, and the snapshot records that class as it stands.
 
 test_that("balancing_type_error: non-data-frame input", {
   expect_balancing_error(
@@ -90,7 +92,7 @@ test_that("balancing_estimand_error: a categorical att without focal_level", {
   )
 })
 
-test_that("balancing_exposure_type_error: a forced type contradicts the data", {
+test_that("causalgenerics_forced_exposure_type: forced type contradicts data", {
   data <- sim_continuous(n = 150)
   expect_balancing_error(
     balance(

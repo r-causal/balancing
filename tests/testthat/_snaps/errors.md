@@ -91,15 +91,15 @@
       ! `focal_level` is required for the "att" estimand with a categorical exposure.
       i Supply the exposure level to target, one of "a", "b", and "c".
 
-# balancing_exposure_type_error: a forced type contradicts the data
+# causalgenerics_forced_exposure_type: forced type contradicts data
 
     Code
       balance(data, exposure, c(x1, x2), method = bw_entropy(), exposure_type = "binary")
-    Condition <balancing_exposure_type_error>
+    Condition <causalgenerics_forced_exposure_type>
       Error in `balance()`:
-      ! `exposure_type` was set to "binary", but the exposure cannot be treated that way.
-      x A "binary" exposure takes exactly two distinct values, and this one takes 150.
-      i Drop `exposure_type` to detect the type from the data, which reads it as "continuous".
+      ! `exposure_type` was set to "binary", but `.exposure` cannot be treated that way.
+      x A "binary" exposure takes exactly two observed values, and `.exposure` takes 150.
+      i Drop `exposure_type` to detect the type from the data, which reads `.exposure` as "continuous".
 
 # balancing_constraints_error: quantiles with a continuous exposure
 
