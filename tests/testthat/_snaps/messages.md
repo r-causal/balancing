@@ -199,7 +199,7 @@
     Code
       invisible(balance(data, exposure, c(x1, x2), method = bw_entropy(), estimand = "ate"))
     Message
-      i Treating `.exposure` as binary.
+      i Treating `.exposure` as binary
 
 # alert: the exposure is excluded from a covariate selection
 
@@ -208,7 +208,7 @@
       estimand = "ate"))
     Message
       i Dropping the exposure "exposure" from `.covariates`.
-      i Treating `.exposure` as binary.
+      i Treating `.exposure` as binary
 
 # alert: aliased constraint columns are dropped
 

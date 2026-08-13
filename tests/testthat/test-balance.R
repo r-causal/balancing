@@ -155,7 +155,7 @@ test_that("a forced exposure type that contradicts the data errors", {
       method = bw_entropy(),
       exposure_type = "binary"
     ),
-    class = "balancing_exposure_type_error"
+    class = "causalgenerics_forced_exposure_type"
   )
 })
 
