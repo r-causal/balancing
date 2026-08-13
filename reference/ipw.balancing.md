@@ -671,7 +671,7 @@ y <- rbinom(n, 1, plogis(-0.5 + 0.8 * z + 0.3 * x1))
 df <- data.frame(exposure = z, x1 = x1, y = y)
 
 fit <- balance(df, exposure, x1, method = bw_entropy(), estimand = "ate")
-#> ℹ Treating `.exposure` as binary.
+#> ℹ Treating `.exposure` as binary
 df$.wts <- weights(fit)
 
 # quasibinomial() solves the same estimating equation as binomial() and does
@@ -776,7 +776,7 @@ df$relapse <- rbinom(
 )
 
 arm_fit <- balance(df, arm, x1, method = bw_ipt(), estimand = "ate")
-#> ℹ Treating `.exposure` as categorical.
+#> ℹ Treating `.exposure` as categorical
 df$.arm_wts <- weights(arm_fit)
 arm_mod <- glm(
   relapse ~ arm,
@@ -807,7 +807,7 @@ df$dose <- 0.7 * x1 + rnorm(n)
 df$score <- 2 + 0.5 * df$dose + 0.4 * x1 + rnorm(n)
 
 dose_fit <- balance(df, dose, x1, method = bw_entropy(), estimand = "ate")
-#> ℹ Treating `.exposure` as continuous.
+#> ℹ Treating `.exposure` as continuous
 df$.dose_wts <- weights(dose_fit)
 dose_mod <- lm(score ~ dose, data = df, weights = .dose_wts)
 
@@ -877,8 +877,8 @@ fits <- lapply(mice::complete(imp, "all"), function(completed) {
     )
   )
 })
-#> ℹ Treating `.exposure` as binary.
-#> ℹ Treating `.exposure` as binary.
+#> ℹ Treating `.exposure` as binary
+#> ℹ Treating `.exposure` as binary
 
 pool_ipw(fits)
 #> Pooled Inverse Probability Weight Estimator

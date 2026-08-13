@@ -161,7 +161,7 @@ df <- data.frame(
   x2 = x2
 )
 fit <- balance(df, exposure, c(x1, x2), method = bw_cfd())
-#> ℹ Treating `.exposure` as binary.
+#> ℹ Treating `.exposure` as binary
 fit
 #> 
 #> ── Characteristic function distance balancing ──────────────────────────────────

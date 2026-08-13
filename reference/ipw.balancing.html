@@ -595,7 +595,7 @@ different types of propensity score weights. <em>Statistics in Medicine</em>.
 <span class="r-in"><span><span class="va">df</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span>exposure <span class="op">=</span> <span class="va">z</span>, x1 <span class="op">=</span> <span class="va">x1</span>, y <span class="op">=</span> <span class="va">y</span><span class="op">)</span></span></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="va">fit</span> <span class="op">&lt;-</span> <span class="fu"><a href="balance.html">balance</a></span><span class="op">(</span><span class="va">df</span>, <span class="va">exposure</span>, <span class="va">x1</span>, method <span class="op">=</span> <span class="fu"><a href="bw_entropy.html">bw_entropy</a></span><span class="op">(</span><span class="op">)</span>, estimand <span class="op">=</span> <span class="st">"ate"</span><span class="op">)</span></span></span>
-<span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> Treating `.exposure` as binary.</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> Treating `.exposure` as binary</span>
 <span class="r-in"><span><span class="va">df</span><span class="op">$</span><span class="va">.wts</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/weights.html" class="external-link">weights</a></span><span class="op">(</span><span class="va">fit</span><span class="op">)</span></span></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># quasibinomial() solves the same estimating equation as binomial() and does</span></span></span>
@@ -700,7 +700,7 @@ different types of propensity score weights. <em>Statistics in Medicine</em>.
 <span class="r-in"><span><span class="op">)</span></span></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="va">arm_fit</span> <span class="op">&lt;-</span> <span class="fu"><a href="balance.html">balance</a></span><span class="op">(</span><span class="va">df</span>, <span class="va">arm</span>, <span class="va">x1</span>, method <span class="op">=</span> <span class="fu"><a href="bw_ipt.html">bw_ipt</a></span><span class="op">(</span><span class="op">)</span>, estimand <span class="op">=</span> <span class="st">"ate"</span><span class="op">)</span></span></span>
-<span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> Treating `.exposure` as categorical.</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> Treating `.exposure` as categorical</span>
 <span class="r-in"><span><span class="va">df</span><span class="op">$</span><span class="va">.arm_wts</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/weights.html" class="external-link">weights</a></span><span class="op">(</span><span class="va">arm_fit</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="va">arm_mod</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/glm.html" class="external-link">glm</a></span><span class="op">(</span></span></span>
 <span class="r-in"><span>  <span class="va">relapse</span> <span class="op">~</span> <span class="va">arm</span>,</span></span>
@@ -731,7 +731,7 @@ different types of propensity score weights. <em>Statistics in Medicine</em>.
 <span class="r-in"><span><span class="va">df</span><span class="op">$</span><span class="va">score</span> <span class="op">&lt;-</span> <span class="fl">2</span> <span class="op">+</span> <span class="fl">0.5</span> <span class="op">*</span> <span class="va">df</span><span class="op">$</span><span class="va">dose</span> <span class="op">+</span> <span class="fl">0.4</span> <span class="op">*</span> <span class="va">x1</span> <span class="op">+</span> <span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">n</span><span class="op">)</span></span></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="va">dose_fit</span> <span class="op">&lt;-</span> <span class="fu"><a href="balance.html">balance</a></span><span class="op">(</span><span class="va">df</span>, <span class="va">dose</span>, <span class="va">x1</span>, method <span class="op">=</span> <span class="fu"><a href="bw_entropy.html">bw_entropy</a></span><span class="op">(</span><span class="op">)</span>, estimand <span class="op">=</span> <span class="st">"ate"</span><span class="op">)</span></span></span>
-<span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> Treating `.exposure` as continuous.</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> Treating `.exposure` as continuous</span>
 <span class="r-in"><span><span class="va">df</span><span class="op">$</span><span class="va">.dose_wts</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/weights.html" class="external-link">weights</a></span><span class="op">(</span><span class="va">dose_fit</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="va">dose_mod</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/lm.html" class="external-link">lm</a></span><span class="op">(</span><span class="va">score</span> <span class="op">~</span> <span class="va">dose</span>, data <span class="op">=</span> <span class="va">df</span>, weights <span class="op">=</span> <span class="va">.dose_wts</span><span class="op">)</span></span></span>
 <span class="r-in"><span></span></span>
@@ -801,8 +801,8 @@ different types of propensity score weights. <em>Statistics in Medicine</em>.
 <span class="r-in"><span>    <span class="op">)</span></span></span>
 <span class="r-in"><span>  <span class="op">)</span></span></span>
 <span class="r-in"><span><span class="op">}</span><span class="op">)</span></span></span>
-<span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> Treating `.exposure` as binary.</span>
-<span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> Treating `.exposure` as binary.</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> Treating `.exposure` as binary</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> Treating `.exposure` as binary</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="fu"><a href="https://r-causal.github.io/causalgenerics/reference/pool_ipw.html" class="external-link">pool_ipw</a></span><span class="op">(</span><span class="va">fits</span><span class="op">)</span></span></span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> Pooled Inverse Probability Weight Estimator</span>

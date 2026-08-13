@@ -41,7 +41,7 @@ n <- 200
 x1 <- rnorm(n)
 df <- data.frame(exposure = rbinom(n, 1, plogis(0.5 * x1)), x1 = x1)
 fit <- balance(df, exposure, x1, method = bw_entropy())
-#> ℹ Treating `.exposure` as binary.
+#> ℹ Treating `.exposure` as binary
 estimating_equations(fit)
 #> <balancing::balancing_estimating_equations>
 #>  @ parameters     : num [1:2] -0.0821 0.0922

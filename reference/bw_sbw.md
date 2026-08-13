@@ -129,7 +129,7 @@ fit <- balance(
   method = bw_sbw(),
   constraints = balance_terms(tolerance = 0.05)
 )
-#> ℹ Treating `.exposure` as binary.
+#> ℹ Treating `.exposure` as binary
 fit
 #> 
 #> ── Stable balancing weights ────────────────────────────────────────────────────
