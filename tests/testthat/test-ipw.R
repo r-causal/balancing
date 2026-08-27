@@ -307,6 +307,29 @@ ipw_continuous_fixture <- function(n = 300) {
   data
 }
 
+# The message of a condition as a single line, so an assertion on a phrase does
+# not depend on where cli happened to wrap it.
+condition_line <- function(cnd) {
+  gsub("\\s+", " ", conditionMessage(cnd))
+}
+
+# A stacked system whose third equation is identically zero, so its bread has an
+# exact zero pivot and `allow_pinv = FALSE` refuses it outright rather than
+# answering with a pseudo-inverse. The fit block's Jacobian is a separate
+# argument to the same call, which is what lets the rank-naming specs hold the
+# refusal fixed and vary only the block whose rank is read off.
+singular_stack <- function(n) {
+  values <- withr::with_seed(707, matrix(stats::rnorm(2L * n), nrow = 2L))
+  values <- values - rowMeans(values)
+  function(theta) {
+    rbind(
+      values[1L, ] - theta[[1L]],
+      values[2L, ] - theta[[2L]],
+      rep(0, n)
+    )
+  }
+}
+
 # ---- Estimating-equations container contract ------------------------------
 
 # These pin the container ipw() consumes. The dimension and column-sum
@@ -5512,29 +5535,6 @@ test_that("ipw() translates deli's bread refusal into its own", {
 #
 # where `jacobian` is `container@jacobian`, which both of them already hold.
 
-# The message as a single line, so an assertion on a phrase does not depend on
-# where cli happened to wrap it.
-condition_line <- function(cnd) {
-  gsub("\\s+", " ", conditionMessage(cnd))
-}
-
-# A stacked system whose third equation is identically zero, so its bread has an
-# exact zero pivot and `allow_pinv = FALSE` refuses it outright rather than
-# answering with a pseudo-inverse. The fit block's Jacobian is a separate
-# argument to the same call, which is what lets the two specs below hold the
-# refusal fixed and vary only the block whose rank is read off.
-singular_stack <- function(n) {
-  values <- withr::with_seed(707, matrix(stats::rnorm(2L * n), nrow = 2L))
-  values <- values - rowMeans(values)
-  function(theta) {
-    rbind(
-      values[1L, ] - theta[[1L]],
-      values[2L, ] - theta[[2L]],
-      rep(0, n)
-    )
-  }
-}
-
 test_that("stacked_covariance() names the rank of a deficient fit block", {
   n <- 40L
   theta <- c(theta_w1 = 0, theta_w2 = 0, theta_w3 = 0)
@@ -5547,9 +5547,9 @@ test_that("stacked_covariance() names the rank of a deficient fit block", {
     )
   }
 
-  expect_error(refuse(), class = "balancing_ipw_unsupported_error")
-
   cnd <- rlang::catch_cnd(refuse(), classes = "balancing_ipw_unsupported_error")
+  expect_s3_class(cnd, "balancing_ipw_unsupported_error")
+
   message <- condition_line(cnd)
   expect_match(message, "rank 2 of 3", fixed = TRUE)
   expect_match(message, "constraint column")
@@ -5569,9 +5569,9 @@ test_that("stacked_covariance() keeps the generic bullets for a full-rank fit bl
     )
   }
 
-  expect_error(refuse(), class = "balancing_ipw_unsupported_error")
-
   cnd <- rlang::catch_cnd(refuse(), classes = "balancing_ipw_unsupported_error")
+  expect_s3_class(cnd, "balancing_ipw_unsupported_error")
+
   message <- condition_line(cnd)
   expect_match(message, "not finite around the fit", fixed = TRUE)
   expect_match(message, "singular there", fixed = TRUE)
@@ -5604,20 +5604,23 @@ test_that("ipw() names the rank of a deficient fit block deli refuses", {
     estimating_equations(fit)
   )
 
-  expect_error(
-    ipw(deficient, outcome_mod),
-    class = "balancing_ipw_unsupported_error"
-  )
-
   cnd <- rlang::catch_cnd(
     ipw(deficient, outcome_mod),
     classes = "balancing_ipw_unsupported_error"
   )
+  expect_s3_class(cnd, "balancing_ipw_unsupported_error")
+
   message <- condition_line(cnd)
   expect_match(message, paste0("rank ", p, " of ", p + 1L), fixed = TRUE)
   expect_match(message, "constraint column")
   expect_match(message, "bootstrap workflow", fixed = TRUE)
   expect_no_match(message, "not finite around the fit", fixed = TRUE)
+
+  # The whole refusal as the caller meets it, next to the snapshot of the
+  # refusal the rank check raises before the stack is differenced. The two are
+  # the package's only two accounts of a deficient fit, and reading them
+  # together is what keeps them saying the same thing in the same words.
+  expect_balancing_error(stop(cnd))
 })
 
 # A fit whose own estimating equations are full rank, meeting the same refusal

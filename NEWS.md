@@ -47,6 +47,14 @@
   `balancing.entropy_solver` option disables the retry, and a fit that exhausts
   both solvers names them in its warning or error.
 
+* When the variance engine cannot invert the stacked bread, `ipw()` now reads the
+  fit's own estimating equations before it reports. A rank-deficient fit block is
+  what makes the whole stack singular, so the refusal names the rank it found and
+  points at the constraint columns to go and look at, in place of the reading
+  that leaves the caller choosing between estimating functions that are not
+  finite and a bread that is singular. A full-rank fit block reports as it did
+  before, since the fit is then not what went wrong.
+
 * Added `balance_terms()` to specify the covariate functions a method balances,
   covering moments, pairwise interactions, quantile indicators, and per-covariate
   balance tolerances.
