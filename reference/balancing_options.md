@@ -19,7 +19,12 @@ runs without changing any function's signature.
   one of `"newton"` (the default), `"lbfgs"`, or `"lbfgs_then_newton"`.
   Newton is the only solver that drives the estimating equations to
   machine precision; the alternatives trade some precision for speed on
-  large problems.
+  large problems. When the option is unset and the Newton solve stops
+  short of its tolerance or returns weights that are not finite, the fit
+  retries once with `"lbfgs_then_newton"`, whose Newton polish restores
+  that precision, and announces the retry. Setting the option pins the
+  solver and disables the retry, so a fit pinned to `"newton"` reports
+  the failed solve as it stands.
 
 - `balancing.qp_backend`: the quadratic-program backend for the CFD and
   stable-balancing-weights methods, one of `"auto"` (the default),

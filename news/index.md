@@ -42,6 +42,41 @@
   `balancing_exposure_type_error`, which stays the class of balancing’s
   own refusal of an exposure type the method cannot fit.
 
+- The constraint expansion now tests for aliasing against the intercept
+  every balancing method carries, rather than against the constraint
+  columns alone. The level indicators of a factor sum to that constant,
+  so one indicator per factor was redundant in the geometry the solver
+  sees while surviving the old check; the entropy estimating equations
+  were rank deficient by construction whenever a factor was balanced,
+  and the flat direction that left behind produced order-dependent
+  solver failures. The redundant indicator, which is the last level of
+  each factor, is now dropped with an informational alert, and the
+  balance table reports the surviving levels. Balance on the levels that
+  remain implies balance on the omitted one, so no fit loses a
+  constraint it previously met.
+
+- A failed Newton solve of the exact entropy problem is now retried once
+  with the L-BFGS-then-Newton hybrid. Newton starts from the base
+  measure and is the only solver that reaches machine precision on the
+  estimating equations, but a flat or badly scaled constraint set can
+  leave that cold start short of its tolerance or send it out to weights
+  that are not finite; the hybrid reaches a neighborhood with L-BFGS
+  first and polishes it with Newton, so it clears such problems at the
+  same precision. A successful retry announces itself and
+  `@solver_status` records the solver the fit came from. Pinning the
+  `balancing.entropy_solver` option disables the retry, and a fit that
+  exhausts both solvers names them in its warning or error.
+
+- When the variance engine cannot invert the stacked bread,
+  [`ipw()`](https://r-causal.github.io/causalgenerics/reference/ipw.html)
+  now reads the fit’s own estimating equations before it reports. A
+  rank-deficient fit block is what makes the whole stack singular, so
+  the refusal names the rank it found and points at the constraint
+  columns to go and look at, in place of the reading that leaves the
+  caller choosing between estimating functions that are not finite and a
+  bread that is singular. A full-rank fit block reports as it did
+  before, since the fit is then not what went wrong.
+
 - Added
   [`balance_terms()`](https://r-causal.github.io/balancing/reference/balance_terms.md)
   to specify the covariate functions a method balances, covering

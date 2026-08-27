@@ -145,6 +145,13 @@ only <code>"ate"</code>.</p>
 <p>Constraints default to first-moment balance. Pass a <code><a href="balance_terms.html">balance_terms()</a></code>
 specification to balance higher moments, interactions, or quantiles, or to
 relax exact balance to a tolerance.</p>
+<p>A factor covariate expands to one indicator per level, and those indicators
+sum to the constant every balancing method carries. One indicator per factor
+is therefore redundant with that constant and is dropped, with an
+informational alert naming the term. The dropped level is the last one, and
+balancing the levels that remain balances it too. The factor stays in
+<code>@covariates</code>, and <code>@balance_table</code> reports the surviving levels rather than
+the full set.</p>
     </div>
 
     <div class="section level2">

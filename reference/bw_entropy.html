@@ -132,6 +132,15 @@ equations, which <code><a href="balance.html">balance()</a></code> records for t
 positive <code>tolerance</code> in <code><a href="balance_terms.html">balance_terms()</a></code> selects the inexact problem, which
 balances each constraint to within the tolerance and does not produce
 estimating equations.</p>
+<p>The exact problem is solved by Newton's method, which starts from the base
+measure and is the only solver that drives the estimating equations to
+machine precision. A flat or badly scaled constraint set can leave that cold
+start short of its tolerance, so a failed Newton solve is retried once with
+the L-BFGS-then-Newton hybrid, which reaches a neighborhood with L-BFGS
+before polishing it with Newton and so ends at the same precision. The retry
+announces itself, and <code>@solver_status</code> records the solver the returned fit
+came from. Pinning the <code>balancing.entropy_solver</code> option, described in
+<a href="balancing_options.html">balancing_options</a>, selects one solver and disables the retry.</p>
     </div>
     <div class="section level2">
     <h2 id="references">References<a class="anchor" aria-label="anchor" href="#references"></a></h2>

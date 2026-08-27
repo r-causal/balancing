@@ -83,6 +83,18 @@ A positive `tolerance` in
 selects the inexact problem, which balances each constraint to within
 the tolerance and does not produce estimating equations.
 
+The exact problem is solved by Newton's method, which starts from the
+base measure and is the only solver that drives the estimating equations
+to machine precision. A flat or badly scaled constraint set can leave
+that cold start short of its tolerance, so a failed Newton solve is
+retried once with the L-BFGS-then-Newton hybrid, which reaches a
+neighborhood with L-BFGS before polishing it with Newton and so ends at
+the same precision. The retry announces itself, and `@solver_status`
+records the solver the returned fit came from. Pinning the
+`balancing.entropy_solver` option, described in
+[balancing_options](https://r-causal.github.io/balancing/reference/balancing_options.md),
+selects one solver and disables the retry.
+
 ## References
 
 Hainmueller, J. (2012). Entropy balancing for causal effects: A
