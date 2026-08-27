@@ -64,23 +64,30 @@ test_that("numeric covariates become one mean-balance column each", {
   expect_true(all(kinds == "moment"))
 })
 
-test_that("factor covariates expand to a full set of level indicators", {
+test_that("factor covariates expand to a level indicator set less the alias", {
+  withr::local_options(balancing.quiet = FALSE)
   data <- data.frame(
     x1 = c(-1, 0, 1, 2, 0.5, -0.5),
     f = factor(c("a", "b", "c", "a", "b", "c"))
   )
-  built <- build_constraint_matrix(
-    data,
-    c("x1", "f"),
-    balance_terms(),
-    exposure_type = "binary"
+  expect_message(
+    built <- build_constraint_matrix(
+      data,
+      c("x1", "f"),
+      balance_terms(),
+      exposure_type = "binary"
+    ),
+    "aliased"
   )
 
   sources <- vapply(built$recipe, function(term) term$source, character(1))
-  # One column for x1 plus one indicator per level of f (full set, not
-  # reference-coded).
-  expect_identical(sum(sources == "f"), 3L)
-  expect_identical(ncol(built$matrix), 4L)
+  # The expansion is not reference-coded: every level gets an indicator. The
+  # rank check against the constant the solvers carry then removes the one the
+  # others determine, which is the last level rather than the first that
+  # treatment contrasts drop.
+  expect_identical(sum(sources == "f"), 2L)
+  expect_identical(ncol(built$matrix), 3L)
+  expect_identical(record_terms(built$recipe), c("x1", "f_a", "f_b"))
 })
 
 # ---- build_constraint_matrix(): powers and standardization ----------------
@@ -287,7 +294,184 @@ test_that("an affine-related covariate drops", {
   expect_identical(ncol(built$matrix), 1L)
 })
 
-test_that("indicator, quantile, and factor columns keep their full set", {
+# Every solver carries an intercept: the entropy dual normalizes within each
+# exposure group, IPT and CBPS bind an explicit column of ones, and the SBW,
+# energy, and CFD programs carry a group-sum row. A constraint set that is
+# affinely dependent on that constant is rank deficient in the geometry the
+# solver sees even when the columns on their own are independent, so the rank
+# check counts the constant alongside them. The shapes below are the ones where
+# that matters: a full set of factor level indicators, a zero/one column with
+# its complement, and a covariate that repeats a level indicator.
+
+# Two continuous covariates, a two-level factor, and a binary exposure: the
+# smallest shape whose level indicators sum to the constant.
+two_level_factor_data <- function(n = 500) {
+  withr::with_seed(
+    1,
+    data.frame(
+      x1 = stats::rnorm(n),
+      x2 = stats::rnorm(n),
+      f = factor(sample(c("A", "B"), n, replace = TRUE)),
+      exposure = stats::rbinom(n, 1L, 0.5)
+    )
+  )
+}
+
+# One continuous covariate and three factors of differing widths, so that the
+# per-factor drop can be counted separately for each.
+several_factor_data <- function(n = 300) {
+  withr::with_seed(
+    7,
+    data.frame(
+      x1 = stats::rnorm(n),
+      f1 = factor(sample(c("A", "B"), n, replace = TRUE)),
+      f2 = factor(sample(c("p", "q", "r"), n, replace = TRUE)),
+      f3 = factor(sample(c("no", "yes"), n, replace = TRUE))
+    )
+  )
+}
+
+test_that("a two-level factor drops one level indicator", {
+  withr::local_options(balancing.quiet = FALSE)
+  data <- two_level_factor_data()
+
+  expect_message(
+    built <- build_constraint_matrix(
+      data,
+      c("x1", "x2", "f"),
+      balance_terms(),
+      exposure_type = "binary"
+    ),
+    "aliased"
+  )
+
+  # `f_A + f_B` is the constant column, so the second level constrains nothing
+  # the first does not already constrain once the intercept is counted. The
+  # constant comes first in the decomposition and LINPACK's dqrdc2 keeps column
+  # order, moving only the deficient columns to the end, so the level dropped is
+  # the last one.
+  expect_identical(record_terms(built$recipe), c("x1", "x2", "f_A"))
+  expect_equal(rebuild_constraint_matrix(built$recipe, data), built$matrix)
+})
+
+test_that("the built matrix is full rank against the intercept", {
+  data <- two_level_factor_data()
+  built <- build_constraint_matrix(
+    data,
+    c("x1", "x2", "f"),
+    balance_terms(),
+    exposure_type = "binary"
+  )
+
+  # The rank a solver sees is the rank of the constraint columns together with
+  # the constant it carries, so that is the matrix the smallest singular value
+  # has to be measured on. The bound sits far below the value this column set
+  # reaches when it is full rank and far above the rounding-scale value a
+  # deficient set leaves.
+  expect_gt(min(svd(cbind(1, built$matrix))$d), 1e-6)
+})
+
+test_that("several factors each lose exactly one level indicator", {
+  withr::local_options(balancing.quiet = FALSE)
+  data <- several_factor_data()
+
+  expect_message(
+    built <- build_constraint_matrix(
+      data,
+      c("x1", "f1", "f2", "f3"),
+      balance_terms(),
+      exposure_type = "binary"
+    ),
+    "aliased"
+  )
+
+  # Each factor is affinely dependent on the constant on its own, so each loses
+  # its last level and no more: the two-level factors keep one indicator each
+  # and the three-level factor keeps two.
+  expect_identical(
+    record_terms(built$recipe),
+    c("x1", "f1_A", "f2_p", "f2_q", "f3_no")
+  )
+  expect_gt(min(svd(cbind(1, built$matrix))$d), 1e-6)
+})
+
+test_that("the surviving level indicators do not depend on covariate order", {
+  withr::local_options(balancing.quiet = FALSE)
+  data <- several_factor_data()
+
+  expect_message(
+    built <- build_constraint_matrix(
+      data,
+      c("x1", "f1", "f2", "f3"),
+      balance_terms(),
+      exposure_type = "binary"
+    ),
+    "aliased"
+  )
+  expect_message(
+    permuted <- build_constraint_matrix(
+      data,
+      c("f3", "f2", "x1", "f1"),
+      balance_terms(),
+      exposure_type = "binary"
+    ),
+    "aliased"
+  )
+
+  # Each factor's redundancy is with the constant alone, so which level survives
+  # is settled inside the factor and no covariate borrows its drop from another.
+  # The constrained set is therefore the same whatever order the covariates are
+  # named in; only the column order changes.
+  expect_setequal(record_terms(permuted$recipe), record_terms(built$recipe))
+})
+
+test_that("a zero/one covariate and its complement keep one column", {
+  withr::local_options(balancing.quiet = FALSE)
+  data <- data.frame(b = rep(c(0, 1), length.out = 20))
+  data$b_complement <- 1 - data$b
+  data$x1 <- withr::with_seed(3, stats::rnorm(20))
+
+  expect_message(
+    built <- build_constraint_matrix(
+      data,
+      c("x1", "b", "b_complement"),
+      balance_terms(),
+      exposure_type = "binary"
+    ),
+    "aliased"
+  )
+
+  # Indicator columns cross the boundary raw, so a zero/one column and its
+  # complement are independent of one another and only the constant relates
+  # them. Balancing either one balances the other.
+  expect_identical(record_terms(built$recipe), c("x1", "b"))
+})
+
+test_that("a covariate repeating a factor level drops with the aliased level", {
+  withr::local_options(balancing.quiet = FALSE)
+  data <- data.frame(f = factor(rep(c("A", "B"), length.out = 20)))
+  data$is_a <- as.numeric(data$f == "A")
+  data$x1 <- withr::with_seed(4, stats::rnorm(20))
+
+  expect_message(
+    built <- build_constraint_matrix(
+      data,
+      c("x1", "f", "is_a"),
+      balance_terms(),
+      exposure_type = "binary"
+    ),
+    "aliased"
+  )
+
+  # Two redundancies are present at once: `f_B` repeats the constant less `f_A`,
+  # and `is_a` repeats `f_A` outright. Both are later than the column that
+  # stands in for them, so both are dropped and the single indicator that
+  # carries the factor survives.
+  expect_identical(record_terms(built$recipe), c("x1", "f_A"))
+})
+
+test_that("indicator and quantile columns keep their full set", {
+  withr::local_options(balancing.quiet = FALSE)
   withr::local_seed(404)
   n <- 60
   data <- data.frame(
@@ -296,17 +480,23 @@ test_that("indicator, quantile, and factor columns keep their full set", {
     b = rep(c(0, 1), length.out = n),
     f = factor(rep(c("a", "b", "c"), length.out = n))
   )
-  built <- build_constraint_matrix(
-    data,
-    c("x1", "x2", "b", "f"),
-    balance_terms(moments = 2L, quantiles = c(0.25, 0.75)),
-    exposure_type = "binary"
+  expect_message(
+    built <- build_constraint_matrix(
+      data,
+      c("x1", "x2", "b", "f"),
+      balance_terms(moments = 2L, quantiles = c(0.25, 0.75)),
+      exposure_type = "binary"
+    ),
+    "aliased"
   )
   terms <- vapply(built$recipe, function(record) record$term, character(1))
 
-  # A zero/one indicator, a quantile indicator, and a full set of factor level
-  # indicators are all linearly independent of one another, so nothing here is
-  # aliased and every column survives.
+  # A zero/one indicator and a quantile indicator are each independent of the
+  # constant the solver carries, so both keep every column they contribute. The
+  # level indicators of a factor sum to that constant, so the factor loses one
+  # level: the constant is first in the decomposition and LINPACK's dqrdc2 keeps
+  # column order, moving only deficient columns to the end, so the last level of
+  # each factor is the one dropped.
   expect_identical(
     terms,
     c(
@@ -317,7 +507,6 @@ test_that("indicator, quantile, and factor columns keep their full set", {
       "b",
       "f_a",
       "f_b",
-      "f_c",
       "x1_q0.25",
       "x1_q0.75",
       "x2_q0.25",
@@ -345,8 +534,14 @@ test_that("interactions with a factor keep their aliased-column drops", {
   )
   terms <- vapply(built$recipe, function(record) record$term, character(1))
 
-  # Each covariate crossed with the full set of factor indicators sums back to
-  # the covariate itself, so one product per covariate is redundant.
+  # Three drops follow from the one rule, reading the columns left to right
+  # after the constant. The factor's own indicators sum to the constant, so
+  # `f_c` goes. Each covariate crossed with the full set of factor indicators
+  # sums back to the covariate itself, and that covariate is already a column,
+  # so the last product of each goes too: `x1:f_c` and `b:f_c`. What survives
+  # spans the six cells the factor and the indicator cut the sample into,
+  # through `f_a`, `f_b`, `b`, `b:f_a`, `b:f_b` and the constant, plus a slope
+  # in `x1` for each of `1`, `f_a`, `f_b` and `b`.
   expect_identical(
     terms,
     c(
@@ -354,7 +549,6 @@ test_that("interactions with a factor keep their aliased-column drops", {
       "b",
       "f_a",
       "f_b",
-      "f_c",
       "x1:b",
       "x1:f_a",
       "x1:f_b",

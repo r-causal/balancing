@@ -1099,6 +1099,21 @@ test_that("@covariates omits a covariate whose column was dropped as aliased", {
   expect_identical(fit@covariates, c("x1", "x2"))
 })
 
+test_that("@covariates keeps a factor whose redundant level is dropped", {
+  # The level indicators of a factor sum to the constant every solver carries,
+  # so one level is redundant and the expansion drops it. The factor is still
+  # constrained through the levels that remain, so it stays in the covariate
+  # list and every surviving indicator meets its tolerance.
+  withr::local_options(balancing.quiet = TRUE)
+  data <- sim_binary(n = 200)
+  fit <- balance(data, exposure, c(x1, x2, x3), method = bw_entropy())
+
+  expect_identical(fit@covariates, c("x1", "x2", "x3"))
+  indicators <- startsWith(fit@balance_table$term, "x3_")
+  expect_true(any(indicators))
+  expect_true(all(fit@balance_table$within_tolerance[indicators]))
+})
+
 test_that("@covariates omits a covariate with no moments requested", {
   data <- sim_binary(n = 200)
   fit <- balance(

@@ -839,15 +839,12 @@ test_that("a shift-related covariate leaves the ipw() chain identified", {
 })
 
 test_that("a factor covariate leaves the ipw() sandwich finite", {
-  # A factor's level indicators sum to the constant function. Nothing in the raw
-  # column rank marks that redundancy, so every level keeps its own constraint
-  # column and the entropy estimating equations are rank deficient: the Jacobian
-  # block of each solved group has the level-sum direction in its null space. The
-  # redundancy is harmless because the weight map is flat along the same
-  # direction, so the fit and its influence function are the fit and influence
-  # function of the parameterization that drops one level column, and the stacked
-  # variance must agree with that reduced fit rather than dissolve into the
-  # singularity.
+  # A factor's level indicators sum to the constant function every solver
+  # carries, so the construction drops the redundant level and the entropy
+  # estimating equations come out full rank: no direction is left in the
+  # Jacobian's null space for the stacked bread to fall into. Dropping a level
+  # by hand instead reaches the same fit, so the weights, the estimates and the
+  # standard errors must agree with that reduced parameterization.
   data <- sim_binary()
   withr::with_seed(11, {
     data$y <- stats::rbinom(
@@ -878,7 +875,7 @@ test_that("a factor covariate leaves the ipw() sandwich finite", {
   )
 
   jacobian <- estimating_equations(fit)@jacobian
-  expect_lt(qr(jacobian)$rank, ncol(jacobian))
+  expect_identical(qr(jacobian)$rank, ncol(jacobian))
   expect_equal(
     as.numeric(stats::weights(fit)),
     as.numeric(stats::weights(reduced)),
@@ -897,8 +894,9 @@ test_that("a factor covariate leaves the ipw() sandwich finite", {
     as.numeric(stats::weights(reduced)),
     stats::binomial()
   )
-  # The deficiency is tolerated rather than refused, and tolerated silently: the
-  # weight map is flat along it, so it never reaches the reported effects.
+  # The two parameterizations drop a different level of the same factor and span
+  # the same constraint set, so the reported effects and their standard errors
+  # agree, and nothing along the way warns.
   estimates <- as.data.frame(expect_no_warning(ipw(fit, outcome_mod)))
   reduced_estimates <- as.data.frame(ipw(reduced, reduced_mod))
 

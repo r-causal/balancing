@@ -194,6 +194,15 @@ test_that("entropy balancing balances a factor covariate for a binary ate", {
         )
       }
     }
+
+    # The loop above reads every level from the data, whether or not its
+    # indicator is one of the constrained columns. The balance table reports the
+    # constrained ones, and each of those has to meet its tolerance while the
+    # factor stays in the covariate list.
+    indicators <- startsWith(fit@balance_table$term, "x3_")
+    expect_true(any(indicators))
+    expect_true(all(fit@balance_table$within_tolerance[indicators]))
+    expect_true("x3" %in% fit@covariates)
   }
 })
 
@@ -221,6 +230,57 @@ test_that("entropy balancing balances a factor covariate for a binary att", {
       tolerance = 1e-6
     )
   }
+
+  # Every level balances whether or not its indicator is a constrained column;
+  # the ones that are constrained are the ones the balance table reports, and
+  # the factor stays in the covariate list either way.
+  indicators <- startsWith(fit@balance_table$term, "x3_")
+  expect_true(any(indicators))
+  expect_true(all(fit@balance_table$within_tolerance[indicators]))
+  expect_true("x3" %in% fit@covariates)
+})
+
+test_that("a covariate set of several factors fits under the defaults", {
+  # Each factor contributes level indicators that sum to the constant the
+  # entropy dual carries through its per-group normalization. Left in place,
+  # those redundancies compound across the factors: the dual is flat along one
+  # direction per factor, the Newton step walks off along them, and the weights
+  # stop being finite. With the redundant level dropped from each factor the
+  # same problem is an ordinary one and converges at the default tolerance and
+  # iteration cap.
+  data <- withr::with_seed(21, {
+    n <- 1000
+    x1 <- stats::rnorm(n)
+    x2 <- stats::rnorm(n)
+    x3 <- stats::rnorm(n)
+    x4 <- stats::rbinom(n, 1L, 0.3)
+    f1 <- factor(sample(c("A", "B"), n, replace = TRUE, prob = c(0.55, 0.45)))
+    f2 <- factor(sample(c("w", "x", "y", "z"), n, replace = TRUE))
+    f3 <- factor(
+      sample(c("No", "Yes"), n, replace = TRUE, prob = c(0.75, 0.25))
+    )
+    f4 <- factor(sample(letters[1:5], n, replace = TRUE))
+    exposure <- stats::rbinom(
+      n,
+      1L,
+      stats::plogis(
+        0.4 * x1 - 0.3 * x2 + 0.5 * (f1 == "B") + 0.2 * (f3 == "Yes")
+      )
+    )
+    data.frame(exposure, x1, x2, x3, x4, f1, f2, f3, f4)
+  })
+
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, x3, x4, f1, f2, f3, f4),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+
+  expect_true(fit@converged)
+  expect_true(all(is.finite(as.numeric(stats::weights(fit)))))
+  expect_balanced(fit, data)
 })
 
 test_that("a binary ate normalizes each group to its size", {
