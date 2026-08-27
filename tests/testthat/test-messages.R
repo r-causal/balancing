@@ -7,7 +7,12 @@
 
 test_that("balancing_convergence_warning: the iteration cap is reached", {
   # Three Newton steps drive the balance essentially to zero but do not meet the
-  # gradient tolerance, so the fit warns about convergence alone.
+  # gradient tolerance, so the fit warns about convergence alone. The solver is
+  # pinned so that the failed solve is reported rather than retried with the
+  # hybrid, which clears this cap: what the snapshot records is the wording a
+  # single solver's failure carries, and the two-solver wording is asserted
+  # against directly in test-method-entropy.R.
+  withr::local_options(balancing.entropy_solver = "newton")
   data <- sim_binary()
   expect_balancing_warning(
     balance(

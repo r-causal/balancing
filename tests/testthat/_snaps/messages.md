@@ -209,6 +209,7 @@
     Message
       i Dropping the exposure "exposure" from `.covariates`.
       i Treating `.exposure` as binary
+      i Dropping aliased constraint "x3_c".
 
 # alert: aliased constraint columns are dropped
 

@@ -64,6 +64,16 @@ equations, which \code{\link[=balance]{balance()}} records for the M-estimation 
 positive \code{tolerance} in \code{\link[=balance_terms]{balance_terms()}} selects the inexact problem, which
 balances each constraint to within the tolerance and does not produce
 estimating equations.
+
+The exact problem is solved by Newton's method, which starts from the base
+measure and is the only solver that drives the estimating equations to
+machine precision. A flat or badly scaled constraint set can leave that cold
+start short of its tolerance, so a failed Newton solve is retried once with
+the L-BFGS-then-Newton hybrid, which reaches a neighborhood with L-BFGS
+before polishing it with Newton and so ends at the same precision. The retry
+announces itself, and \verb{@solver_status} records the solver the returned fit
+came from. Pinning the \code{balancing.entropy_solver} option, described in
+\link{balancing_options}, selects one solver and disables the retry.
 }
 \examples{
 n <- 200

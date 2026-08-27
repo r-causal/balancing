@@ -33,8 +33,8 @@
       -- Balance --
       
         term   kind statistic group unweighted     weighted tolerance
-      1   x1 moment       smd     1  0.552 6.44e-11         0
-      2   x2 moment       smd     1  0.416 1.01e-10         0
+      1   x1 moment       smd     1  0.552 1.24e-11         0
+      2   x2 moment       smd     1  0.416 1.42e-11         0
         within_tolerance
       1             TRUE
       2             TRUE

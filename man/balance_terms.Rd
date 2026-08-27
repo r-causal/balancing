@@ -65,6 +65,14 @@ their source covariate's tolerance. \code{0} requests exact balance. A positive
 value selects the inexact problem for entropy balancing and is the central
 tuning parameter for stable balancing weights.
 }
+
+A factor covariate contributes one indicator per level rather than the
+reference coding a model formula would use. Those indicators sum to the
+constant every balancing method carries, so one of them is redundant and the
+expansion drops it, naming the term in an informational alert. The level
+dropped is the last one, and the constraints that remain balance it as well:
+with the other level proportions equated across exposure groups, the omitted
+one follows. The balance table reports the surviving levels.
 }
 \examples{
 # Balance means and variances of every numeric covariate.

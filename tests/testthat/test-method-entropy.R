@@ -160,12 +160,13 @@ test_that("entropy balancing balances a factor covariate for a binary ate", {
   # level proportions must therefore land on the pooled proportions.
   #
   # The level indicators of a factor sum to the constant function, along which
-  # the entropy dual is exactly flat, so its Hessian is singular and the gradient
-  # the solve can reach is set by the rounding of the weighted means rather than
-  # by the tolerance. The solve still reaches the dual's numerical optimum, and
-  # that has to read as convergence at the default tolerance: the sizes below
-  # bracket the point where the reachable gradient crosses 1e-10, and the
-  # achieved balance is exact well inside the assertion at every one of them.
+  # the entropy dual is exactly flat. The expansion drops the redundant level, so
+  # the Hessian is nonsingular and the solve reaches the default tolerance on its
+  # own terms; a warning here would mean the drop stopped happening. The sweep
+  # over sample sizes stays because it is three separate draws of the same shape
+  # rather than one: the level proportions and the group sizes differ at each,
+  # and both the exact-balance assertion and the nonnegativity of the weights
+  # have to hold whatever the levels come out at.
   for (n in c(200L, 300L, 500L)) {
     data <- sim_binary(n = n)
     fit <- expect_no_warning(
@@ -194,6 +195,15 @@ test_that("entropy balancing balances a factor covariate for a binary ate", {
         )
       }
     }
+
+    # The loop above reads every level from the data, whether or not its
+    # indicator is one of the constrained columns. The balance table reports the
+    # constrained ones, and each of those has to meet its tolerance while the
+    # factor stays in the covariate list.
+    indicators <- startsWith(fit@balance_table$term, "x3_")
+    expect_true(any(indicators))
+    expect_true(all(fit@balance_table$within_tolerance[indicators]))
+    expect_true("x3" %in% fit@covariates)
   }
 })
 
@@ -221,6 +231,57 @@ test_that("entropy balancing balances a factor covariate for a binary att", {
       tolerance = 1e-6
     )
   }
+
+  # Every level balances whether or not its indicator is a constrained column;
+  # the ones that are constrained are the ones the balance table reports, and
+  # the factor stays in the covariate list either way.
+  indicators <- startsWith(fit@balance_table$term, "x3_")
+  expect_true(any(indicators))
+  expect_true(all(fit@balance_table$within_tolerance[indicators]))
+  expect_true("x3" %in% fit@covariates)
+})
+
+test_that("a covariate set of several factors fits under the defaults", {
+  # Each factor contributes level indicators that sum to the constant the
+  # entropy dual carries through its per-group normalization. Left in place,
+  # those redundancies compound across the factors: the dual is flat along one
+  # direction per factor, the Newton step walks off along them, and the weights
+  # stop being finite. With the redundant level dropped from each factor the
+  # same problem is an ordinary one and converges at the default tolerance and
+  # iteration cap.
+  data <- withr::with_seed(21, {
+    n <- 1000
+    x1 <- stats::rnorm(n)
+    x2 <- stats::rnorm(n)
+    x3 <- stats::rnorm(n)
+    x4 <- stats::rbinom(n, 1L, 0.3)
+    f1 <- factor(sample(c("A", "B"), n, replace = TRUE, prob = c(0.55, 0.45)))
+    f2 <- factor(sample(c("w", "x", "y", "z"), n, replace = TRUE))
+    f3 <- factor(
+      sample(c("No", "Yes"), n, replace = TRUE, prob = c(0.75, 0.25))
+    )
+    f4 <- factor(sample(letters[1:5], n, replace = TRUE))
+    exposure <- stats::rbinom(
+      n,
+      1L,
+      stats::plogis(
+        0.4 * x1 - 0.3 * x2 + 0.5 * (f1 == "B") + 0.2 * (f3 == "Yes")
+      )
+    )
+    data.frame(exposure, x1, x2, x3, x4, f1, f2, f3, f4)
+  })
+
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, x3, x4, f1, f2, f3, f4),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+
+  expect_true(fit@converged)
+  expect_true(all(is.finite(as.numeric(stats::weights(fit)))))
+  expect_balanced(fit, data)
 })
 
 test_that("a binary ate normalizes each group to its size", {
@@ -580,6 +641,182 @@ test_that("the entropy solver option routes the solver and holds the solution", 
       tolerance = 1e-6
     )
   }
+})
+
+# ---- Newton retry ---------------------------------------------------------
+
+# A failed Newton solve is forced with a deliberate iteration cap. The cap is
+# chosen from measured iteration counts on the fixture: the Newton default
+# converges in four iterations on `sim_binary()` and six on `sim_continuous()`,
+# while the hybrid's L-BFGS warm start plus Newton polish clears the same
+# fixtures with a two- and three-iteration budget per phase, the hybrid getting
+# the cap once for each of its phases. A cap between the two therefore fails the
+# cold Newton start and succeeds on the retry, with at least an iteration of
+# margin on either side against platform floating-point drift.
+newton_retry_cap_binary <- 3L
+newton_retry_cap_continuous <- 4L
+
+test_that("a failed Newton entropy solve retries with the hybrid on a discrete exposure", {
+  data <- sim_binary()
+  # The retry has to reach the solution the uncapped Newton default reaches,
+  # not merely report a converged status.
+  reference <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+
+  # A successful retry warns about nothing: it neither reports a failed solve
+  # nor leaves the achieved balance outside the exact problem's zero tolerance.
+  # `evaluate_promise()` takes the warnings alongside the value so an unretried
+  # failure reports its warnings here rather than escaping to the console.
+  evaluated <- evaluate_promise(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(max_iterations = newton_retry_cap_binary),
+      estimand = "ate"
+    )
+  )
+  expect_identical(evaluated$warnings, character(0))
+  fit <- evaluated$result
+  expect_identical(fit@solver_status, "lbfgs_then_newton")
+  expect_true(fit@converged)
+  expect_equal(
+    as.numeric(stats::weights(fit)),
+    as.numeric(stats::weights(reference)),
+    tolerance = 1e-6
+  )
+})
+
+test_that("a failed Newton entropy solve retries with the hybrid on a continuous exposure", {
+  data <- sim_continuous()
+  reference <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+
+  evaluated <- evaluate_promise(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(max_iterations = newton_retry_cap_continuous),
+      estimand = "ate"
+    )
+  )
+  expect_identical(evaluated$warnings, character(0))
+  fit <- evaluated$result
+  expect_identical(fit@solver_status, "lbfgs_then_newton")
+  expect_true(fit@converged)
+  expect_equal(
+    as.numeric(stats::weights(fit)),
+    as.numeric(stats::weights(reference)),
+    tolerance = 1e-6
+  )
+})
+
+test_that("the hybrid retry announces both solvers and honors balancing.quiet", {
+  data <- sim_binary()
+  capped <- function() {
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(max_iterations = newton_retry_cap_binary),
+      estimand = "ate"
+    )
+  }
+
+  # With alerts on, the fit also announces the detected exposure type, so the
+  # retry alert is one of several. `evaluate_promise()` takes every message and
+  # the value, leaving nothing on the console. The solver names are matched as
+  # bare tokens because cli wraps the alert at the console width.
+  loud <- withr::with_options(
+    list(balancing.quiet = FALSE),
+    evaluate_promise(capped())
+  )
+  expect_match(loud$messages, "Newton", all = FALSE)
+  expect_match(loud$messages, "BFGS", all = FALSE)
+
+  # The retry alert is informational, so the package's quiet option silences it
+  # the way it silences every other `alert_info()` announcement.
+  quiet <- withr::with_options(
+    list(balancing.quiet = TRUE),
+    evaluate_promise(capped())
+  )
+  expect_length(quiet$messages, 0L)
+})
+
+test_that("pinning the entropy solver to newton leaves a failed solve unretried", {
+  data <- sim_binary()
+  pinned <- function() {
+    withr::with_options(
+      list(balancing.entropy_solver = "newton"),
+      balance(
+        data,
+        exposure,
+        c(x1, x2),
+        method = bw_entropy(max_iterations = newton_retry_cap_binary),
+        estimand = "ate"
+      )
+    )
+  }
+  # A capped Newton solve can also leave the achieved balance outside the exact
+  # problem's zero tolerance, and whether it does at this cap is a
+  # floating-point detail of the fixture. The outer suppression takes any such
+  # second warning so the assertion stays on the class under test.
+  suppressWarnings(
+    expect_warning(pinned(), class = "balancing_convergence_warning")
+  )
+  fit <- suppressWarnings(pinned())
+  expect_identical(fit@solver_status, "newton")
+  expect_false(fit@converged)
+})
+
+test_that("a solve that exhausts both entropy solvers names them in the warning", {
+  # One iteration is short of the hybrid's own budget as well, so the retry
+  # runs out too and the fit reports a cap that neither solver cleared.
+  data <- sim_binary()
+  exhausted <- function() {
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(max_iterations = 1L),
+      estimand = "ate"
+    )
+  }
+  suppressWarnings(
+    expect_warning(exhausted(), class = "balancing_convergence_warning")
+  )
+  evaluated <- evaluate_promise(exhausted())
+  expect_match(evaluated$warnings, "Newton", all = FALSE)
+  expect_match(evaluated$warnings, "BFGS", all = FALSE)
+})
+
+test_that("non-finite weights from both entropy solvers name them in the error", {
+  # A near-separated exposure drives the control-group duals past the range the
+  # exponential tilt can represent, so both the Newton solve and the hybrid
+  # retry return non-finite weights and the fit refuses the solve outright.
+  data <- withr::with_seed(7, {
+    n <- 200
+    x1 <- stats::rnorm(n)
+    exposure <- as.integer(stats::plogis(20 * x1) > stats::runif(n))
+    data.frame(exposure = exposure, x1 = x1)
+  })
+  condition <- expect_error(
+    balance(data, exposure, x1, method = bw_entropy(), estimand = "att"),
+    class = "balancing_convergence_error"
+  )
+  expect_match(conditionMessage(condition), "Newton")
+  expect_match(conditionMessage(condition), "BFGS")
 })
 
 # ---- distribution_moments (continuous) ------------------------------------

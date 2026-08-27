@@ -19,7 +19,12 @@ under \verb{R CMD check}.
 \item \code{balancing.entropy_solver}: the solver for the exact entropy problem, one
 of \code{"newton"} (the default), \code{"lbfgs"}, or \code{"lbfgs_then_newton"}. Newton is
 the only solver that drives the estimating equations to machine precision;
-the alternatives trade some precision for speed on large problems.
+the alternatives trade some precision for speed on large problems. When the
+option is unset and the Newton solve stops short of its tolerance or returns
+weights that are not finite, the fit retries once with
+\code{"lbfgs_then_newton"}, whose Newton polish restores that precision, and
+announces the retry. Setting the option pins the solver and disables the
+retry, so a fit pinned to \code{"newton"} reports the failed solve as it stands.
 \item \code{balancing.qp_backend}: the quadratic-program backend for the CFD and
 stable-balancing-weights methods, one of \code{"auto"} (the default), \code{"osqp"},
 or \code{"clarabel"}. Under \code{"auto"}, the default solver runs first and the fit

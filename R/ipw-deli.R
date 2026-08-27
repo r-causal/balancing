@@ -339,7 +339,13 @@ ipw_deli_sandwich <- function(
 
   list(
     theta = theta,
-    vcov = stacked_covariance(stacked_equations, theta, n, call = call)
+    vcov = stacked_covariance(
+      stacked_equations,
+      theta,
+      n,
+      container@jacobian,
+      call = call
+    )
   )
 }
 
@@ -441,7 +447,13 @@ ipw_deli_msm_sandwich <- function(
 
   list(
     theta = theta,
-    vcov = stacked_covariance(stacked_equations, theta, n, call = call)
+    vcov = stacked_covariance(
+      stacked_equations,
+      theta,
+      n,
+      container@jacobian,
+      call = call
+    )
   )
 }
 
@@ -515,7 +527,20 @@ make_hooks_cache <- function(container, rescale, parameters) {
 # is left behind rather than chained onto it, because following that account
 # means reading `compute_sandwich()`, which is not code the caller can go and act
 # on. Both of the engine's reasons, a bread that is not finite and a bread it
-# reads as singular, are named in the refusal instead.
+# reads as singular, are named in the refusal instead, unless the fit itself
+# settles which of them it was.
+#
+# It often does. The stacked bread is block lower triangular in the fit's own
+# Jacobian, so a rank-deficient fit block makes the whole stack singular, and the
+# container carries that Jacobian analytically. Reading its rank by the same rule
+# `validate_stacked_bread()` applies leaves nothing ambiguous: the refusal names
+# the rank it found and the constraint columns to go and look at, in place of the
+# reading that says the estimating functions may not be finite. Reaching here
+# with a deficient block is the tolerated case, a direction the reported weights
+# are flat along, which nothing reported is read from and which the engine may
+# still refuse to invert on one platform and accept on another. A full-rank
+# block leaves both readings open, since the fit is then not what went wrong,
+# and the generic account stands unchanged.
 #
 # A bread holding missing values may also come back as a value rather than a
 # condition, which would otherwise surface much later as a complaint about
@@ -525,6 +550,7 @@ stacked_covariance <- function(
   stacked_equations,
   theta,
   n,
+  jacobian,
   call = rlang::caller_env()
 ) {
   covariance <- rlang::try_fetch(
@@ -537,15 +563,29 @@ stacked_covariance <- function(
     ) /
       n,
     deli_bread_not_invertible = function(cnd) {
+      deficiency <- measure_jacobian_rank(jacobian)
+      rank <- deficiency$rank
+      parameter_count <- deficiency$count
+      reading <- if (rank < parameter_count) {
+        c(
+          x = "The balancing fit's estimating equations have rank {rank} of {parameter_count}, so the stacked bread is singular.",
+          i = "Refit the weights on covariates whose constraint columns are independent."
+        )
+      } else {
+        c(
+          i = "Either the stacked estimating functions are not finite around the fit, or the stacked bread is singular there."
+        )
+      }
       abort(
         c(
           "The stacked variance could not be computed for this outcome model.",
           x = "The stacked bread has no inverse at the fitted parameters.",
-          i = "Either the stacked estimating functions are not finite around the fit, or the stacked bread is singular there.",
+          reading,
           i = "See the inference vignette for a bootstrap workflow."
         ),
         error_class = "balancing_ipw_unsupported_error",
-        call = call
+        call = call,
+        .envir = environment()
       )
     }
   )
@@ -658,6 +698,28 @@ msm_effect_name <- function(
   )
 }
 
+# The rank of an estimating-equation Jacobian, and the directions its deficiency
+# lies along.
+#
+# A rank read off a decomposition needs a tolerance, since a deficiency arrived
+# at in floating point leaves a singular value of rounding size rather than an
+# exact zero. The cutoff is relative to the largest singular value, which is what
+# makes it independent of the scale the estimating equations happen to be written
+# at, and it is set far below any singular value a well-conditioned fit block
+# produces and far above the rounding a deficient one leaves. Both readers of a
+# deficiency, the check made before the stack is differenced and the refusal
+# raised when the engine cannot invert it, measure it here so the two never
+# disagree about whether a given fit is deficient.
+measure_jacobian_rank <- function(jacobian) {
+  decomposition <- svd(jacobian)
+  deficient <- decomposition$d <= decomposition$d[[1]] * 1e-8
+  list(
+    rank = sum(!deficient),
+    count = ncol(jacobian),
+    directions = decomposition$v[, deficient, drop = FALSE]
+  )
+}
+
 # Refuse a stacked system whose weight parameters are not identified in a
 # direction the reported effects can see.
 #
@@ -700,15 +762,14 @@ validate_stacked_bread <- function(
   parameters,
   call = rlang::caller_env()
 ) {
-  decomposition <- svd(jacobian)
-  deficient <- decomposition$d <= decomposition$d[[1]] * 1e-8
-  if (!any(deficient)) {
+  deficiency <- measure_jacobian_rank(jacobian)
+  if (deficiency$rank == deficiency$count) {
     return(invisible(NULL))
   }
 
   step <- 1e-6
   magnitude <- max(1, max(abs(weights_at(parameters))))
-  directions <- decomposition$v[, deficient, drop = FALSE]
+  directions <- deficiency$directions
   movement <- vapply(
     seq_len(ncol(directions)),
     function(j) {
@@ -731,8 +792,8 @@ validate_stacked_bread <- function(
     return(invisible(NULL))
   }
 
-  rank <- sum(!deficient)
-  parameter_count <- ncol(jacobian)
+  rank <- deficiency$rank
+  parameter_count <- deficiency$count
   abort(
     c(
       "{.fun ipw} cannot compute a stacked variance for this balancing fit.",

@@ -547,20 +547,35 @@ constant_columns <- function(columns) {
 }
 
 # Positions of columns a rank-revealing QR identifies as aliased. The check runs
-# on the assembled constraint columns, which is the geometry the solver actually
-# sees. A covariate that is another covariate plus a constant is the same
-# constraint once the columns are centered, so it is detected here alongside an
-# exact duplicate. A column the decomposition finds redundant constrains nothing
-# the surviving columns do not already constrain, while leaving it in place would
-# make the estimating equations rank deficient.
+# on the assembled constraint columns together with a constant, which is the
+# geometry the solver actually sees: the entropy dual normalizes within each
+# exposure group, inverse probability tilting and the covariate balancing
+# propensity score bind an explicit intercept column, and the stable balancing
+# weights, energy, and characteristic function distance quadratic programs each
+# carry a group-sum row. A constraint set that is affinely dependent on that
+# constant is rank deficient in the solver's geometry even when the columns on
+# their own are independent, and a full set of factor level indicators is exactly
+# that shape. Counting the constant also makes the drop independent of which
+# affine representative the data happen to carry: a covariate that is another
+# covariate plus a shift, and a zero/one indicator paired with its complement,
+# reduce to the same surviving set as their centered counterparts.
+#
+# The constant goes in first and is never a candidate for removal, since the
+# solver carries it whatever the constraints do. R's default LINPACK `dqrdc2`
+# keeps column order and moves only deficient columns to the end, so column `j`
+# of the constraints is dropped exactly when its pivot position, `j + 1` in the
+# augmented matrix, falls beyond the rank. The later member of an affine set is
+# therefore the one dropped, which for a factor is its last level, and the choice
+# is deterministic rather than a function of column ordering within the pivot.
 aliased_columns <- function(columns) {
-  if (ncol(columns) <= 1) {
+  if (ncol(columns) == 0L) {
     return(integer(0))
   }
-  decomposition <- qr(columns)
-  if (decomposition$rank == ncol(columns)) {
+  augmented <- cbind(1, columns)
+  decomposition <- qr(augmented)
+  if (decomposition$rank == ncol(augmented)) {
     return(integer(0))
   }
   kept <- decomposition$pivot[seq_len(decomposition$rank)]
-  sort(setdiff(seq_len(ncol(columns)), kept))
+  sort(setdiff(seq_len(ncol(columns)), kept - 1L))
 }

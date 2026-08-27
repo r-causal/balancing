@@ -307,6 +307,29 @@ ipw_continuous_fixture <- function(n = 300) {
   data
 }
 
+# The message of a condition as a single line, so an assertion on a phrase does
+# not depend on where cli happened to wrap it.
+condition_line <- function(cnd) {
+  gsub("\\s+", " ", conditionMessage(cnd))
+}
+
+# A stacked system whose third equation is identically zero, so its bread has an
+# exact zero pivot and `allow_pinv = FALSE` refuses it outright rather than
+# answering with a pseudo-inverse. The fit block's Jacobian is a separate
+# argument to the same call, which is what lets the rank-naming specs hold the
+# refusal fixed and vary only the block whose rank is read off.
+singular_stack <- function(n) {
+  values <- withr::with_seed(707, matrix(stats::rnorm(2L * n), nrow = 2L))
+  values <- values - rowMeans(values)
+  function(theta) {
+    rbind(
+      values[1L, ] - theta[[1L]],
+      values[2L, ] - theta[[2L]],
+      rep(0, n)
+    )
+  }
+}
+
 # ---- Estimating-equations container contract ------------------------------
 
 # These pin the container ipw() consumes. The dimension and column-sum
@@ -839,15 +862,12 @@ test_that("a shift-related covariate leaves the ipw() chain identified", {
 })
 
 test_that("a factor covariate leaves the ipw() sandwich finite", {
-  # A factor's level indicators sum to the constant function. Nothing in the raw
-  # column rank marks that redundancy, so every level keeps its own constraint
-  # column and the entropy estimating equations are rank deficient: the Jacobian
-  # block of each solved group has the level-sum direction in its null space. The
-  # redundancy is harmless because the weight map is flat along the same
-  # direction, so the fit and its influence function are the fit and influence
-  # function of the parameterization that drops one level column, and the stacked
-  # variance must agree with that reduced fit rather than dissolve into the
-  # singularity.
+  # A factor's level indicators sum to the constant function every solver
+  # carries, so the construction drops the redundant level and the entropy
+  # estimating equations come out full rank: no direction is left in the
+  # Jacobian's null space for the stacked bread to fall into. Dropping a level
+  # by hand instead reaches the same fit, so the weights, the estimates and the
+  # standard errors must agree with that reduced parameterization.
   data <- sim_binary()
   withr::with_seed(11, {
     data$y <- stats::rbinom(
@@ -878,7 +898,7 @@ test_that("a factor covariate leaves the ipw() sandwich finite", {
   )
 
   jacobian <- estimating_equations(fit)@jacobian
-  expect_lt(qr(jacobian)$rank, ncol(jacobian))
+  expect_identical(qr(jacobian)$rank, ncol(jacobian))
   expect_equal(
     as.numeric(stats::weights(fit)),
     as.numeric(stats::weights(reduced)),
@@ -897,8 +917,9 @@ test_that("a factor covariate leaves the ipw() sandwich finite", {
     as.numeric(stats::weights(reduced)),
     stats::binomial()
   )
-  # The deficiency is tolerated rather than refused, and tolerated silently: the
-  # weight map is flat along it, so it never reaches the reported effects.
+  # The two parameterizations drop a different level of the same factor and span
+  # the same constraint set, so the reported effects and their standard errors
+  # agree, and nothing along the way warns.
   estimates <- as.data.frame(expect_no_warning(ipw(fit, outcome_mod)))
   reduced_estimates <- as.data.frame(ipw(reduced, reduced_mod))
 
@@ -5491,6 +5512,152 @@ test_that("ipw() translates deli's bread refusal into its own", {
     classes = "balancing_ipw_unsupported_error"
   )
   expect_identical(rlang::call_name(conditionCall(cnd)), "ipw")
+})
+
+# ---- Naming a rank-deficient fit block in the bread refusal ----------------
+
+# The refusal deli raises when it cannot invert the stacked bread has two
+# readings, and the generic bullet offers the caller both: either the stacked
+# estimating functions are not finite around the fit, or the stacked bread is
+# singular there. The second has a usual cause the package can name on its own,
+# a fit whose estimating equations are rank deficient, because the container
+# carries the analytic Jacobian that settles it. So `stacked_covariance()` takes
+# that Jacobian and, on a refusal, measures the fit block's rank with the rule
+# `validate_stacked_bread()` uses: a singular value at or below 1e-8 times the
+# largest counts as deficient. A deficient block replaces the generic bullet
+# with the rank it found and the constraint columns to go and look at; a
+# full-rank block leaves the generic bullets standing, since the fit is then not
+# what went wrong. The class and the bootstrap pointer are the same either way.
+#
+# The interface the two call sites use is
+#
+#   stacked_covariance(stacked_equations, theta, n, jacobian, call = )
+#
+# where `jacobian` is `container@jacobian`, which both of them already hold.
+
+test_that("stacked_covariance() names the rank of a deficient fit block", {
+  n <- 40L
+  theta <- c(theta_w1 = 0, theta_w2 = 0, theta_w3 = 0)
+  refuse <- function() {
+    stacked_covariance(
+      singular_stack(n),
+      theta,
+      n,
+      jacobian = diag(c(2, 1, 0))
+    )
+  }
+
+  cnd <- rlang::catch_cnd(refuse(), classes = "balancing_ipw_unsupported_error")
+  expect_s3_class(cnd, "balancing_ipw_unsupported_error")
+
+  message <- condition_line(cnd)
+  expect_match(message, "rank 2 of 3", fixed = TRUE)
+  expect_match(message, "constraint column")
+  expect_match(message, "bootstrap workflow", fixed = TRUE)
+  expect_no_match(message, "not finite around the fit", fixed = TRUE)
+})
+
+test_that("stacked_covariance() keeps the generic bullets for a full-rank fit block", {
+  n <- 40L
+  theta <- c(theta_w1 = 0, theta_w2 = 0, theta_w3 = 0)
+  refuse <- function() {
+    stacked_covariance(
+      singular_stack(n),
+      theta,
+      n,
+      jacobian = diag(c(2, 1, 0.5))
+    )
+  }
+
+  cnd <- rlang::catch_cnd(refuse(), classes = "balancing_ipw_unsupported_error")
+  expect_s3_class(cnd, "balancing_ipw_unsupported_error")
+
+  message <- condition_line(cnd)
+  expect_match(message, "not finite around the fit", fixed = TRUE)
+  expect_match(message, "singular there", fixed = TRUE)
+  expect_match(message, "bootstrap workflow", fixed = TRUE)
+  expect_no_match(message, "rank", fixed = TRUE)
+})
+
+# The same pair reached the way a caller reaches it. A container carrying one
+# extra weight parameter with no estimating equation of its own is rank
+# deficient by construction and its weight map is flat along that direction, so
+# the check made before the difference lets it through and the engine meets the
+# deficiency in the finite-differenced bread instead. That is the whole route
+# the naming exists for: the fit is the thing at fault, and the refusal says so
+# in the fit's own terms.
+test_that("ipw() names the rank of a deficient fit block deli refuses", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+  p <- length(estimating_equations(fit)@parameters)
+
+  deficient <- fit
+  deficient@estimating_equations <- inert_parameter_container(
+    estimating_equations(fit)
+  )
+
+  cnd <- rlang::catch_cnd(
+    ipw(deficient, outcome_mod),
+    classes = "balancing_ipw_unsupported_error"
+  )
+  expect_s3_class(cnd, "balancing_ipw_unsupported_error")
+
+  message <- condition_line(cnd)
+  expect_match(message, paste0("rank ", p, " of ", p + 1L), fixed = TRUE)
+  expect_match(message, "constraint column")
+  expect_match(message, "bootstrap workflow", fixed = TRUE)
+  expect_no_match(message, "not finite around the fit", fixed = TRUE)
+
+  # The whole refusal as the caller meets it, next to the snapshot of the
+  # refusal the rank check raises before the stack is differenced. The two are
+  # the package's only two accounts of a deficient fit, and reading them
+  # together is what keeps them saying the same thing in the same words.
+  expect_balancing_error(stop(cnd))
+})
+
+# A fit whose own estimating equations are full rank, meeting the same refusal
+# for a reason of the engine's. Nothing about the fit is worth naming there, so
+# the generic bullets are what the caller gets. The condition is raised straight
+# from the engine binding, with a message of no significance, because the class
+# is the whole of what the translation reads.
+test_that("ipw() keeps the generic bullets when the fit block is full rank", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  testthat::local_mocked_bindings(
+    compute_sandwich = function(...) {
+      cli::cli_abort(
+        "The bread matrix has no inverse.",
+        class = "deli_bread_not_invertible"
+      )
+    },
+    .package = "deli"
+  )
+
+  cnd <- rlang::catch_cnd(
+    ipw(fit, outcome_mod),
+    classes = "balancing_ipw_unsupported_error"
+  )
+  message <- condition_line(cnd)
+  expect_match(message, "not finite around the fit", fixed = TRUE)
+  expect_match(message, "singular there", fixed = TRUE)
+  expect_no_match(message, "rank", fixed = TRUE)
 })
 
 # Both refusals above are raised from inside the variance engine, which no caller

@@ -179,3 +179,15 @@
       x The reported weights move along 1 unidentified direction, which carries the deficiency into the effect standard errors.
       i Refit the weights on covariates whose constraint columns are independent, or see the inference vignette for a bootstrap workflow.
 
+# ipw() names the rank of a deficient fit block deli refuses
+
+    Code
+      stop(cnd)
+    Condition <balancing_ipw_unsupported_error>
+      Error in `ipw()`:
+      ! The stacked variance could not be computed for this outcome model.
+      x The stacked bread has no inverse at the fitted parameters.
+      x The balancing fit's estimating equations have rank 4 of 5, so the stacked bread is singular.
+      i Refit the weights on covariates whose constraint columns are independent.
+      i See the inference vignette for a bootstrap workflow.
+
