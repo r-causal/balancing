@@ -160,12 +160,13 @@ test_that("entropy balancing balances a factor covariate for a binary ate", {
   # level proportions must therefore land on the pooled proportions.
   #
   # The level indicators of a factor sum to the constant function, along which
-  # the entropy dual is exactly flat, so its Hessian is singular and the gradient
-  # the solve can reach is set by the rounding of the weighted means rather than
-  # by the tolerance. The solve still reaches the dual's numerical optimum, and
-  # that has to read as convergence at the default tolerance: the sizes below
-  # bracket the point where the reachable gradient crosses 1e-10, and the
-  # achieved balance is exact well inside the assertion at every one of them.
+  # the entropy dual is exactly flat. The expansion drops the redundant level, so
+  # the Hessian is nonsingular and the solve reaches the default tolerance on its
+  # own terms; a warning here would mean the drop stopped happening. The sweep
+  # over sample sizes stays because it is three separate draws of the same shape
+  # rather than one: the level proportions and the group sizes differ at each,
+  # and both the exact-balance assertion and the nonnegativity of the weights
+  # have to hold whatever the levels come out at.
   for (n in c(200L, 300L, 500L)) {
     data <- sim_binary(n = n)
     fit <- expect_no_warning(

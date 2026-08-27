@@ -480,15 +480,19 @@ test_that("indicator and quantile columns keep their full set", {
     b = rep(c(0, 1), length.out = n),
     f = factor(rep(c("a", "b", "c"), length.out = n))
   )
-  expect_message(
-    built <- build_constraint_matrix(
+  # The second moment of the zero/one column `b` is announced as ignored on the
+  # way through, so this call alerts twice. `evaluate_promise()` takes both
+  # alerts and the value, leaving neither message on the console.
+  evaluated <- evaluate_promise(
+    build_constraint_matrix(
       data,
       c("x1", "x2", "b", "f"),
       balance_terms(moments = 2L, quantiles = c(0.25, 0.75)),
       exposure_type = "binary"
-    ),
-    "aliased"
+    )
   )
+  expect_match(evaluated$messages, "aliased", all = FALSE)
+  built <- evaluated$result
   terms <- vapply(built$recipe, function(record) record$term, character(1))
 
   # A zero/one indicator and a quantile indicator are each independent of the

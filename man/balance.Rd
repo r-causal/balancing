@@ -68,6 +68,14 @@ only \code{"ate"}.
 Constraints default to first-moment balance. Pass a \code{\link[=balance_terms]{balance_terms()}}
 specification to balance higher moments, interactions, or quantiles, or to
 relax exact balance to a tolerance.
+
+A factor covariate expands to one indicator per level, and those indicators
+sum to the constant every balancing method carries. One indicator per factor
+is therefore redundant with that constant and is dropped, with an
+informational alert naming the term. The dropped level is the last one, and
+balancing the levels that remain balances it too. The factor stays in
+\verb{@covariates}, and \verb{@balance_table} reports the surviving levels rather than
+the full set.
 }
 \examples{
 n <- 200

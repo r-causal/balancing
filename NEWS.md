@@ -24,6 +24,18 @@
   condition rather than `balancing_exposure_type_error`, which stays the class of
   balancing's own refusal of an exposure type the method cannot fit.
 
+* The constraint expansion now tests for aliasing against the intercept every
+  balancing method carries, rather than against the constraint columns alone.
+  The level indicators of a factor sum to that constant, so one indicator per
+  factor was redundant in the geometry the solver sees while surviving the old
+  check; the entropy estimating equations were rank deficient by construction
+  whenever a factor was balanced, and the flat direction that left behind
+  produced order-dependent solver failures. The redundant indicator, which is
+  the last level of each factor, is now dropped with an informational alert, and
+  the balance table reports the surviving levels. Balance on the levels that
+  remain implies balance on the omitted one, so no fit loses a constraint it
+  previously met.
+
 * Added `balance_terms()` to specify the covariate functions a method balances,
   covering moments, pairwise interactions, quantile indicators, and per-covariate
   balance tolerances.
