@@ -269,6 +269,62 @@ test_that("a bootstrap-only method refuses at the per-imputation step", {
   )
 })
 
+# ---- Pooling a reading the results support alone ---------------------------
+
+# What is pooled is the reading the per-analysis results record, and a
+# continuous fit whose outcome model reads the exposure through several columns
+# records the conditional one and supports no other. So the set pools by
+# coefficient rather than by causal contrast, and the pooled result carries the
+# refusal forward: there was no marginal surface in any analysis for the pooling
+# to combine, so there is none of it to flip to afterwards.
+#
+# Three fits of one model to three datasets, which is the shape a set of
+# imputations arrives in. `mice` is not in it: what this pins is the reading the
+# pooling starts from, and drawing the sets from three seeds says that without
+# making the spec wait on an imputation it makes no claim about.
+test_that("pool_ipw() over basis fits pools the conditional reading", {
+  fits <- lapply(c(101, 102, 103), function(seed) {
+    data <- sim_continuous_indicator(seed = seed)
+    data$y_cont <- withr::with_seed(seed, {
+      1 +
+        0.5 * data$exposure +
+        0.25 * data$exposure^2 +
+        0.4 * data$x1 +
+        stats::rnorm(nrow(data))
+    })
+    fit <- balance(
+      data,
+      exposure,
+      c(x1, g),
+      method = bw_entropy(),
+      estimand = "ate"
+    )
+    data$.wts <- stats::weights(fit)
+    ipw(fit, stats::lm(y_cont ~ poly(exposure, 2), data = data, weights = .wts))
+  })
+
+  pooled <- pool_ipw(fits)
+  coefficients <- names(stats::coef(fits[[1L]]$outcome_mod))
+
+  expect_identical(
+    coefficients,
+    c("(Intercept)", "poly(exposure, 2)1", "poly(exposure, 2)2")
+  )
+  expect_identical(pooled$effects, "conditional")
+  expect_identical(pooled$estimates$effect, coefficients)
+  expect_identical(pooled$m, 3L)
+  expect_true(all(is.finite(pooled$estimates$estimate)))
+  expect_true(all(is.finite(pooled$estimates$std.err)))
+
+  # The pooled refusal is its own condition rather than the one an unpooled
+  # result raises: a pooled result records which surfaces it combined, and the
+  # marginal one is missing rather than unsupported.
+  expect_error(
+    as_marginal(pooled),
+    class = "causalgenerics_pool_missing_surface_marginal"
+  )
+})
+
 # ---- Pooling effects reported by subgroup ----------------------------------
 #
 # A `.by` result reports the effects over the whole sample, then within each

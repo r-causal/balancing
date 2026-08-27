@@ -677,6 +677,7 @@ accessor_binary_models <- function() {
 # the shape rather than the whole result.
 expect_ipw_built_as <- function(result, expected) {
   testthat::expect_identical(result$effects, expected$effects)
+  testthat::expect_identical(result$readings, expected$readings)
   testthat::expect_identical(names(result), names(expected))
   testthat::expect_identical(result, expected)
   invisible(result)
@@ -722,11 +723,16 @@ test_that("every route defaults to the marginal reading and round-trips", {
   )
 
   # Marginal is what every route reported before the mode was a field, so a call
-  # that names no mode still reports it.
+  # that names no mode still reports it. Each of these results is one the whole
+  # surface exists on, which the declared readings say and the round trip below
+  # relies on.
   expect_identical(
     vapply(results, function(res) res$effects, character(1)),
     stats::setNames(rep("marginal", length(results)), names(results))
   )
+  for (res in results) {
+    expect_identical(res$readings, c("marginal", "conditional"))
+  }
 
   # Both readings exist on every result, so moving to the other one records the
   # move and reads nothing else, and moving back is the result that went in
@@ -741,6 +747,27 @@ test_that("every route defaults to the marginal reading and round-trips", {
   # Asking for the reading a result already records says what asking once said.
   expect_identical(lapply(flipped, causalgenerics::as_conditional), flipped)
   expect_identical(lapply(results, causalgenerics::as_marginal), results)
+
+  # A continuous fit whose outcome model reads the exposure through several
+  # columns is the one result the round trip does not hold for, because the
+  # marginal reading is not a reading it has. It declares the conditional one
+  # alone and refuses the flip rather than answering it, which is what says the
+  # loop above ran on the results that support both rather than on every result
+  # the package builds.
+  basis_mod <- fit_accessor_outcome(
+    y_cont ~ poly(exposure, 2),
+    continuous_data,
+    stats::weights(continuous_fit),
+    stats::gaussian()
+  )
+  basis <- ipw(continuous_fit, basis_mod)
+
+  expect_identical(basis$effects, "conditional")
+  expect_identical(basis$readings, "conditional")
+  expect_error(
+    causalgenerics::as_marginal(basis),
+    class = "causalgenerics_unsupported_reading_marginal"
+  )
 })
 
 test_that("a binary result records the reading it was built in", {

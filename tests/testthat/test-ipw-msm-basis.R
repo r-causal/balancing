@@ -128,15 +128,23 @@ expect_basis_msm_columns <- function(estimates) {
 }
 
 # Everything a coefficient surface has to keep in lockstep with its estimates
-# table, written once because the claim is the same for every basis: the row
-# labels are the measure and the coefficient, they are unique, every accessor
-# keys by them in the same order, the stacked parameter vector names them the
-# same way, the printed table shows them, and the reported standard errors are
-# the square roots of the diagonal of a covariance that is a real one rather
-# than a diagonal assembled row by row.
-expect_basis_msm_accessors <- function(result, effect) {
+# table, written once because the claim is the same for every basis.
+#
+# Such a result records the conditional reading and supports no other, so its
+# accessors key by the outcome model's own coefficient names in one order, and
+# the covariance they report is the outcome block of the stacked sandwich rather
+# than the one the weighted fit computed for itself while treating its weights
+# as fixed. The coefficients come out of one fit of one model, so they covary; a
+# surface assembled row by row would report zeros off the diagonal.
+#
+# The stored estimates frame is checked against that same block. It is not a
+# reading the result presents, but `pool_ipw()` reads it rather than the
+# accessors, so its standard errors reach a pooled result whether or not
+# anything else reports them, and nothing else pins them to a covariance.
+expect_basis_msm_accessors <- function(result, effect, outcome_mod) {
   estimates <- result$estimates
   labels <- paste(estimates$effect, estimates$contrast)
+  coefficients <- names(stats::coef(outcome_mod))
 
   testthat::expect_identical(estimates$effect, rep(effect, nrow(estimates)))
   testthat::expect_identical(anyDuplicated(labels), 0L)
@@ -144,29 +152,35 @@ expect_basis_msm_accessors <- function(result, effect) {
   testthat::expect_true(all(estimates$std.err > 0))
   testthat::expect_true(all(estimates$ci.lower < estimates$ci.upper))
 
-  testthat::expect_identical(names(stats::coef(result)), labels)
+  testthat::expect_identical(result$effects, "conditional")
+  testthat::expect_identical(result$readings, "conditional")
+  testthat::expect_identical(stats::coef(result), stats::coef(outcome_mod))
   testthat::expect_identical(
     dimnames(stats::vcov(result)),
-    list(labels, labels)
+    list(coefficients, coefficients)
   )
-  testthat::expect_identical(rownames(stats::confint(result)), labels)
+  testthat::expect_identical(rownames(stats::confint(result)), coefficients)
+
+  # Each row of the stored frame reports the standard error of the coefficient
+  # it names, which is the square root of that coefficient's diagonal entry in
+  # the same block, read at the coefficient rather than by position. A frame
+  # built from the wrong rows of the sandwich, or from the covariance the
+  # weighted fit computed for itself, differs here by more than rounding.
   testthat::expect_equal(
-    sqrt(diag(stats::vcov(result))),
+    unname(sqrt(diag(stats::vcov(result)))[estimates$contrast]),
     estimates$std.err,
-    ignore_attr = TRUE
+    tolerance = 1e-12
   )
 
-  # The basis coefficients come out of one fit of one model, so they covary. An
-  # assembly that estimated each row on its own would report zeros here.
   covariance <- stats::vcov(result)
   testthat::expect_equal(covariance, t(covariance), tolerance = 1e-12)
   off_diagonal <- covariance[upper.tri(covariance)]
   testthat::expect_true(all(is.finite(off_diagonal)))
   testthat::expect_gt(max(abs(off_diagonal)), 1e-8)
 
-  # The stacked parameter vector names the reported entries by the same labels,
-  # which is what lets the reported estimates and standard errors be read back
-  # out of the variance system the result carries.
+  # The stacked parameter vector names the stored entries by the estimates
+  # table's own labels, which is what lets the stored estimates and standard
+  # errors be read back out of the variance system the result carries.
   theta <- result$fit$theta
   testthat::expect_true(all(labels %in% names(theta)))
   testthat::expect_equal(
@@ -181,8 +195,8 @@ expect_basis_msm_accessors <- function(result, effect) {
   )
 
   printed <- paste(capture.output(print(result)), collapse = "\n")
-  for (label in labels) {
-    testthat::expect_match(printed, label, fixed = TRUE)
+  for (coefficient in coefficients) {
+    testthat::expect_match(printed, coefficient, fixed = TRUE)
   }
 
   invisible(result)
@@ -406,7 +420,7 @@ test_that("a quadratic dose response reports one row per exposure coefficient", 
     stats::coef(outcome_mod)[["I(exposure^2)"]],
     tolerance = 1e-10
   )
-  expect_basis_msm_accessors(result, "coef")
+  expect_basis_msm_accessors(result, "coef", outcome_mod)
 })
 
 test_that("a transformed dose term reports one row per exposure coefficient", {
@@ -432,7 +446,7 @@ test_that("a transformed dose term reports one row per exposure coefficient", {
     stats::coef(outcome_mod)[["sin(exposure)"]],
     tolerance = 1e-10
   )
-  expect_basis_msm_accessors(result, "coef")
+  expect_basis_msm_accessors(result, "coef", outcome_mod)
 })
 
 test_that("an orthogonal polynomial basis reports one row per basis coefficient", {
@@ -465,7 +479,7 @@ test_that("an orthogonal polynomial basis reports one row per basis coefficient"
     stats::coef(outcome_mod)[["poly(exposure, 2)2"]],
     tolerance = 1e-10
   )
-  expect_basis_msm_accessors(result, "coef")
+  expect_basis_msm_accessors(result, "coef", outcome_mod)
 })
 
 test_that("a natural spline basis reports one row per basis coefficient", {
@@ -499,7 +513,7 @@ test_that("a natural spline basis reports one row per basis coefficient", {
     unname(stats::coef(outcome_mod)[estimates$contrast]),
     tolerance = 1e-10
   )
-  expect_basis_msm_accessors(result, "coef")
+  expect_basis_msm_accessors(result, "coef", outcome_mod)
 })
 
 test_that("a B-spline basis reports one row per basis coefficient", {
@@ -529,7 +543,7 @@ test_that("a B-spline basis reports one row per basis coefficient", {
     unname(stats::coef(outcome_mod)[estimates$contrast]),
     tolerance = 1e-10
   )
-  expect_basis_msm_accessors(result, "coef")
+  expect_basis_msm_accessors(result, "coef", outcome_mod)
 })
 
 # The intercept is not a causal coefficient and a covariate's columns are not
@@ -561,7 +575,7 @@ test_that("an exposure basis beside a covariate basis reports only its own rows"
     unname(stats::coef(outcome_mod)[estimates$contrast]),
     tolerance = 1e-10
   )
-  expect_basis_msm_accessors(result, "coef")
+  expect_basis_msm_accessors(result, "coef", outcome_mod)
 })
 
 # ---- The vocabulary --------------------------------------------------------
@@ -659,7 +673,7 @@ test_that("a logit marginal structural model reports its coefficients as log odd
       unname(stats::coef(spec$model)[spec$contrast]),
       tolerance = 1e-10
     )
-    expect_basis_msm_accessors(result, "log(or)")
+    expect_basis_msm_accessors(result, "log(or)", spec$model)
   }
 
   # A logit model whose exposure enters through one bare term keeps `log(or)`
@@ -881,9 +895,9 @@ test_that("a basis marginal structural model is reported without a frame", {
 
 # The conditional reading of any continuous fit is the outcome model's own
 # coefficient surface, which for a basis is the whole vector, intercept
-# included, rather than the rows the marginal reading names. The covariance it
-# reports is the outcome block of the stacked one, so it accounts for the
-# weights having been estimated as well.
+# included, rather than the rows the stored estimates table names. The
+# covariance it reports is the outcome block of the stacked one, so it accounts
+# for the weights having been estimated as well.
 
 test_that("the conditional reading of a basis fit is the whole coefficient vector", {
   data <- msm_basis_fixture()
@@ -895,10 +909,13 @@ test_that("the conditional reading of a basis fit is the whole coefficient vecto
   )
 
   result <- ipw(fit, outcome_mod)
-  conditional <- causalgenerics::as_conditional(result)
 
-  expect_identical(stats::coef(conditional), stats::coef(outcome_mod))
-  covariance <- stats::vcov(conditional)
+  # The reading such a result records is the one it presents, so asking for it
+  # again is the result that went in rather than a rebuild of it.
+  expect_identical(causalgenerics::as_conditional(result), result)
+
+  expect_identical(stats::coef(result), stats::coef(outcome_mod))
+  covariance <- stats::vcov(result)
   expect_identical(
     dimnames(covariance),
     list(names(stats::coef(outcome_mod)), names(stats::coef(outcome_mod)))
@@ -906,12 +923,202 @@ test_that("the conditional reading of a basis fit is the whole coefficient vecto
   expect_true(all(is.finite(covariance)))
   expect_true(all(diag(covariance) > 0))
 
-  # The marginal reading is still the coefficient surface, so the two readings
-  # differ by the intercept alone.
+  # The stored table is the exposure-reading coefficients alone, so it is one
+  # row shorter than the vector the reading presents: the intercept is a
+  # coefficient of the model and no row of the surface the stack estimated.
   expect_identical(
     nrow(result$estimates),
     length(stats::coef(outcome_mod)) - 1L
   )
+})
+
+# An exposure entering the outcome model through several columns has no
+# coefficient that is a causal effect: a curve has a different slope at every
+# dose, so no row of the table answers the question the marginal reading is
+# asked. Such a result therefore declares the conditional reading as the only
+# one it supports, and every door into the marginal one is shut, at the
+# constructor and at each accessor alike.
+#
+# The declaration is a default rather than something the caller asked for, so it
+# is announced once at construction. The announcement says which reading was
+# recorded, why there is no other, where the marginalization this package does
+# not compute belongs, and how to stop being told.
+
+test_that("a basis fit announces the reading it records", {
+  data <- msm_basis_fixture()
+  fit <- msm_basis_fit(data)
+  outcome_mod <- fit_basis_msm(
+    y_cont ~ poly(exposure, 2),
+    data,
+    as.numeric(stats::weights(fit))
+  )
+
+  withr::local_options(balancing.quiet = FALSE)
+  expect_snapshot(invisible(ipw(fit, outcome_mod)))
+})
+
+test_that("a basis fit records the conditional reading and supports no other", {
+  data <- msm_basis_fixture()
+  fit <- msm_basis_fit(data)
+  w <- as.numeric(stats::weights(fit))
+
+  for (spec in msm_basis_designs) {
+    outcome_mod <- fit_basis_msm(spec$formula, data, w)
+    result <- ipw(fit, outcome_mod)
+
+    # The refusals come from causalgenerics, which owns the reading contract, so
+    # what this package settles is the pair of fields it declares. The class is
+    # the shared one: nothing here is a subclass carrying refusals of its own.
+    expect_identical(class(result), "ipw")
+    expect_identical(result$effects, "conditional")
+    expect_identical(result$readings, "conditional")
+  }
+})
+
+test_that("naming the conditional reading builds the same result silently", {
+  data <- msm_basis_fixture()
+  fit <- msm_basis_fit(data)
+  outcome_mod <- fit_basis_msm(
+    y_cont ~ splines::bs(exposure, 3),
+    data,
+    as.numeric(stats::weights(fit))
+  )
+
+  # A caller who named the reading has been told, so the announcement is a
+  # default being explained rather than a fact being reported, and it stops.
+  named <- withr::with_options(
+    list(balancing.quiet = FALSE),
+    expect_no_message(ipw(fit, outcome_mod, effects = "conditional"))
+  )
+
+  # Naming the reading the default records builds the result the default builds,
+  # whole: the same stacked system, the same stored table, and the same wrapped
+  # component models.
+  expect_identical(named, ipw(fit, outcome_mod))
+})
+
+test_that("a basis fit refuses the marginal reading at construction", {
+  data <- msm_basis_fixture()
+  fit <- msm_basis_fit(data)
+  outcome_mod <- fit_basis_msm(
+    y_cont ~ poly(exposure, 2),
+    data,
+    as.numeric(stats::weights(fit))
+  )
+
+  # Asking for the marginal reading of a model that has none is a question
+  # rather than a preference, so it is answered rather than quietly given the
+  # other reading. It is answered the same way whether or not the announcement
+  # would have been printed.
+  expect_error(
+    ipw(fit, outcome_mod, effects = "marginal"),
+    class = "balancing_ipw_input_error"
+  )
+  expect_balancing_error(ipw(fit, outcome_mod, effects = "marginal"))
+})
+
+test_that("the marginal reading is refused wherever it is asked for", {
+  data <- msm_basis_fixture()
+  fit <- msm_basis_fit(data)
+  outcome_mod <- fit_basis_msm(
+    y_cont ~ splines::ns(exposure, 3),
+    data,
+    as.numeric(stats::weights(fit))
+  )
+
+  result <- ipw(fit, outcome_mod)
+
+  # The refusal belongs to causalgenerics, which reads the declared readings off
+  # the result, so the classes are asserted rather than the wording: the text is
+  # that package's to pin. The specific class comes first so a caller can catch
+  # the missing reading by name, and the general one is what everything that
+  # refuses any reading shares.
+  specific <- "causalgenerics_unsupported_reading_marginal"
+  general <- "causalgenerics_unsupported_reading"
+
+  for (cls in c(specific, general)) {
+    expect_error(causalgenerics::as_marginal(result), class = cls)
+    expect_error(stats::coef(result, effects = "marginal"), class = cls)
+    expect_error(stats::vcov(result, effects = "marginal"), class = cls)
+    expect_error(stats::confint(result, effects = "marginal"), class = cls)
+    expect_error(
+      as.data.frame(result, effects = "marginal"),
+      class = cls
+    )
+  }
+
+  # Asking for the reading the result already records is answered rather than
+  # refused, which is what makes the refusal about the reading rather than about
+  # the argument.
+  expect_identical(
+    stats::coef(result, effects = "conditional"),
+    stats::coef(result)
+  )
+  expect_identical(
+    as.data.frame(result, effects = "conditional"),
+    as.data.frame(result)
+  )
+})
+
+# A single-column dose is unchanged by any of this. Its coefficient is the slope
+# of the dose response everywhere, so the marginal reading is a reading it has,
+# both readings are declared, the default is the marginal one it always
+# reported, and nothing is announced. Written across the two shapes that reach
+# it, a model of the exposure alone and one carrying a covariate as well, so the
+# width of the design is not what the boundary reads.
+
+test_that("a single-column dose fit keeps both readings and its marginal default", {
+  data <- msm_basis_fixture()
+  fit <- msm_basis_fit(data)
+  w <- as.numeric(stats::weights(fit))
+
+  formulas <- list(y_cont ~ exposure, y_cont ~ exposure + x1)
+
+  for (formula in formulas) {
+    outcome_mod <- fit_basis_msm(formula, data, w)
+
+    result <- withr::with_options(
+      list(balancing.quiet = FALSE),
+      expect_no_message(ipw(fit, outcome_mod))
+    )
+
+    expect_identical(class(result), "ipw")
+    expect_identical(result$effects, "marginal")
+    expect_identical(result$readings, c("marginal", "conditional"))
+    expect_identical(result$estimates$effect, "slope")
+    expect_null(result$estimates[["contrast"]])
+
+    # Both readings answer, and the round trip between them is the result that
+    # went in rather than a rebuild of it.
+    conditional <- causalgenerics::as_conditional(result)
+    expect_identical(conditional$effects, "conditional")
+    expect_identical(causalgenerics::as_marginal(conditional), result)
+    expect_identical(names(stats::coef(result)), "slope")
+    expect_identical(
+      names(stats::coef(result, effects = "conditional")),
+      names(stats::coef(outcome_mod))
+    )
+  }
+})
+
+# The modifier is refused for a continuous exposure before the outcome model is
+# looked at, so a basis fit meets that refusal rather than the reading one and
+# is told nothing about readings on the way.
+
+test_that(".by on a basis fit keeps the continuous-exposure refusal", {
+  data <- msm_basis_fixture()
+  fit <- msm_basis_fit(data)
+  outcome_mod <- fit_basis_msm(
+    y_cont ~ poly(exposure, 2),
+    data,
+    as.numeric(stats::weights(fit))
+  )
+
+  withr::local_options(balancing.quiet = FALSE)
+  expect_no_message(expect_error(
+    ipw(fit, outcome_mod, .by = g),
+    class = "balancing_ipw_unsupported_error"
+  ))
 })
 
 # The variance system a basis fit reports is the same stacked one every
