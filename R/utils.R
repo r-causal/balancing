@@ -84,24 +84,33 @@ group_target_sums <- function(s, groups, focal_level = NULL) {
 # A solve that diverged returns weights that are not finite, which leaves the
 # group total this divides by as a missing value. That is a failed solve rather
 # than a reporting-scale question, so it is refused here with a classed error
-# instead of steering the comparison below with a missing value.
+# instead of steering the comparison below with a missing value. `solvers` names
+# the solvers that produced the weights, so a fit that fell back from one solver
+# to another reports both rather than an anonymous single failure.
 renormalize_group_weights <- function(
   w,
   s,
   groups,
   targets,
+  solvers = NULL,
   call = rlang::caller_env()
 ) {
+  tried <- solver_labels(solvers)
   for (level in names(groups)) {
     idx <- groups[[level]]
     current <- sum(s[idx] * w[idx])
     if (!is.finite(current)) {
+      bullets <- c(
+        "The solver did not produce finite weights.",
+        x = "The weights for exposure level {.val {level}} do not sum to a finite total.",
+        i = "Check the covariates for collinearity or for a column the exposure determines."
+      )
+      if (length(tried) > 1L) {
+        bullets[[1L]] <- "Neither solver produced finite weights."
+        bullets <- append(bullets, c(x = "The fit tried {tried}."), after = 1L)
+      }
       abort(
-        c(
-          "The solver did not produce finite weights.",
-          x = "The weights for exposure level {.val {level}} do not sum to a finite total.",
-          i = "Check the covariates for collinearity or for a column the exposure determines."
-        ),
+        bullets,
         error_class = "balancing_convergence_error",
         call = call
       )
@@ -293,6 +302,20 @@ resolve_entropy_solver <- function() {
     )
   }
   solver
+}
+
+# Prose names for the solvers a fit can run, for the conditions that report what
+# was tried. A fit that fell back has run more than one, and a condition naming
+# them reads for a user rather than for the option that selects them, so the
+# option values are mapped to names instead of being printed as they stand. An
+# empty or absent record maps to nothing, which is the single-solver case.
+solver_labels <- function(solvers) {
+  labels <- c(
+    newton = "the Newton solver",
+    lbfgs = "the L-BFGS solver",
+    lbfgs_then_newton = "the L-BFGS then Newton hybrid"
+  )
+  unname(labels[solvers])
 }
 
 # Resolve the quadratic-program backend for the positive-semidefinite methods.

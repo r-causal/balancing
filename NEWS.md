@@ -36,6 +36,17 @@
   remain implies balance on the omitted one, so no fit loses a constraint it
   previously met.
 
+* A failed Newton solve of the exact entropy problem is now retried once with
+  the L-BFGS-then-Newton hybrid. Newton starts from the base measure and is the
+  only solver that reaches machine precision on the estimating equations, but a
+  flat or badly scaled constraint set can leave that cold start short of its
+  tolerance or send it out to weights that are not finite; the hybrid reaches a
+  neighborhood with L-BFGS first and polishes it with Newton, so it clears such
+  problems at the same precision. A successful retry announces itself and
+  `@solver_status` records the solver the fit came from. Pinning the
+  `balancing.entropy_solver` option disables the retry, and a fit that exhausts
+  both solvers names them in its warning or error.
+
 * Added `balance_terms()` to specify the covariate functions a method balances,
   covering moments, pairwise interactions, quantile indicators, and per-covariate
   balance tolerances.

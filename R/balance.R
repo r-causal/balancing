@@ -350,7 +350,10 @@ warn_balance_exceeded <- function(worst, call = rlang::caller_env()) {
 # `balancing_infeasible_error` and a hard solver failure raises
 # `balancing_convergence_error`, each naming the knob to turn; a reached iteration
 # cap with a usable iterate still warns. The estimating-equation family carries no
-# status and warns when it did not meet its convergence tolerance.
+# status and warns when it did not meet its convergence tolerance. A fit that
+# retried with a second solver carries a record of what it ran, and the warning
+# names them, so a caller can see that a different solver has already been tried
+# and the remaining levers are the iteration cap and the tolerance.
 #
 # Which knob a failure names is chosen by the status, so every status a backend
 # can assign is routed here. Only a status that genuinely means the solve ran out
@@ -410,11 +413,17 @@ check_solver_status <- function(fit, method, call = rlang::caller_env()) {
     }
   }
   if (!isTRUE(fit$converged)) {
+    tried <- solver_labels(fit$solvers_tried)
+    bullets <- c(
+      "The solver did not reach its convergence tolerance.",
+      i = "Increase {.arg max_iterations} or loosen {.arg convergence_tolerance} in {.fn {class(method)[1]}}."
+    )
+    if (length(tried) > 1L) {
+      bullets[[1L]] <- "Neither solver reached its convergence tolerance."
+      bullets <- append(bullets, c(x = "The fit tried {tried}."), after = 1L)
+    }
     warn(
-      c(
-        "The solver did not reach its convergence tolerance.",
-        i = "Increase {.arg max_iterations} or loosen {.arg convergence_tolerance} in {.fn {class(method)[1]}}."
-      ),
+      bullets,
       warning_class = "balancing_convergence_warning",
       call = call
     )

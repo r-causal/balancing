@@ -28,6 +28,16 @@
 #' balances each constraint to within the tolerance and does not produce
 #' estimating equations.
 #'
+#' The exact problem is solved by Newton's method, which starts from the base
+#' measure and is the only solver that drives the estimating equations to
+#' machine precision. A flat or badly scaled constraint set can leave that cold
+#' start short of its tolerance, so a failed Newton solve is retried once with
+#' the L-BFGS-then-Newton hybrid, which reaches a neighborhood with L-BFGS
+#' before polishing it with Newton and so ends at the same precision. The retry
+#' announces itself, and `@solver_status` records the solver the returned fit
+#' came from. Pinning the `balancing.entropy_solver` option, described in
+#' [balancing_options], selects one solver and disables the retry.
+#'
 #' @param base_weights A numeric vector of base weights, one per observation, or
 #'   `NULL` for uniform base weights. The estimated weights minimize
 #'   `sum(w * log(w / base_weights))`.
@@ -225,6 +235,54 @@ entropy_options <- function(method, inexact = FALSE) {
   options
 }
 
+# Run the exact entropy solve, retrying a failed Newton solve with the
+# L-BFGS-then-Newton hybrid. Newton is the default because it is the only solver
+# that drives the estimating equations to machine precision, but it starts cold
+# at the base measure and a flat or badly scaled constraint set can leave it
+# short of its gradient tolerance, or send it out to duals the exponential tilt
+# cannot represent. The hybrid reaches a neighborhood with L-BFGS first and
+# polishes it with Newton from there, so it clears problems the cold start does
+# not while ending at the same precision. One extra solve is a small price for
+# that, so a first solve that comes back short is retried rather than reported.
+#
+# The retry is confined to the default. `entropy_options()` sets `solver` only
+# for the exact path, so an inexact fit never reaches the retry, and a user who
+# pinned `balancing.entropy_solver` asked for one specific solver and gets it,
+# failure included. A solve fails either by stopping short of its convergence
+# tolerance or by returning weights that are not finite. The second is measured
+# here because the group renormalization downstream refuses non-finite weights
+# with an error, which would run before any retry could.
+#
+# The solve is passed as a function of the option list so that the discrete and
+# continuous entrypoints, which agree in no other argument, share this path. The
+# returned `solvers_tried` records what actually ran, which is what lets a fit
+# that exhausted both name them.
+solve_entropy_with_fallback <- function(solve_fn, options) {
+  result <- solve_fn(options)
+  retry <- identical(options$solver, "newton") &&
+    is.null(getOption("balancing.entropy_solver")) &&
+    !entropy_solve_succeeded(result)
+  if (!retry) {
+    return(list(result = result, solvers_tried = options$solver))
+  }
+
+  options$solver <- "lbfgs_then_newton"
+  retried <- solve_fn(options)
+  if (entropy_solve_succeeded(retried)) {
+    alert_info(
+      "The Newton solver did not converge; the fit used the L-BFGS then Newton hybrid."
+    )
+  }
+  list(result = retried, solvers_tried = c("newton", "lbfgs_then_newton"))
+}
+
+# Whether a solve produced a usable answer. Convergence is the solver's own
+# verdict, and finite weights are what the reporting scale and everything
+# downstream of it need, so both have to hold before a result is kept.
+entropy_solve_succeeded <- function(result) {
+  isTRUE(result$converged) && all(is.finite(result$weights))
+}
+
 # Scale each column's SMD-scale tolerance to the raw scale the solver's box
 # constrains, so the achieved standardized mean difference binds at the requested
 # tolerance. The tolerance is measured on the same standardized scale the balance
@@ -342,23 +400,30 @@ fit_entropy_discrete <- function(method, prepared) {
   options <- entropy_options(method, inexact = inexact)
   options$esteq_scale <- esteq_scale
 
-  result <- solve_entropy(
-    z,
-    as.integer(group_idx),
-    targets,
-    base,
-    s,
-    tols,
-    n_eff,
+  solved <- solve_entropy_with_fallback(
+    function(solve_options) {
+      solve_entropy(
+        z,
+        as.integer(group_idx),
+        targets,
+        base,
+        s,
+        tols,
+        n_eff,
+        solve_options
+      )
+    },
     options
   )
+  result <- solved$result
 
   w <- overlay_focal_weights(result$weights, base, focal_idx)
   w <- renormalize_group_weights(
     w,
     s,
     groups,
-    group_target_sums(s, groups, focal)
+    group_target_sums(s, groups, focal),
+    solvers = solved$solvers_tried
   )
 
   # The estimating-equations container carries optional re-evaluation hooks so a
@@ -414,6 +479,7 @@ fit_entropy_discrete <- function(method, prepared) {
     iterations = as.integer(result$iterations),
     objective = entropy_objective(s, w, base),
     solver_status = result$solver,
+    solvers_tried = solved$solvers_tried,
     estimating_equations = estimating_equations_from_result(
       result,
       w,
@@ -656,16 +722,22 @@ fit_entropy_continuous <- function(method, prepared) {
   options <- entropy_options(method, inexact = inexact)
   options$esteq_scale <- esteq_scale
 
-  result <- solve_entropy_cont(
-    covs,
-    targets,
-    tols,
-    as.integer(dist_ind),
-    base,
-    s,
-    n_eff,
+  solved <- solve_entropy_with_fallback(
+    function(solve_options) {
+      solve_entropy_cont(
+        covs,
+        targets,
+        tols,
+        as.integer(dist_ind),
+        base,
+        s,
+        n_eff,
+        solve_options
+      )
+    },
     options
   )
+  result <- solved$result
 
   w <- result$weights
   current <- sum(s * w)
@@ -712,6 +784,7 @@ fit_entropy_continuous <- function(method, prepared) {
     iterations = as.integer(result$iterations),
     objective = entropy_objective(s, w, base),
     solver_status = result$solver,
+    solvers_tried = solved$solvers_tried,
     estimating_equations = estimating_equations_from_result(
       result,
       w,
