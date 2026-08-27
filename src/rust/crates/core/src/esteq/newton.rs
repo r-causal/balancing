@@ -698,6 +698,205 @@ mod tests {
         assert!(report.converged);
     }
 
+    /// The distance between adjacent doubles at ten million, two to the minus
+    /// twenty-ninth. It is the whole step available to a parameter of that
+    /// magnitude, and both fixtures below are built around it.
+    const DOUBLE_SPACING: f64 = 1.862645149230957e-9;
+
+    /// A one-parameter least squares whose four responses sit ten million from the
+    /// origin, so its minimizer does too. Two resolutions are in play and holding
+    /// them apart is what the fixture exists for. The residuals at the minimizer
+    /// are of order one, so the objective is near five and cannot tell apart two
+    /// values closer than about `eps` times that; the parameter, at ten million,
+    /// moves only in whole doubles of [`DOUBLE_SPACING`]. A Newton step of a
+    /// couple of those predicts a decrease of order `1e-17`, well beneath anything
+    /// the objective registers, while the gradient the step would remove is still
+    /// orders of magnitude above a tolerance of `1e-10`.
+    ///
+    /// That is the shape of the entropy dual at an iterate whose value has
+    /// flattened. The dual is a sum over the sample and stops moving in its last
+    /// digit long before the estimating equations are solved, and the line search
+    /// is then comparing two values that are equal to rounding.
+    ///
+    /// The gradient and Hessian are exact, and the default answer to
+    /// [`EsteqProblem::hessian_is_exact`] is the one that matters here. Each
+    /// residual is the difference of two nearby doubles and is computed without
+    /// error, and the Hessian is the unit count.
+    struct DistantLeastSquares {
+        y: [f64; 4],
+    }
+
+    impl EsteqProblem for DistantLeastSquares {
+        fn n_params(&self) -> usize {
+            1
+        }
+        fn n_units(&self) -> usize {
+            self.y.len()
+        }
+        fn value(&self, beta: &[f64]) -> Option<f64> {
+            let mut acc = 0.0;
+            for y in &self.y {
+                let residual = beta[0] - y;
+                acc += 0.5 * residual * residual;
+            }
+            Some(acc)
+        }
+        fn gradient(&self, beta: &[f64], g: &mut [f64]) {
+            let mut acc = 0.0;
+            for y in &self.y {
+                acc += beta[0] - y;
+            }
+            g[0] = acc;
+        }
+        fn hessian(&self, _beta: &[f64], mut h: MatMut<'_, f64>) {
+            *h.rb_mut().get_mut(0, 0) = self.y.len() as f64;
+        }
+        fn psi(&self, _beta: &[f64], _out: MatMut<'_, f64>) {}
+    }
+
+    /// The options both resolution fixtures run under: a tolerance loose enough
+    /// that the gradients in play sit far above it, and a cap large enough that
+    /// reaching it is unambiguously a crawl rather than a tight budget.
+    fn resolution_opts() -> SolveOptions {
+        SolveOptions {
+            max_iter: 1000,
+            grad_tol: 1e-10,
+            fista_rel_tol: 1e-12,
+        }
+    }
+
+    #[test]
+    fn an_exact_step_is_taken_where_the_objective_cannot_resolve_the_decrease() {
+        // The iterate is two doubles above the minimizer. Its gradient is 1.5e-8,
+        // a hundred and fifty times the tolerance, and one Newton step removes it
+        // exactly. What the objective sees is nothing: the step predicts a
+        // decrease of 5.6e-17 against a resolution of 1.1e-15, so the
+        // sufficient-decrease test compares two values that are equal to rounding
+        // and decides between them by ulps. It refuses the full step, refuses the
+        // half, and accepts the quarter, which is below half a double at this
+        // magnitude and so moves the iterate nowhere at all. Every pass that
+        // follows repeats it, and the solve spends its whole budget standing
+        // still.
+        //
+        // The exact Hessian is what makes the step worth taking rather than the
+        // iterate worth certifying. A superlinear step goes on sharpening the
+        // parameter after the value has stopped registering the improvement, and
+        // here it lands on the solution, so the objective's silence is no evidence
+        // that the iteration has finished.
+        let problem = DistantLeastSquares {
+            y: [10000001.8, 9999997.7, 10000001.1, 9999999.4],
+        };
+        let opts = resolution_opts();
+        let start = 1e7 + 2.0 * DOUBLE_SPACING;
+
+        let mut g = vec![0.0];
+        problem.gradient(&[start], &mut g);
+        let base = problem.value(&[start]).expect("smooth objective");
+        let predicted = g[0] * g[0] / problem.n_units() as f64;
+        assert!(
+            predicted <= value_resolution(base),
+            "the scenario needs a predicted decrease the objective cannot resolve, \
+             got {predicted:e} against a resolution of {:e}",
+            value_resolution(base)
+        );
+        assert!(
+            g[0].abs() > 100.0 * opts.grad_tol,
+            "and a gradient far above the tolerance, got {:e}",
+            g[0]
+        );
+
+        let mut beta = vec![start];
+        let report = solve(&problem, &mut beta, &opts, &|| false);
+        assert!(
+            report.grad_norm <= opts.grad_tol,
+            "the step the objective cannot resolve is the one that solves the \
+             estimating equations, so the returned gradient must meet the \
+             tolerance, got {:e}",
+            report.grad_norm
+        );
+        assert!(report.converged);
+        assert!(
+            report.iterations <= 5,
+            "a few steps rather than the iteration cap, got {}",
+            report.iterations
+        );
+        assert_eq!(beta[0], 1e7, "and the step reaches the minimizer");
+    }
+
+    #[test]
+    fn a_gradient_that_cannot_fall_is_certified_rather_than_crawled() {
+        // The same objective with one response displaced by a single double, which
+        // is enough that no representable parameter zeroes the four residuals. The
+        // gradient reaches one double-spacing, 1.9e-9, and no less, however well
+        // the problem is solved; the predicted decrease there is 8.7e-19 against a
+        // resolution of 1.1e-15, and the full Newton step is a quarter of a double
+        // and moves nothing.
+        //
+        // This is the case the exact step cannot rescue, and the solve has to say
+        // so rather than spend its budget rediscovering it. Taking the step and
+        // finding the gradient unmoved is the evidence: the iterate is as far as
+        // the arithmetic reaches, so the step is given back and convergence is
+        // reported on the resolution certificate, at whatever count the real steps
+        // came to.
+        let problem = DistantLeastSquares {
+            y: [
+                10000001.8,
+                9999997.7,
+                10000001.1,
+                9999999.4 + DOUBLE_SPACING,
+            ],
+        };
+        let opts = resolution_opts();
+        let start = 1e7;
+
+        let mut g = vec![0.0];
+        problem.gradient(&[start], &mut g);
+        let base = problem.value(&[start]).expect("smooth objective");
+        let predicted = g[0] * g[0] / problem.n_units() as f64;
+        assert!(
+            predicted <= value_resolution(base),
+            "the scenario needs a predicted decrease the objective cannot resolve, \
+             got {predicted:e} against a resolution of {:e}",
+            value_resolution(base)
+        );
+        // The floor is a property of the problem rather than of wherever the solve
+        // happened to stop: every neighbouring double carries a larger gradient,
+        // so no step reaches a smaller one.
+        for offset in [-2.0_f64, -1.0, 1.0, 2.0] {
+            let mut neighbour = vec![0.0];
+            problem.gradient(&[start + offset * DOUBLE_SPACING], &mut neighbour);
+            assert!(
+                neighbour[0].abs() > g[0].abs(),
+                "the double {offset} away carries a gradient of {:e}, not above \
+                 the floor of {:e}",
+                neighbour[0],
+                g[0]
+            );
+        }
+
+        let mut beta = vec![start];
+        let report = solve(&problem, &mut beta, &opts, &|| false);
+        assert!(
+            report.iterations <= 1,
+            "the solve must stop at the floor rather than crawl to its cap, got \
+             {} iterations",
+            report.iterations
+        );
+        assert!(
+            report.converged,
+            "an iterate the arithmetic cannot improve on is the optimum it is"
+        );
+        assert_eq!(beta[0], start, "the probe step is given back");
+        assert_eq!(
+            report.grad_norm, DOUBLE_SPACING,
+            "and the gradient stands at the floor the problem sets"
+        );
+        assert!(
+            report.grad_norm > opts.grad_tol,
+            "which is a floor the tolerance cannot reach"
+        );
+    }
+
     #[test]
     fn an_interrupt_before_the_first_step_reports_no_iterations() {
         let problem = Quadratic {
