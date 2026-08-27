@@ -535,11 +535,12 @@ make_hooks_cache <- function(container, rescale, parameters) {
 # container carries that Jacobian analytically. Reading its rank by the same rule
 # `validate_stacked_bread()` applies leaves nothing ambiguous: the refusal names
 # the rank it found and the constraint columns to go and look at, in place of the
-# reading that says the estimating functions may not be finite. Reaching here with a deficient block is the tolerated case, a direction
-# the reported weights are flat along, which nothing reported is read from and
-# which the engine may still refuse to invert on one platform and accept on
-# another. A full-rank block leaves both readings open, since the fit is then not
-# what went wrong, and the generic account stands unchanged.
+# reading that says the estimating functions may not be finite. Reaching here
+# with a deficient block is the tolerated case, a direction the reported weights
+# are flat along, which nothing reported is read from and which the engine may
+# still refuse to invert on one platform and accept on another. A full-rank
+# block leaves both readings open, since the fit is then not what went wrong,
+# and the generic account stands unchanged.
 #
 # A bread holding missing values may also come back as a value rather than a
 # condition, which would otherwise surface much later as a complaint about
