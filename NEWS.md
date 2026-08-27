@@ -55,6 +55,19 @@
   finite and a bread that is singular. A full-rank fit block reports as it did
   before, since the fit is then not what went wrong.
 
+* An `ipw()` result whose continuous exposure enters the outcome model through
+  several design columns, as a polynomial or a spline basis does, now records
+  the conditional reading and declares it the only reading it supports. A curve
+  has a different slope at every dose, so no coefficient of such a model is a
+  causal effect and the marginal reading has no surface to report. The default
+  is announced once at construction, naming the marginaleffects package as where
+  marginalizing over the observed doses belongs; `effects = "conditional"`
+  builds the same result silently, and `effects = "marginal"` is refused with
+  `balancing_ipw_input_error`. The accessors, `as_marginal()`, and a pooled set
+  of such results refuse the marginal reading in turn. An exposure entering
+  through one column is unchanged: both readings are declared, the marginal one
+  stays the default, and nothing is announced.
+
 * Added `balance_terms()` to specify the covariate functions a method balances,
   covering moments, pairwise interactions, quantile indicators, and per-covariate
   balance tolerances.

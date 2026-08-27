@@ -480,13 +480,28 @@
 #' @param effects The presentation mode the result records, either `"marginal"`
 #'   (the default) or `"conditional"`. The marginal reading reports the
 #'   population-averaged causal contrasts described above; the conditional
-#'   reading reports the outcome model's coefficient surface. Both surfaces are
-#'   computed whichever mode is named, since the stacked system is solved either
-#'   way, so the argument settles which one the result presents and nothing
-#'   else. [causalgenerics::as_marginal()] and [causalgenerics::as_conditional()]
-#'   move a result between the two readings afterwards, a pooled result as much
-#'   as an unpooled one, and the accessors take an `effects` argument of their
-#'   own for a single call.
+#'   reading reports the outcome model's coefficient surface. Where a result
+#'   has both surfaces, both are computed whichever mode is named, since the
+#'   stacked system is solved either way, so the argument settles which one the
+#'   result presents and nothing else. [causalgenerics::as_marginal()] and
+#'   [causalgenerics::as_conditional()] move such a result between the two
+#'   readings afterwards, a pooled result as much as an unpooled one, and the
+#'   accessors take an `effects` argument of their own for a single call.
+#'
+#'   One shape of result has a single reading. When a continuous exposure enters
+#'   `outcome_mod` through several design columns, as a polynomial or a spline
+#'   basis does, no coefficient of that model is a causal effect: a curve has a
+#'   different slope at every dose. Such a result therefore records the
+#'   conditional reading, supports no other, and announces that it has done so.
+#'   Naming `effects = "conditional"` builds the same result without the
+#'   announcement, and naming `effects = "marginal"` raises
+#'   `balancing_ipw_input_error`, since it asks for a reading the model has none
+#'   of. Every later door into the marginal reading is shut as well: the
+#'   accessors and [causalgenerics::as_marginal()] refuse it, and a pooled set
+#'   of such results carries the refusal forward. Marginalizing a dose response
+#'   over the observed doses is left to the marginaleffects package, whose
+#'   `avg_slopes()` and `avg_comparisons()` read the conditional result; see
+#'   <https://marginaleffects.com/chapters/interactions.html>.
 #'
 #'   The conditional reading reports the coefficients of the stored
 #'   `outcome_mod` against the outcome block of the stacked sandwich, which is
@@ -644,11 +659,13 @@
 #'
 #' ipw(dose_fit, dose_mod)
 #'
-#' # An exposure entering through several columns reports one row per
-#' # coefficient, named after the coefficient the fit names.
+#' # An exposure entering through several columns has no coefficient that is a
+#' # causal effect, so the result records the conditional reading and supports
+#' # no other. Naming that reading builds the same result without the
+#' # announcement that explains the default.
 #' curve_mod <- lm(score ~ poly(dose, 2), data = df, weights = .dose_wts)
 #'
-#' ipw(dose_fit, curve_mod)
+#' ipw(dose_fit, curve_mod, effects = "conditional")
 #'
 #' @examplesIf requireNamespace("mice", quietly = TRUE)
 #' # With missing covariate data, analyze within each completed dataset and
@@ -761,7 +778,17 @@ method(causalgenerics_ipw, balancing) <- function(
   # checks on the two models, and a call that is wrong in the reading and in a
   # model reports the reading rather than making the caller fix the model and
   # meet this refusal on the next attempt.
+  #
+  # Whether the caller named it is recorded before the match collapses the
+  # default to its first element, because a reading that has to be changed below
+  # is a default being overridden where nothing was asked for and a request being
+  # refused where something was.
+  effects_named <- !missing(effects)
   effects <- rlang::arg_match(effects)
+
+  # Both readings exist on every result unless the outcome model leaves one of
+  # them without a surface, which the continuous branch below settles.
+  readings <- c("marginal", "conditional")
 
   # The modifier is selected out of a frame this function has not resolved yet,
   # so the request is defused here and evaluated below, once the frame the
@@ -818,8 +845,42 @@ method(causalgenerics_ipw, balancing) <- function(
       sampling_weights = wt_mod@sampling_weights,
       call = rlang::current_env()
     )
+    # One description of the reported surface serves both the reading the
+    # result declares and the rows it stores, so the branch below and the
+    # estimates table cannot disagree about how many columns the exposure
+    # entered through.
+    identity <- msm_coefficient_identity(outcome_mod, exposure_name)
+
+    # An exposure entering through several columns leaves the marginal reading
+    # without a surface: a curve has a different slope at every dose, so no
+    # coefficient of the model is a causal effect, and the result declares the
+    # conditional reading as the only one it supports. A caller who asked for
+    # the marginal one asked for something this model has none of and is told
+    # so; a caller who asked for nothing is told which reading was recorded
+    # instead, since the choice is the package's rather than theirs.
+    if (length(identity$columns) > 1L) {
+      if (effects_named && identical(effects, "marginal")) {
+        reasons <- msm_conditional_only_reasons()
+        abort(
+          c(
+            reasons[[1L]],
+            x = "{.code effects = \"marginal\"} asks for a reading this model has none of.",
+            i = reasons[[2L]],
+            i = reasons[[3L]],
+            i = "Use {.code effects = \"conditional\"} or omit {.arg effects}."
+          ),
+          error_class = "balancing_ipw_input_error"
+        )
+      }
+      if (!effects_named) {
+        announce_msm_conditional_only()
+      }
+      effects <- "conditional"
+      readings <- "conditional"
+    }
+
     estimates <- ipw_estimates_from_identity(
-      msm_coefficient_identity(outcome_mod, exposure_name),
+      identity,
       theta = variance_system$theta,
       vcov = variance_system$vcov,
       conf_level = conf_level
@@ -950,8 +1011,35 @@ method(causalgenerics_ipw, balancing) <- function(
     estimates = estimates,
     se_method = "mestimation",
     fit = variance_system,
-    effects = effects
+    effects = effects,
+    readings = readings
   )
+}
+
+# The lead sentence and the reasons behind it, kept in one place because the
+# announcement of the recorded reading and the refusal of the other one make the
+# same claim and would otherwise drift apart as either is reworded. What differs
+# between them is the sentence in between, which reports what the caller asked
+# for, and the closing sentence, which tells a caller who was told something how
+# to stop being told and a caller who was refused what to ask for instead.
+msm_conditional_only_reasons <- function() {
+  c(
+    "{.fun ipw} reports only the conditional reading when the exposure enters {.arg outcome_mod} through several columns.",
+    "The coefficient surface is the outcome model's own, and no single row of it is a causal effect.",
+    "Marginalizing over the dose is left to the {.pkg marginaleffects} package: call {.fun avg_slopes} or {.fun avg_comparisons} on the conditional result. See {.url https://marginaleffects.com/chapters/interactions.html}."
+  )
+}
+
+# The announcement is written one bullet at a time because a single alert
+# carrying a vector collapses to one line, and each of these sentences is a
+# separate point: what was recorded, why there is no alternative, where the
+# marginalization this package does not compute belongs, and how to silence the
+# message.
+announce_msm_conditional_only <- function() {
+  for (reason in msm_conditional_only_reasons()) {
+    alert_info(reason)
+  }
+  alert_info("Set {.code effects = \"conditional\"} to silence this message.")
 }
 
 # The data the counterfactual designs of a discrete exposure are built from,

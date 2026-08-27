@@ -40,13 +40,28 @@ an estimand that disagrees with the fit raises \code{balancing_estimand_error}.}
 \item{effects}{The presentation mode the result records, either \code{"marginal"}
 (the default) or \code{"conditional"}. The marginal reading reports the
 population-averaged causal contrasts described above; the conditional
-reading reports the outcome model's coefficient surface. Both surfaces are
-computed whichever mode is named, since the stacked system is solved either
-way, so the argument settles which one the result presents and nothing
-else. \code{\link[causalgenerics:as_marginal]{causalgenerics::as_marginal()}} and \code{\link[causalgenerics:as_conditional]{causalgenerics::as_conditional()}}
-move a result between the two readings afterwards, a pooled result as much
-as an unpooled one, and the accessors take an \code{effects} argument of their
-own for a single call.
+reading reports the outcome model's coefficient surface. Where a result
+has both surfaces, both are computed whichever mode is named, since the
+stacked system is solved either way, so the argument settles which one the
+result presents and nothing else. \code{\link[causalgenerics:as_marginal]{causalgenerics::as_marginal()}} and
+\code{\link[causalgenerics:as_conditional]{causalgenerics::as_conditional()}} move such a result between the two
+readings afterwards, a pooled result as much as an unpooled one, and the
+accessors take an \code{effects} argument of their own for a single call.
+
+One shape of result has a single reading. When a continuous exposure enters
+\code{outcome_mod} through several design columns, as a polynomial or a spline
+basis does, no coefficient of that model is a causal effect: a curve has a
+different slope at every dose. Such a result therefore records the
+conditional reading, supports no other, and announces that it has done so.
+Naming \code{effects = "conditional"} builds the same result without the
+announcement, and naming \code{effects = "marginal"} raises
+\code{balancing_ipw_input_error}, since it asks for a reading the model has none
+of. Every later door into the marginal reading is shut as well: the
+accessors and \code{\link[causalgenerics:as_marginal]{causalgenerics::as_marginal()}} refuse it, and a pooled set
+of such results carries the refusal forward. Marginalizing a dose response
+over the observed doses is left to the marginaleffects package, whose
+\code{avg_slopes()} and \code{avg_comparisons()} read the conditional result; see
+\url{https://marginaleffects.com/chapters/interactions.html}.
 
 The conditional reading reports the coefficients of the stored
 \code{outcome_mod} against the outcome block of the stacked sandwich, which is
@@ -640,11 +655,13 @@ dose_mod <- lm(score ~ dose, data = df, weights = .dose_wts)
 
 ipw(dose_fit, dose_mod)
 
-# An exposure entering through several columns reports one row per
-# coefficient, named after the coefficient the fit names.
+# An exposure entering through several columns has no coefficient that is a
+# causal effect, so the result records the conditional reading and supports
+# no other. Naming that reading builds the same result without the
+# announcement that explains the default.
 curve_mod <- lm(score ~ poly(dose, 2), data = df, weights = .dose_wts)
 
-ipw(dose_fit, curve_mod)
+ipw(dose_fit, curve_mod, effects = "conditional")
 
 \dontshow{if (requireNamespace("mice", quietly = TRUE)) withAutoprint(\{ # examplesIf}
 # With missing covariate data, analyze within each completed dataset and
