@@ -42,6 +42,40 @@ test_that("balancing_balance_warning: achieved balance exceeds the tolerance", {
   )
 })
 
+# The two cases below assert the rendered magnitude directly rather than through
+# a snapshot, because the value is the whole point of the sentence and a snapshot
+# would record whatever the formatter happens to produce.
+
+test_that("balancing_balance_warning: a residual imbalance keeps its magnitude", {
+  # The warning names how far the fit missed, so an imbalance smaller than the
+  # display precision still has to read as a number. Printed at a fixed number of
+  # decimal places, 4.9e-06 becomes "0.0000", which states that the fit balanced
+  # exactly and contradicts the sentence above it.
+  condition <- expect_warning(
+    warn_balance_exceeded(4.9e-06),
+    class = "balancing_balance_warning"
+  )
+  expect_match(
+    conditionMessage(condition),
+    "The largest imbalance is 4.9e-06.",
+    fixed = TRUE
+  )
+})
+
+test_that("balancing_balance_warning: an ordinary imbalance stays legible", {
+  # The same format has to leave an imbalance at the scale a caller acts on
+  # readable, which is three significant digits rather than four decimal places.
+  condition <- expect_warning(
+    warn_balance_exceeded(0.1751),
+    class = "balancing_balance_warning"
+  )
+  expect_match(
+    conditionMessage(condition),
+    "The largest imbalance is 0.175.",
+    fixed = TRUE
+  )
+})
+
 test_that("balancing_ignored_argument_warning: two_step without over_identified", {
   # The two-step weighting matrix belongs to the over-identified criterion, so
   # requesting it on a just-identified fit has no effect; the fit warns that the
