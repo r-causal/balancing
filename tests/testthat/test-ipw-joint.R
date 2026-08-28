@@ -716,6 +716,26 @@ test_that("a declared crossing's covariance couples the rows it reports", {
   )))
 })
 
+# A declared crossing takes the contrast block over rather than sitting beside
+# it, so the assembly of the stacked matrix meets a block of a shape no other
+# exposure produces. What the expectation compares is the assembled matrix
+# against the `rbind()` of the same blocks, at every evaluation the finite
+# difference asks the closure for.
+
+test_that("a declared crossing stacks its psi blocks as rbind would", {
+  data <- ipw_joint_fixture()
+  fit <- fit_joint_weights(data)
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_joint_outcome(
+    y ~ joint + x1,
+    data,
+    w,
+    stats::binomial()
+  )
+
+  expect_stacked_psi_matches_rbind(joint_ipw(fit, outcome_mod))
+})
+
 # ---- Labels ----------------------------------------------------------------
 
 # The measure repeats across the simple effects and the cells, so a row is named

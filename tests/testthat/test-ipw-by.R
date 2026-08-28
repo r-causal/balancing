@@ -952,6 +952,33 @@ test_that("a .by att fit couples its subgroups through the focal tilt", {
   )))
 })
 
+# The six blocks the stack is assembled from are only all present under a
+# request: an ungrouped fit leaves the last two absent. The assembly of those
+# blocks into the stacked matrix claims agreement with `rbind()` to the bit, and
+# this is the route that states the claim over a full stack. What the
+# expectation compares is the assembled matrix itself, at every evaluation the
+# finite difference asks the closure for.
+
+test_that("a .by fit stacks its psi blocks as rbind would", {
+  data <- ipw_by_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, modifier_hi),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_by_outcome(
+    y ~ exposure * modifier,
+    data,
+    w,
+    stats::binomial()
+  )
+
+  expect_stacked_psi_matches_rbind(ipw(fit, outcome_mod, .by = modifier))
+})
+
 # ---- Labels ----------------------------------------------------------------
 
 # The measure repeats across subgroups and names no row on its own, so every

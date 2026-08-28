@@ -86,3 +86,61 @@ expect_balanced <- function(x, .data, tolerance = 0) {
 
   testthat::expect_lte(max(achieved), tolerance + 1e-6)
 }
+
+# expect_stacked_psi_matches_rbind() pins the assembly of the stacked estimating
+# function against the `rbind()` of its blocks. The stacked sandwich builds the
+# S-by-n matrix block by block through `stack_psi_blocks()`, and the claim that
+# helper makes is that filling a preallocated matrix produces exactly what
+# stacking the same blocks with `rbind()` produces, to the bit.
+#
+# The comparison is made on the matrix itself rather than on the variance the
+# fit reports, because the variance would not see every difference:
+# `stacked_covariance()` overwrites the covariance dimnames with the stacked
+# parameter names, so an assembly that dropped or invented row names would still
+# return the reference variance. It is also made on the blocks a real fit builds
+# rather than on a hand-written list, because the shapes vary with the exposure,
+# the outcome model, and whether subgroups or a crossing were declared, and no
+# fixed list reaches all of them.
+#
+# The stand-in delegates to the real helper and returns its value, so the fit
+# running under it is the fit the package performs and every evaluation the
+# finite difference asks for is compared, not only the one at the root.
+# Mismatches are collected and reported once at the end: the finite difference
+# calls the closure twice per stacked coordinate, and an expectation inside the
+# stand-in would turn a single defect into hundreds of failures. The call count
+# is asserted too, so a route that stopped assembling its psi matrix through the
+# helper would fail here rather than pass vacuously.
+expect_stacked_psi_matches_rbind <- function(expr) {
+  assemble <- stack_psi_blocks
+  mismatches <- character()
+  calls <- 0L
+
+  testthat::local_mocked_bindings(
+    stack_psi_blocks = function(blocks, n) {
+      calls <<- calls + 1L
+      stacked <- assemble(blocks, n)
+      expected <- do.call(rbind, blocks)
+      if (!identical(stacked, expected)) {
+        mismatches <<- c(
+          mismatches,
+          paste0(
+            "call ",
+            calls,
+            ": assembled ",
+            paste(dim(stacked), collapse = " by "),
+            ", rbind gives ",
+            paste(dim(expected), collapse = " by ")
+          )
+        )
+      }
+      stacked
+    }
+  )
+
+  value <- force(expr)
+
+  testthat::expect_identical(mismatches, character())
+  testthat::expect_gt(calls, 0L)
+
+  invisible(value)
+}
