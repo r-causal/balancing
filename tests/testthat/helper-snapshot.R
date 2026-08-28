@@ -36,6 +36,16 @@ expect_balancing_snapshot <- function(expr) {
 # keeps what these snapshots are for, the shape and wording of the output, and
 # gives up the values that cannot be pinned portably.
 #
+# A balance value at or below 1e-8 goes further and loses its digits entirely. A
+# term the fit drove to zero leaves behind whatever residual its arithmetic
+# happened to accumulate, and at that magnitude the residual is a report on the
+# platform's floating-point path rather than on the fit: the mantissa and the
+# exponent both differ from one machine to the next, so rounding cannot make two
+# platforms agree the way it can for a number the fit actually resolved. The one
+# thing such a value states, that the term balanced, is what the placeholder
+# keeps. The rule is on magnitude rather than on a column, because which columns
+# hold a driven-to-zero value depends on the method and the constraint set.
+#
 # testthat passes a transform to the Output and Condition blocks but not to the
 # recorded Code block, so a call in a snapshot is never rewritten. The patterns
 # are still written to leave a short number alone, which keeps them safe for the
@@ -63,6 +73,17 @@ scrub_platform_values <- function(lines) {
   lines <- sub(
     "^(\\s*Weights at the minimum-weight floor: )[0-9]+( of [0-9]+)$",
     "\\1<n>\\2",
+    lines,
+    perl = TRUE
+  )
+  # Ahead of the rounding: a value like 6.438292e-11 is wide enough to round,
+  # and rounding it to 6.44e-11 would leave an exponent that still says nothing
+  # portable. Matching the exponent at or below -8 catches both forms, single
+  # digit and padded, and the guards on either side keep the pattern off a
+  # number that merely ends in something exponent-shaped.
+  lines <- gsub(
+    "(?<![0-9.])[-+]?[0-9]+(?:[.][0-9]+)?e-(?:0*[89]|0*[1-9][0-9]+)(?![0-9])",
+    "<1e-8",
     lines,
     perl = TRUE
   )
