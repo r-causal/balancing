@@ -491,6 +491,12 @@ test_that("indicator and quantile columns keep their full set", {
       exposure_type = "binary"
     )
   )
+  expect_length(evaluated$messages, 2L)
+  expect_match(
+    evaluated$messages,
+    "moments above one for the binary covariate",
+    all = FALSE
+  )
   expect_match(evaluated$messages, "aliased", all = FALSE)
   built <- evaluated$result
   terms <- vapply(built$recipe, function(record) record$term, character(1))
