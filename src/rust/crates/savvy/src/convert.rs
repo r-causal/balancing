@@ -602,15 +602,34 @@ mod tests {
     // of its tolerance and warns. The solvers walk a different floating-point
     // path on each platform, so a cap tight enough that a fit converges just
     // under it on one platform leaves the same fit warning on another. The cap
-    // has to be wide enough that the platform spread sits well inside it.
+    // has to be wide enough that the platform spread sits well inside it. The
+    // tolerance is pinned alongside it because the two halves only mean
+    // something together: a budget is generous or tight only relative to the
+    // convergence target it is spent reaching, and the documentation states
+    // both, so a change to either has to be a deliberate one.
     #[test]
-    fn the_entropy_default_iteration_cap_absorbs_platform_spread() {
+    fn the_entropy_solver_defaults_pin_the_iteration_cap_and_tolerance() {
         assert_eq!(EntropyOptions::default().max_iter, 1000);
+        assert_eq!(EntropyOptions::default().tol, 1e-10);
     }
 
     #[test]
-    fn the_tilting_default_iteration_cap_absorbs_platform_spread() {
+    fn the_tilting_solver_defaults_pin_the_iteration_cap_and_tolerance() {
         assert_eq!(IptOptions::default().max_iter, 1000);
+        assert_eq!(IptOptions::default().tol, 1e-10);
+    }
+
+    // The quadratic-program defaults reach the boundary by a different route:
+    // the parsers do not carry their own copies, they start from
+    // `QpOptions::default()` and overwrite only what the option list names. That
+    // makes the core's defaults the ones the sbw, energy and cfd fits run under,
+    // and the ones the documentation states, so they are pinned here too.
+    #[test]
+    fn the_quadratic_program_defaults_pin_the_tolerances_and_iteration_cap() {
+        let qp = QpOptions::default();
+        assert_eq!(qp.eps_abs, 1e-8);
+        assert_eq!(qp.eps_rel, 1e-8);
+        assert_eq!(qp.max_iter, 200_000);
     }
 
     #[test]
