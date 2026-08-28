@@ -496,7 +496,10 @@
 #'   Naming `effects = "conditional"` builds the same result without the
 #'   announcement, and naming `effects = "marginal"` raises
 #'   `balancing_ipw_input_error`, since it asks for a reading the model has none
-#'   of. Every later door into the marginal reading is shut as well: the
+#'   of. Naming every reading is naming none of them, so a call that supplies
+#'   the whole default vector, as a wrapper forwarding an `effects` default of
+#'   its own does, is announced rather than refused. Every later door into the
+#'   marginal reading is shut as well: the
 #'   accessors and [causalgenerics::as_marginal()] refuse it, and a pooled set
 #'   of such results carries the refusal forward. Marginalizing a dose response
 #'   over the observed doses is left to the marginaleffects package, whose
@@ -783,7 +786,13 @@ method(causalgenerics_ipw, balancing) <- function(
   # default to its first element, because a reading that has to be changed below
   # is a default being overridden where nothing was asked for and a request being
   # refused where something was.
-  effects_named <- !missing(effects)
+  #
+  # A wrapper forwarding its own `effects` default supplies this argument, and
+  # what it supplies is the whole default vector rather than a reading. Naming
+  # every reading is naming none of them, so the length is read alongside the
+  # supply: only a single reading is a request, and a wrapper's argument list is
+  # not made to refuse calls its author never wrote.
+  effects_named <- !missing(effects) && length(effects) == 1L
   effects <- rlang::arg_match(effects)
 
   # Both readings exist on every result unless the outcome model leaves one of

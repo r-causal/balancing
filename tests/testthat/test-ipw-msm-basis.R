@@ -1033,6 +1033,56 @@ test_that("a basis fit refuses the marginal reading at construction", {
   expect_balancing_error(ipw(fit, outcome_mod, effects = "marginal"))
 })
 
+# A caller who wrote no reading into their own call has asked for nothing, and a
+# wrapper forwarding its own `effects` default hands this method the whole
+# vector rather than one element of it. That vector is the default, so a result
+# whose reading has to change treats it as the default being overridden rather
+# than as a marginal request being refused: the announcement is the right answer
+# to a caller who never named a reading, and a refusal would be a wrapper's
+# argument list refusing calls its author never wrote. Only a single reading is
+# a request.
+
+test_that("a forwarded default reading counts as no request", {
+  data <- msm_basis_fixture()
+  fit <- msm_basis_fit(data)
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_basis_msm(y_cont ~ poly(exposure, 2), data, w)
+
+  wrapper <- function(..., effects = c("marginal", "conditional")) {
+    ipw(..., effects = effects)
+  }
+
+  withr::local_options(balancing.quiet = FALSE)
+
+  # The announcement is compared against the one the bare default prints rather
+  # than snapshotted again: what this pins is that the two calls are the same
+  # call, and the wording is pinned where it is recorded.
+  forwarded <- testthat::evaluate_promise(wrapper(fit, outcome_mod))
+  direct <- testthat::evaluate_promise(ipw(fit, outcome_mod))
+
+  expect_gt(length(direct$messages), 0L)
+  expect_identical(forwarded$messages, direct$messages)
+  expect_identical(forwarded$result$effects, "conditional")
+  expect_identical(forwarded$result$readings, "conditional")
+  expect_identical(forwarded$result$estimates, direct$result$estimates)
+
+  # A wrapper forwards a reading its own caller did name, so asking for the
+  # marginal one through a wrapper meets the refusal that asking for it
+  # directly meets.
+  expect_error(
+    wrapper(fit, outcome_mod, effects = "marginal"),
+    class = "balancing_ipw_input_error"
+  )
+
+  # A single-column dose has the marginal reading, so the same forwarded vector
+  # resolves through the match to the default it always resolved to, with
+  # nothing announced.
+  single <- fit_basis_msm(y_cont ~ exposure, data, w)
+  result <- expect_no_message(wrapper(fit, single))
+  expect_identical(result$effects, "marginal")
+  expect_identical(result$readings, c("marginal", "conditional"))
+})
+
 test_that("the marginal reading is refused wherever it is asked for", {
   data <- msm_basis_fixture()
   fit <- msm_basis_fit(data)

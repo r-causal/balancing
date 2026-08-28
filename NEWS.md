@@ -63,10 +63,12 @@
   is announced once at construction, naming the marginaleffects package as where
   marginalizing over the observed doses belongs; `effects = "conditional"`
   builds the same result silently, and `effects = "marginal"` is refused with
-  `balancing_ipw_input_error`. The accessors, `as_marginal()`, and a pooled set
-  of such results refuse the marginal reading in turn. An exposure entering
-  through one column is unchanged: both readings are declared, the marginal one
-  stays the default, and nothing is announced.
+  `balancing_ipw_input_error`. Naming every reading is naming none of them, so a
+  call supplying the whole default vector, as a wrapper forwarding an `effects`
+  default of its own does, is announced rather than refused. The accessors,
+  `as_marginal()`, and a pooled set of such results refuse the marginal reading
+  in turn. An exposure entering through one column is unchanged: both readings
+  are declared, the marginal one stays the default, and nothing is announced.
 
 * Added `balance_terms()` to specify the covariate functions a method balances,
   covering moments, pairwise interactions, quantile indicators, and per-covariate
