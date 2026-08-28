@@ -445,6 +445,11 @@ ipw_deli_msm_sandwich <- function(
     call = call
   )
 
+  # The surface travels back with the variance system because naming the stacked
+  # parameters already required working it out. A caller reporting rows off this
+  # stack needs the same description, and deriving it a second time would let the
+  # names in `theta` and the rows read against them disagree about which columns
+  # carried the dose response.
   list(
     theta = theta,
     vcov = stacked_covariance(
@@ -453,7 +458,8 @@ ipw_deli_msm_sandwich <- function(
       n,
       container@jacobian,
       call = call
-    )
+    ),
+    surface = surface
   )
 }
 

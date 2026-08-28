@@ -867,8 +867,10 @@ method(causalgenerics_ipw, balancing) <- function(
     # One description of the reported surface serves both the reading the
     # result declares and the rows it stores, so the branch below and the
     # estimates table cannot disagree about how many columns the exposure
-    # entered through.
-    identity <- msm_coefficient_identity(outcome_mod, exposure_name)
+    # entered through. It is the same description the sandwich named the stacked
+    # parameters from, taken from what that call returned rather than worked out
+    # again, which extends the agreement to those names.
+    identity <- variance_system$surface
 
     # An exposure entering through several columns leaves the marginal reading
     # without a surface: a curve has a different slope at every dose, so no
@@ -1030,7 +1032,11 @@ method(causalgenerics_ipw, balancing) <- function(
     ),
     estimates = estimates,
     se_method = "mestimation",
-    fit = variance_system,
+    # The surface a continuous stack also returns was consumed above, in naming
+    # the rows this result reports, and is no part of the fitted variance system
+    # a caller reads off `fit`, so only the two elements every route produces
+    # are stored.
+    fit = variance_system[c("theta", "vcov")],
     effects = effects,
     readings = readings
   )
