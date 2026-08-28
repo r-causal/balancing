@@ -602,7 +602,10 @@ test_that("the joint surface agrees with the categorical path on the rows both r
   # The undeclared surface is the one the categorical path has always reported,
   # pinned here so the comparison is against a known table rather than against
   # whatever the other call happened to produce.
-  expect_identical(plain$contrast, rep(joint_flat_contrasts, each = 3L))
+  expect_identical(
+    plain$contrast,
+    c(joint_cells, rep(joint_flat_contrasts, each = 3L))
+  )
   expect_false("group" %in% names(plain))
 
   shared <- list(
@@ -821,8 +824,11 @@ test_that("ipw() reads the declaration from .data when one is supplied", {
 })
 
 # The declaration is what changes the surface, so its absence has to leave the
-# categorical path exactly where it was: each cell against the reference cell,
-# all three measures including the odds ratio, and no subgroup column.
+# categorical path exactly where it was: one mean per cell, then each cell
+# against the reference cell over all three measures including the odds ratio,
+# and no subgroup column. Both surfaces lead with the same cell means; what the
+# declaration changes is the contrasts written from them, so the labels are
+# where the two part company.
 
 test_that("an undeclared crossing still reports each cell against the reference", {
   data <- ipw_joint_fixture()
@@ -842,14 +848,19 @@ test_that("an undeclared crossing still reports each cell against the reference"
 
   estimates <- ipw(fit, outcome_mod)$estimates
 
-  expect_identical(nrow(estimates), 9L)
+  expect_identical(nrow(estimates), 13L)
   expect_identical(
     estimates$effect,
-    rep(c("rd", "log(rr)", "log(or)"), times = 3L)
+    c(
+      rep("mean", length(joint_cells)),
+      rep(c("rd", "log(rr)", "log(or)"), times = 3L)
+    )
   )
-  expect_identical(estimates$contrast, rep(joint_flat_contrasts, each = 3L))
+  expect_identical(
+    estimates$contrast,
+    c(joint_cells, rep(joint_flat_contrasts, each = 3L))
+  )
   expect_false("group" %in% names(estimates))
-  expect_false("mean" %in% estimates$effect)
 })
 
 # ---- Refusals --------------------------------------------------------------

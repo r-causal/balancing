@@ -15,10 +15,18 @@
         Call: stats::glm(formula = formula, family = family, data = data, weights = .wts) 
       
       Marginal estimates:
-              estimate  std.err      z   ci.lower ci.upper conf.level p.value  
-      rd      0.148050 0.076088 1.9458 -0.0010793  0.29718       0.95 0.05168 .
-      log(rr) 0.313825 0.162944 1.9260 -0.0055384  0.63319       0.95 0.05411 .
-      log(or) 0.598059 0.311491 1.9200 -0.0124530  1.20857       0.95 0.05486 .
+                     estimate  std.err      z   ci.lower ci.upper conf.level
+      mean 0         0.401600 0.050558 7.9434  0.3025082  0.50069       0.95
+      mean 1         0.549649 0.056862 9.6664  0.4382025  0.66110       0.95
+      rd 1 vs 0      0.148050 0.076088 1.9458 -0.0010793  0.29718       0.95
+      log(rr) 1 vs 0 0.313825 0.162944 1.9260 -0.0055384  0.63319       0.95
+      log(or) 1 vs 0 0.598059 0.311491 1.9200 -0.0124530  1.20857       0.95
+                       p.value    
+      mean 0         1.998e-15 ***
+      mean 1         < 2.2e-16 ***
+      rd 1 vs 0        0.05168 .  
+      log(rr) 1 vs 0   0.05411 .  
+      log(or) 1 vs 0   0.05486 .  
       ---
       Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 

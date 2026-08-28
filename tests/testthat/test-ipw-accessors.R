@@ -200,7 +200,7 @@ expect_outcome_model_wrap <- function(result, outcome_mod, weight_parameters) {
 
 # ---- Binary exposure -------------------------------------------------------
 
-test_that("a binary ate result carries the covariance of its three effects", {
+test_that("a binary ate result carries the covariance of its means and effects", {
   data <- accessor_binary_fixture()
   fit <- balance(
     data,
@@ -219,8 +219,15 @@ test_that("a binary ate result carries the covariance of its three effects", {
 
   result <- ipw(fit, outcome_mod)
 
-  labels <- c("rd", "log(rr)", "log(or)")
-  expect_effect_covariance(result, labels = labels, keys = labels)
+  labels <- c(
+    "mean 0",
+    "mean 1",
+    "rd 1 vs 0",
+    "log(rr) 1 vs 0",
+    "log(or) 1 vs 0"
+  )
+  keys <- c("mu0", "mu1", "rd", "log(rr)", "log(or)")
+  expect_effect_covariance(result, labels = labels, keys = keys)
   expect_accessor_contract(
     result,
     labels = labels,
@@ -234,7 +241,7 @@ test_that("a binary ate result carries the covariance of its three effects", {
   )
 })
 
-test_that("a binary att result carries the covariance of its three effects", {
+test_that("a binary att result carries the covariance of its means and effects", {
   data <- accessor_binary_fixture()
   fit <- balance(
     data,
@@ -254,8 +261,15 @@ test_that("a binary att result carries the covariance of its three effects", {
 
   result <- ipw(fit, outcome_mod)
 
-  labels <- c("rd", "log(rr)", "log(or)")
-  expect_effect_covariance(result, labels = labels, keys = labels)
+  labels <- c(
+    "mean 0",
+    "mean 1",
+    "rd 1 vs 0",
+    "log(rr) 1 vs 0",
+    "log(or) 1 vs 0"
+  )
+  keys <- c("mu0", "mu1", "rd", "log(rr)", "log(or)")
+  expect_effect_covariance(result, labels = labels, keys = keys)
   expect_accessor_contract(
     result,
     labels = labels,
@@ -269,8 +283,8 @@ test_that("a binary att result carries the covariance of its three effects", {
   )
 })
 
-# A gaussian outcome reports one measure rather than three, so its covariance
-# is the one by one block naming it.
+# A gaussian outcome reports one contrast measure rather than three, so its
+# covariance is the block naming the two level means and the difference of them.
 test_that("a gaussian-outcome result carries the covariance of its difference", {
   data <- accessor_binary_fixture()
   fit <- balance(
@@ -290,10 +304,15 @@ test_that("a gaussian-outcome result carries the covariance of its difference", 
 
   result <- ipw(fit, outcome_mod)
 
-  expect_effect_covariance(result, labels = "diff", keys = "diff")
+  labels <- c("mean 0", "mean 1", "diff 1 vs 0")
+  expect_effect_covariance(
+    result,
+    labels = labels,
+    keys = c("mu0", "mu1", "diff")
+  )
   expect_accessor_contract(
     result,
-    labels = "diff",
+    labels = labels,
     n = nrow(data),
     weights = w
   )
@@ -330,6 +349,9 @@ test_that("a categorical ate result labels its covariance by contrast", {
   result <- ipw(fit, outcome_mod)
 
   labels <- c(
+    "mean a",
+    "mean b",
+    "mean c",
     "rd b vs a",
     "log(rr) b vs a",
     "log(or) b vs a",
@@ -338,6 +360,9 @@ test_that("a categorical ate result labels its covariance by contrast", {
     "log(or) c vs a"
   )
   keys <- c(
+    "mu_a",
+    "mu_b",
+    "mu_c",
     "rd_b",
     "log(rr)_b",
     "log(or)_b",
@@ -795,7 +820,7 @@ test_that("a binary result records the reading it was built in", {
   expect_ipw_built_as(named, base)
   expect_identical(
     names(stats::coef(named)),
-    c("rd", "log(rr)", "log(or)")
+    c("mean 0", "mean 1", "rd 1 vs 0", "log(rr) 1 vs 0", "log(or) 1 vs 0")
   )
 })
 
@@ -905,7 +930,7 @@ test_that("the effects argument reports the other reading for one call", {
     stats::coef(result),
     stats::setNames(
       result$estimates$estimate,
-      c("rd", "log(rr)", "log(or)")
+      c("mean 0", "mean 1", "rd 1 vs 0", "log(rr) 1 vs 0", "log(or) 1 vs 0")
     )
   )
 

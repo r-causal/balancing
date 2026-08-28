@@ -189,7 +189,10 @@ test_that("an ungrouped binary fit names no subgroups", {
   estimates <- ipw(fit, outcome_mod)$estimates
 
   expect_false("group" %in% names(estimates))
-  expect_identical(estimates$effect, c("rd", "log(rr)", "log(or)"))
+  expect_identical(
+    estimates$effect,
+    c("mean", "mean", "rd", "log(rr)", "log(or)")
+  )
 })
 
 test_that("a .by fit reports the whole sample, each stratum, then their contrast", {
@@ -214,13 +217,14 @@ test_that("a .by fit reports the whole sample, each stratum, then their contrast
   # balancing fills in.
   estimates <- ipw(fit, outcome_mod, .by = modifier)$estimates
 
-  # The subgroup column sits after the effect measure, which is where the
-  # shared contract places it for a binary exposure: there is no contrast
-  # column between them.
+  # The subgroup column sits after the contrast, which is where the shared
+  # contract places it: a contrast names the level a row belongs to or the pair
+  # it compares, and the subgroup qualifies the whole of that.
   expect_named(
     estimates,
     c(
       "effect",
+      "contrast",
       "group",
       "estimate",
       "std.err",
@@ -233,19 +237,47 @@ test_that("a .by fit reports the whole sample, each stratum, then their contrast
   )
   expect_identical(
     estimates$effect,
-    c("rd", "log(rr)", "log(or)", rep(c("rd", "log(rr)"), times = 3))
+    c(
+      "mean",
+      "mean",
+      "rd",
+      "log(rr)",
+      "log(or)",
+      rep("mean", 4L),
+      rep(c("rd", "log(rr)"), times = 3)
+    )
+  )
+  expect_identical(
+    estimates$contrast,
+    c(
+      "0",
+      "1",
+      rep("1 vs 0", 3L),
+      rep(c("0", "1"), times = 2),
+      rep("1 vs 0", 6L)
+    )
   )
   expect_identical(
     estimates$group,
     c(
-      rep("overall", 3),
+      rep("overall", 5),
+      rep("modifier = lo", 2),
+      rep("modifier = hi", 2),
       rep("modifier = lo", 2),
       rep("modifier = hi", 2),
       rep("modifier = hi vs modifier = lo", 2)
     )
   )
-  expect_identical(nrow(estimates), 9L)
+  expect_identical(nrow(estimates), 15L)
   expect_true(all(is.finite(estimates$estimate)))
+
+  # A block of means is never split by the contrasts built from it: the
+  # whole-sample pair leads the table and the stratum pairs sit together after
+  # the whole-sample contrasts and ahead of the stratum ones.
+  expect_identical(
+    which(estimates$effect == "mean"),
+    c(1L, 2L, 6L, 7L, 8L, 9L)
+  )
 })
 
 # An odds ratio is noncollapsible: the odds ratio over a whole sample is not an
@@ -278,7 +310,7 @@ test_that("a .by fit reports no odds ratio outside its whole-sample rows", {
   expect_identical(estimates$group[odds], "overall")
   expect_identical(
     sort(unique(estimates$effect[estimates$group != "overall"])),
-    c("log(rr)", "rd")
+    c("log(rr)", "mean", "rd")
   )
 })
 
@@ -494,11 +526,16 @@ test_that("a .by fit on a continuous outcome reports one difference per stratum"
 
   estimates <- ipw(fit, outcome_mod, .by = modifier)$estimates
 
-  expect_identical(estimates$effect, rep("diff", 4L))
+  expect_identical(
+    estimates$effect,
+    c("mean", "mean", "diff", rep("mean", 4L), rep("diff", 3L))
+  )
   expect_identical(
     estimates$group,
     c(
-      "overall",
+      rep("overall", 3L),
+      rep("modifier = lo", 2L),
+      rep("modifier = hi", 2L),
       "modifier = lo",
       "modifier = hi",
       "modifier = hi vs modifier = lo"
@@ -684,12 +721,20 @@ test_that("a .by fit appends a mean and a contrast block for every stratum", {
   )
 
   # Every reported row is read off the stack at its own name, so the estimates
-  # table and the variance system cannot drift apart.
+  # table and the variance system cannot drift apart. A mean row is keyed by the
+  # marginal-mean parameter of the level it belongs to, a contrast row by the
+  # contrast itself, and either is suffixed with its subgroup outside the
+  # whole-sample block.
   estimates <- as.data.frame(result)
+  whole_sample <- ifelse(
+    estimates$term == "mean",
+    paste0("mu", sub(" vs .*$", "", estimates$contrast)),
+    estimates$term
+  )
   keys <- ifelse(
     estimates$group == "overall",
-    estimates$term,
-    paste0(estimates$term, "_", estimates$group)
+    whole_sample,
+    paste0(whole_sample, "_", estimates$group)
   )
   expect_equal(
     estimates$estimate,
@@ -723,7 +768,7 @@ test_that("a .by fit reports a usable standard error for every row", {
   result <- ipw(fit, outcome_mod, .by = modifier)
   estimates <- result$estimates
 
-  expect_identical(nrow(estimates), 9L)
+  expect_identical(nrow(estimates), 15L)
   expect_true(all(is.finite(estimates$std.err)))
   expect_true(all(estimates$std.err > 0))
   expect_true(all(estimates$ci.lower < estimates$estimate))
@@ -761,10 +806,13 @@ test_that("a .by fit's covariance couples the subgroups it reports", {
   covariance <- stats::vcov(ipw(fit, outcome_mod, .by = modifier))
 
   couples <- list(
-    c("rd modifier = lo", "rd modifier = hi"),
-    c("log(rr) modifier = lo", "log(rr) modifier = hi"),
-    c("rd overall", "rd modifier = hi"),
-    c("rd modifier = hi", "rd modifier = hi vs modifier = lo")
+    c("rd 1 vs 0 modifier = lo", "rd 1 vs 0 modifier = hi"),
+    c("log(rr) 1 vs 0 modifier = lo", "log(rr) 1 vs 0 modifier = hi"),
+    c("rd 1 vs 0 overall", "rd 1 vs 0 modifier = hi"),
+    c(
+      "rd 1 vs 0 modifier = hi",
+      "rd 1 vs 0 modifier = hi vs modifier = lo"
+    )
   )
   for (pair in couples) {
     entry <- covariance[pair[[1L]], pair[[2L]]]
@@ -785,12 +833,21 @@ test_that("a .by fit's covariance couples the subgroups it reports", {
   # 1e-10 relative where this machine reads 2e-16, so every assertion of this
   # shape in the suite reads at 1e-6. That still sits three orders below the
   # smallest gap to the stitched sum any of them refuses, which is 1.5e-3.
-  variance_lo <- covariance["rd modifier = lo", "rd modifier = lo"]
-  variance_hi <- covariance["rd modifier = hi", "rd modifier = hi"]
-  coupling <- covariance["rd modifier = lo", "rd modifier = hi"]
+  variance_lo <- covariance[
+    "rd 1 vs 0 modifier = lo",
+    "rd 1 vs 0 modifier = lo"
+  ]
+  variance_hi <- covariance[
+    "rd 1 vs 0 modifier = hi",
+    "rd 1 vs 0 modifier = hi"
+  ]
+  coupling <- covariance[
+    "rd 1 vs 0 modifier = lo",
+    "rd 1 vs 0 modifier = hi"
+  ]
   contrast <- covariance[
-    "rd modifier = hi vs modifier = lo",
-    "rd modifier = hi vs modifier = lo"
+    "rd 1 vs 0 modifier = hi vs modifier = lo",
+    "rd 1 vs 0 modifier = hi vs modifier = lo"
   ]
   expect_equal(
     contrast,
@@ -829,9 +886,12 @@ test_that("a .by att fit couples its subgroups through the focal tilt", {
   covariance <- stats::vcov(ipw(fit, outcome_mod, .by = modifier))
 
   couples <- list(
-    c("rd modifier = lo", "rd modifier = hi"),
-    c("rd overall", "rd modifier = hi"),
-    c("rd modifier = hi", "rd modifier = hi vs modifier = lo")
+    c("rd 1 vs 0 modifier = lo", "rd 1 vs 0 modifier = hi"),
+    c("rd 1 vs 0 overall", "rd 1 vs 0 modifier = hi"),
+    c(
+      "rd 1 vs 0 modifier = hi",
+      "rd 1 vs 0 modifier = hi vs modifier = lo"
+    )
   )
   for (pair in couples) {
     entry <- covariance[pair[[1L]], pair[[2L]]]
@@ -839,12 +899,21 @@ test_that("a .by att fit couples its subgroups through the focal tilt", {
     expect_gt(abs(entry), 1e-8, label = paste(pair, collapse = " with "))
   }
 
-  variance_lo <- covariance["rd modifier = lo", "rd modifier = lo"]
-  variance_hi <- covariance["rd modifier = hi", "rd modifier = hi"]
-  coupling <- covariance["rd modifier = lo", "rd modifier = hi"]
+  variance_lo <- covariance[
+    "rd 1 vs 0 modifier = lo",
+    "rd 1 vs 0 modifier = lo"
+  ]
+  variance_hi <- covariance[
+    "rd 1 vs 0 modifier = hi",
+    "rd 1 vs 0 modifier = hi"
+  ]
+  coupling <- covariance[
+    "rd 1 vs 0 modifier = lo",
+    "rd 1 vs 0 modifier = hi"
+  ]
   contrast <- covariance[
-    "rd modifier = hi vs modifier = lo",
-    "rd modifier = hi vs modifier = lo"
+    "rd 1 vs 0 modifier = hi vs modifier = lo",
+    "rd 1 vs 0 modifier = hi vs modifier = lo"
   ]
   # The identity is exact in the system and approximate in the sandwich, since
   # the row carrying it is differenced rather than written down, and a focal
@@ -878,8 +947,8 @@ test_that("a .by att fit couples its subgroups through the focal tilt", {
   )
   pooled <- stats::vcov(ipw(pooled_fit, pooled_mod, .by = modifier))
   expect_false(isTRUE(all.equal(
-    covariance["rd modifier = lo", "rd modifier = hi"],
-    pooled["rd modifier = lo", "rd modifier = hi"]
+    covariance["rd 1 vs 0 modifier = lo", "rd 1 vs 0 modifier = hi"],
+    pooled["rd 1 vs 0 modifier = lo", "rd 1 vs 0 modifier = hi"]
   )))
 })
 
@@ -912,15 +981,21 @@ test_that("a .by fit labels its coefficients, covariance, and printed rows alike
 
   result <- ipw(fit, outcome_mod, .by = modifier)
   labels <- c(
-    "rd overall",
-    "log(rr) overall",
-    "log(or) overall",
-    "rd modifier = lo",
-    "log(rr) modifier = lo",
-    "rd modifier = hi",
-    "log(rr) modifier = hi",
-    "rd modifier = hi vs modifier = lo",
-    "log(rr) modifier = hi vs modifier = lo"
+    "mean 0 overall",
+    "mean 1 overall",
+    "rd 1 vs 0 overall",
+    "log(rr) 1 vs 0 overall",
+    "log(or) 1 vs 0 overall",
+    "mean 0 modifier = lo",
+    "mean 1 modifier = lo",
+    "mean 0 modifier = hi",
+    "mean 1 modifier = hi",
+    "rd 1 vs 0 modifier = lo",
+    "log(rr) 1 vs 0 modifier = lo",
+    "rd 1 vs 0 modifier = hi",
+    "log(rr) 1 vs 0 modifier = hi",
+    "rd 1 vs 0 modifier = hi vs modifier = lo",
+    "log(rr) 1 vs 0 modifier = hi vs modifier = lo"
   )
 
   expect_identical(anyDuplicated(labels), 0L)
@@ -960,11 +1035,13 @@ test_that("a coerced .by result heads its subgroup column after the term", {
 
   coerced <- as.data.frame(ipw(fit, outcome_mod, .by = modifier))
 
-  expect_identical(names(coerced)[1:2], c("term", "group"))
+  expect_identical(names(coerced)[1:3], c("term", "contrast", "group"))
   expect_identical(
     coerced$group,
     c(
-      rep("overall", 3),
+      rep("overall", 5),
+      rep("modifier = lo", 2),
+      rep("modifier = hi", 2),
       rep("modifier = lo", 2),
       rep("modifier = hi", 2),
       rep("modifier = hi vs modifier = lo", 2)
@@ -1076,28 +1153,36 @@ test_that("a .by categorical fit crosses its contrasts with its subgroups", {
     "modifier = hi vs modifier = lo"
   )
 
+  levels <- c("a", "b", "c")
+  strata <- c("modifier = lo", "modifier = hi")
+
   expect_identical(
     estimates$effect,
     c(
+      rep("mean", length(levels)),
       rep(overall, times = length(contrasts)),
+      rep("mean", length(levels) * length(strata)),
       rep(rep(stratum, times = length(contrasts)), times = length(groups))
     )
   )
   expect_identical(
     estimates$contrast,
     c(
+      levels,
       rep(contrasts, each = length(overall)),
+      rep(levels, times = length(strata)),
       rep(rep(contrasts, each = length(stratum)), times = length(groups))
     )
   )
   expect_identical(
     estimates$group,
     c(
-      rep("overall", length(overall) * length(contrasts)),
+      rep("overall", length(levels) + length(overall) * length(contrasts)),
+      rep(strata, each = length(levels)),
       rep(groups, each = length(stratum) * length(contrasts))
     )
   )
-  expect_identical(nrow(estimates), 18L)
+  expect_identical(nrow(estimates), 27L)
 })
 
 test_that("a .by categorical fit keeps its odds ratios among the whole-sample rows", {
@@ -1202,7 +1287,7 @@ test_that("a .by categorical fit labels its rows by measure, contrast, and subgr
   estimates <- result$estimates
   labels <- paste(estimates$effect, estimates$contrast, estimates$group)
 
-  expect_identical(length(labels), 18L)
+  expect_identical(length(labels), 27L)
   expect_identical(anyDuplicated(labels), 0L)
   expect_identical(
     dimnames(attr(estimates, "ipw_vcov", exact = TRUE)),
@@ -1252,7 +1337,7 @@ test_that(".by drops a modifier level no unit carries", {
   )
   estimates <- result$estimates
 
-  expect_identical(nrow(estimates), 9L)
+  expect_identical(nrow(estimates), 15L)
   expect_identical(
     unique(estimates$group),
     c(
@@ -1374,7 +1459,7 @@ test_that(".data carrying columns the model never saw is still aligned", {
   supplied_result <- ipw(fit, outcome_mod, .data = supplied, .by = modifier)
   frame_result <- ipw(fit, outcome_mod, .by = modifier)
 
-  expect_identical(nrow(supplied_result$estimates), 9L)
+  expect_identical(nrow(supplied_result$estimates), 15L)
   expect_identical(
     supplied_result$estimates$group,
     frame_result$estimates$group
@@ -1600,7 +1685,7 @@ test_that(".by warns when the outcome model has no exposure-by-modifier term", {
 
   expect_s3_class(result, "ipw")
   expect_true("group" %in% names(result$estimates))
-  expect_identical(nrow(result$estimates), 9L)
+  expect_identical(nrow(result$estimates), 15L)
 })
 
 # The diagnostic reads the terms of the outcome model, and a model may carry the

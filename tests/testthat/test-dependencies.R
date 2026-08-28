@@ -174,7 +174,10 @@ test_that("the ipw() workflow runs with propensity absent from the namespaces", 
       subprocess_field(run, "print_header"),
       "Inverse Probability Weight Estimator"
     )
-    expect_identical(subprocess_field(run, "terms"), "rd,log(rr),log(or)")
+    expect_identical(
+      subprocess_field(run, "terms"),
+      "mean,mean,rd,log(rr),log(or)"
+    )
   }
 })
 

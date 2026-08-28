@@ -71,8 +71,15 @@ test_that("pool_ipw() pools balancing results across imputations", {
 
   expect_s3_class(pooled, "ipw_pooled")
   expect_identical(pooled$m, 3L)
-  expect_identical(nrow(pooled$estimates), 3L)
-  expect_identical(pooled$estimates$effect, c("rd", "log(rr)", "log(or)"))
+  expect_identical(nrow(pooled$estimates), 5L)
+  expect_identical(
+    pooled$estimates$effect,
+    c("mean", "mean", "rd", "log(rr)", "log(or)")
+  )
+  expect_identical(
+    pooled$estimates$contrast,
+    c("0", "1", rep("1 vs 0", 3L))
+  )
   expect_true(all(is.finite(pooled$estimates$estimate)))
   expect_true(all(is.finite(pooled$estimates$std.err)))
 
@@ -235,8 +242,14 @@ test_that("the pooled accessors report either reading for one call", {
   # Naming a reading answers in it and leaves the result where it was, so a
   # following call with nothing named answers in the stored one.
   expect_identical(pooled$effects, "marginal")
-  expect_identical(names(stats::coef(pooled)), c("rd", "log(rr)", "log(or)"))
-  expect_identical(as.data.frame(pooled)$term, c("rd", "log(rr)", "log(or)"))
+  expect_identical(
+    names(stats::coef(pooled)),
+    c("mean 0", "mean 1", "rd 1 vs 0", "log(rr) 1 vs 0", "log(or) 1 vs 0")
+  )
+  expect_identical(
+    as.data.frame(pooled)$term,
+    c("mean", "mean", "rd", "log(rr)", "log(or)")
+  )
 })
 
 # Only the estimating-equation methods carry the container `ipw()`
@@ -425,8 +438,11 @@ test_that("pool_ipw() keys grouped balancing results by effect and subgroup", {
 
   expect_s3_class(pooled, "ipw_pooled")
   expect_identical(pooled$m, 3L)
-  expect_identical(names(pooled$estimates)[1:2], c("effect", "group"))
-  expect_identical(nrow(pooled$estimates), 9L)
+  expect_identical(
+    names(pooled$estimates)[1:3],
+    c("effect", "contrast", "group")
+  )
+  expect_identical(nrow(pooled$estimates), 15L)
   expect_identical(
     unique(pooled$estimates$group),
     c(
@@ -442,6 +458,7 @@ test_that("pool_ipw() keys grouped balancing results by effect and subgroup", {
   # the frames it pooled.
   for (fit in fits) {
     expect_identical(fit$estimates$effect, pooled$estimates$effect)
+    expect_identical(fit$estimates$contrast, pooled$estimates$contrast)
     expect_identical(fit$estimates$group, pooled$estimates$group)
   }
 
@@ -449,9 +466,13 @@ test_that("pool_ipw() keys grouped balancing results by effect and subgroup", {
   expect_true(all(is.finite(pooled$estimates$std.err)))
   expect_true(all(is.finite(pooled$estimates$df)))
 
-  # The pooled accessors label their rows by measure and subgroup together, the
-  # way each analysis labels its own.
-  labels <- paste(pooled$estimates$effect, pooled$estimates$group)
+  # The pooled accessors label their rows by measure, contrast, and subgroup
+  # together, the way each analysis labels its own.
+  labels <- paste(
+    pooled$estimates$effect,
+    pooled$estimates$contrast,
+    pooled$estimates$group
+  )
   expect_identical(names(stats::coef(pooled)), labels)
   expect_identical(as.data.frame(pooled)$group, pooled$estimates$group)
 })
@@ -469,12 +490,17 @@ test_that("pool_ipw() applies Rubin's rules within each subgroup", {
   pooled <- pool_ipw(fits)
 
   cells <- list(
-    c("rd", "modifier = hi"),
-    c("log(rr)", "modifier = hi vs modifier = lo")
+    c("mean", "1", "modifier = hi"),
+    c("rd", "1 vs 0", "modifier = hi"),
+    c("log(rr)", "1 vs 0", "modifier = hi vs modifier = lo")
   )
-  labels <- paste(pooled$estimates$effect, pooled$estimates$group)
+  labels <- paste(
+    pooled$estimates$effect,
+    pooled$estimates$contrast,
+    pooled$estimates$group
+  )
   for (cell in cells) {
-    label <- paste(cell[[1L]], cell[[2L]])
+    label <- paste(cell[[1L]], cell[[2L]], cell[[3L]])
     row <- match(label, labels)
 
     # The cell has to be in the pooled frame before anything can be read at its
@@ -489,7 +515,8 @@ test_that("pool_ipw() applies Rubin's rules within each subgroup", {
     per_imputation <- vapply(
       fits,
       function(fit) {
-        expect_identical(fit$estimates$group[[row]], cell[[2L]])
+        expect_identical(fit$estimates$contrast[[row]], cell[[2L]])
+        expect_identical(fit$estimates$group[[row]], cell[[3L]])
         fit$estimates$estimate[[row]]
       },
       numeric(1)
