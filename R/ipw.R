@@ -497,8 +497,10 @@
 #'   announcement, and naming `effects = "marginal"` raises
 #'   `balancing_ipw_input_error`, since it asks for a reading the model has none
 #'   of. Naming every reading is naming none of them, so a call that supplies
-#'   the whole default vector, as a wrapper forwarding an `effects` default of
-#'   its own does, is announced rather than refused. Every later door into the
+#'   more than one reading, as a wrapper forwarding an `effects` default of its
+#'   own does, is announced rather than refused. How many readings arrived is
+#'   all that is read, not which ones, so a default vector given in another
+#'   order counts as naming nothing in the same way. Every later door into the
 #'   marginal reading is shut as well: the
 #'   accessors and [causalgenerics::as_marginal()] refuse it, and a pooled set
 #'   of such results carries the refusal forward. Marginalizing a dose response
