@@ -21,22 +21,25 @@
 #' @details
 #' The point estimates are the g-computation marginal means: the outcome model
 #' is predicted with the exposure fixed to each level and averaged over the
-#' estimand's target population. For a binary
+#' estimand's target population. Those means are reported in their own right,
+#' one row per exposure level under the effect label `"mean"`, and the effect
+#' measures follow as contrasts of them. For a binary
 #' outcome the method returns the risk difference (`rd`), the log risk ratio
 #' (`log(rr)`), and the log odds ratio (`log(or)`); for a continuous outcome it
 #' returns the difference in means (`diff`).
 #'
-#' A categorical exposure reports those same measures for each non-reference
-#' level against the reference level, which is the first of the fit's own levels:
-#' a factor's declared level order for a factor exposure, and the sorted values
-#' otherwise. A K-level exposure therefore contributes K marginal means and one
-#' block of measures per non-reference level, and the estimates table gains a
-#' `contrast` column, placed after `effect`, naming each contrast as
-#' `"<level> vs <reference>"`. A binary exposure keeps the table it has always
-#' returned, with no `contrast` column. A categorical exposure declared as a
-#' crossing of two treatments by [causalgenerics::joint_exposure()] replaces
+#' A binary and a categorical exposure are read by one rule. The reference level
+#' is the first of the fit's own levels: a factor's declared level order for a
+#' factor exposure, and the sorted values otherwise. The estimates table carries
+#' a `contrast` column, placed after `effect`, naming the level a mean row
+#' belongs to and naming each contrast row as `"<level> vs <reference>"`, so a
+#' binary result names its single comparison `"1 vs 0"` rather than leaving it
+#' unnamed. A K-level exposure therefore leads with K mean rows, in the fit's
+#' own level order with the reference level first, and follows them with one
+#' block of measures per non-reference level. A categorical exposure declared as
+#' a crossing of two treatments by [causalgenerics::joint_exposure()] replaces
 #' those level-against-reference rows with the surface described under Joint
-#' exposures below.
+#' exposures below, which reports its cell means the same way.
 #'
 #' A continuous exposure has no levels to contrast, so there is no pair of
 #' marginal means to difference. What the method reports instead is the
@@ -49,8 +52,8 @@
 #' An exposure entering through one design column, whether as a bare term or as a
 #' transformation of one, is the whole of the dose response, so its coefficient
 #' is that response's slope everywhere. Such a model keeps the single-row table
-#' it has always returned, with the columns every other exposure's table holds
-#' and no `contrast` column, and the row is named for the link: `slope` for an
+#' it has always returned, with the eight columns of the shared contract and no
+#' `contrast` column, and the row is named for the link: `slope` for an
 #' identity link, whether the model arrives as a [stats::lm()] or as a gaussian
 #' [stats::glm()]; `log(or)` for a logit; and `log(rr)` for a log link.
 #'
@@ -250,14 +253,16 @@
 #'
 #' # Effect modification
 #'
-#' `.by` names a modifier, and a result carrying one reports the effects it
-#' reports without a request, then those same effects within each of the
-#' modifier's levels, then each non-reference level against the reference one.
-#' The estimates table gains a `group` column naming the subgroup each row was
-#' estimated in, placed after `contrast` where a categorical exposure names one
-#' and after `effect` where it does not, since a subgroup qualifies the whole
-#' comparison rather than one side of it. The whole-sample rows come first,
-#' under the group `"overall"`; a subgroup's rows are named `"var = value"`, as
+#' `.by` names a modifier, and a result carrying one reports the rows it reports
+#' without a request, then the marginal means within each of the modifier's
+#' levels, then the effects within each of them, then each non-reference
+#' subgroup against the reference one. The estimates table gains a `group`
+#' column naming the subgroup each row was estimated in, placed after
+#' `contrast`, since a subgroup qualifies the whole comparison rather than one
+#' side of it. A block of means is never split by the contrasts written from it,
+#' which is what puts every subgroup's means ahead of every subgroup's contrasts
+#' rather than beside them. The whole-sample rows come first, under the group
+#' `"overall"`; a subgroup's rows are named `"var = value"`, as
 #' `"sex = female"`; and a contrast of subgroups joins the two, as
 #' `"sex = female vs sex = male"`. The reference subgroup is the modifier's first
 #' level, which for a factor is the first of its declared levels rather than the
@@ -266,16 +271,18 @@
 #' first value, whatever order the values appear in. Declare the column a factor
 #' to measure the contrasts against some other subgroup.
 #'
-#' A subgroup reports the collapsible measures alone. For a binary outcome that
-#' is `rd` and `log(rr)`; a continuous outcome reports `diff`, the only measure
-#' it has. The log odds ratio stays among the whole-sample rows. An odds ratio
-#' is noncollapsible, so the odds ratio over a sample is not an average of the
-#' odds ratios within its subgroups and the difference of two of them is not
+#' A subgroup reports its marginal means and then the collapsible measures
+#' alone. For a binary outcome those measures are `rd` and `log(rr)`; a
+#' continuous outcome reports `diff`, the only measure it has. The log odds
+#' ratio stays among the whole-sample rows. An odds ratio is noncollapsible, so
+#' the odds ratio over a sample is not an average of the odds ratios within its
+#' subgroups and the difference of two of them is not
 #' the difference in effect it reads as; nothing in the whole-sample rows
-#' averages anything over subgroups, which is why they keep it. A categorical
-#' exposure crosses its
-#' contrasts with the subgroups, so each subgroup block reports each contrast in
-#' the order the whole-sample block reports it.
+#' averages anything over subgroups, which is why they keep it. A contrast of
+#' two subgroups compares two effects and has no mean of its own, so the mean
+#' rows repeat over the subgroups themselves alone. A categorical exposure
+#' crosses its contrasts with the subgroups, so each subgroup block reports each
+#' contrast in the order the whole-sample block reports it.
 #'
 #' A subgroup's marginal means are the g-computation means over that subgroup
 #' alone, standardized the way the whole-sample means are: over every unit of
@@ -480,13 +487,34 @@
 #' @param effects The presentation mode the result records, either `"marginal"`
 #'   (the default) or `"conditional"`. The marginal reading reports the
 #'   population-averaged causal contrasts described above; the conditional
-#'   reading reports the outcome model's coefficient surface. Both surfaces are
-#'   computed whichever mode is named, since the stacked system is solved either
-#'   way, so the argument settles which one the result presents and nothing
-#'   else. [causalgenerics::as_marginal()] and [causalgenerics::as_conditional()]
-#'   move a result between the two readings afterwards, a pooled result as much
-#'   as an unpooled one, and the accessors take an `effects` argument of their
-#'   own for a single call.
+#'   reading reports the outcome model's coefficient surface. Where a result
+#'   has both surfaces, both are computed whichever mode is named, since the
+#'   stacked system is solved either way, so the argument settles which one the
+#'   result presents and nothing else. [causalgenerics::as_marginal()] and
+#'   [causalgenerics::as_conditional()] move such a result between the two
+#'   readings afterwards, a pooled result as much as an unpooled one, and the
+#'   accessors take an `effects` argument of their own for a single call.
+#'
+#'   One shape of result has a single reading. When a continuous exposure enters
+#'   `outcome_mod` through several design columns, as a polynomial or a spline
+#'   basis does, no coefficient of that model is a causal effect: a curve has a
+#'   different slope at every dose. Such a result therefore records the
+#'   conditional reading, supports no other, and announces that it has done so.
+#'   Naming `effects = "conditional"` builds the same result without the
+#'   announcement, and naming `effects = "marginal"` raises
+#'   `balancing_ipw_input_error`, since it asks for a reading the model has none
+#'   of. Naming every reading is naming none of them, so a call that supplies
+#'   more than one reading, as a wrapper forwarding an `effects` default of its
+#'   own does, is announced rather than refused. How many readings arrived is
+#'   all that is read, not which ones, so a default vector given in another
+#'   order counts as naming nothing in the same way. Every later door into the
+#'   marginal reading is shut as well: the
+#'   accessors and [causalgenerics::as_marginal()] refuse it, and a pooled set
+#'   of such results carries the refusal forward. Marginalizing a dose response
+#'   over the observed doses is left to the marginaleffects package, applied to
+#'   the conditional result: `avg_slopes()` for slopes, `avg_comparisons()` for
+#'   contrasts, and `avg_predictions()` for causal dose-response functions; see
+#'   <https://marginaleffects.com/chapters/interactions.html>.
 #'
 #'   The conditional reading reports the coefficients of the stored
 #'   `outcome_mod` against the outcome block of the stacked sandwich, which is
@@ -644,11 +672,13 @@
 #'
 #' ipw(dose_fit, dose_mod)
 #'
-#' # An exposure entering through several columns reports one row per
-#' # coefficient, named after the coefficient the fit names.
+#' # An exposure entering through several columns has no coefficient that is a
+#' # causal effect, so the result records the conditional reading and supports
+#' # no other. Naming that reading builds the same result without the
+#' # announcement that explains the default.
 #' curve_mod <- lm(score ~ poly(dose, 2), data = df, weights = .dose_wts)
 #'
-#' ipw(dose_fit, curve_mod)
+#' ipw(dose_fit, curve_mod, effects = "conditional")
 #'
 #' @examplesIf requireNamespace("mice", quietly = TRUE)
 #' # With missing covariate data, analyze within each completed dataset and
@@ -761,7 +791,23 @@ method(causalgenerics_ipw, balancing) <- function(
   # checks on the two models, and a call that is wrong in the reading and in a
   # model reports the reading rather than making the caller fix the model and
   # meet this refusal on the next attempt.
+  #
+  # Whether the caller named it is recorded before the match collapses the
+  # default to its first element, because a reading that has to be changed below
+  # is a default being overridden where nothing was asked for and a request being
+  # refused where something was.
+  #
+  # A wrapper forwarding its own `effects` default supplies this argument, and
+  # what it supplies is the whole default vector rather than a reading. Naming
+  # every reading is naming none of them, so the length is read alongside the
+  # supply: only a single reading is a request, and a wrapper's argument list is
+  # not made to refuse calls its author never wrote.
+  effects_named <- !missing(effects) && length(effects) == 1L
   effects <- rlang::arg_match(effects)
+
+  # Both readings exist on every result unless the outcome model leaves one of
+  # them without a surface, which the continuous branch below settles.
+  readings <- c("marginal", "conditional")
 
   # The modifier is selected out of a frame this function has not resolved yet,
   # so the request is defused here and evaluated below, once the frame the
@@ -818,8 +864,42 @@ method(causalgenerics_ipw, balancing) <- function(
       sampling_weights = wt_mod@sampling_weights,
       call = rlang::current_env()
     )
+    # One description of the reported surface serves both the reading the
+    # result declares and the rows it stores, so the branch below and the
+    # estimates table cannot disagree about how many columns the exposure
+    # entered through.
+    identity <- msm_coefficient_identity(outcome_mod, exposure_name)
+
+    # An exposure entering through several columns leaves the marginal reading
+    # without a surface: a curve has a different slope at every dose, so no
+    # coefficient of the model is a causal effect, and the result declares the
+    # conditional reading as the only one it supports. A caller who asked for
+    # the marginal one asked for something this model has none of and is told
+    # so; a caller who asked for nothing is told which reading was recorded
+    # instead, since the choice is the package's rather than theirs.
+    if (length(identity$columns) > 1L) {
+      if (effects_named && identical(effects, "marginal")) {
+        reasons <- msm_conditional_only_reasons()
+        abort(
+          c(
+            reasons[[1L]],
+            x = "{.code effects = \"marginal\"} is not available for this model.",
+            i = reasons[[2L]],
+            i = reasons[[3L]],
+            i = "Use {.code effects = \"conditional\"} or omit {.arg effects}."
+          ),
+          error_class = "balancing_ipw_input_error"
+        )
+      }
+      if (!effects_named) {
+        announce_msm_conditional_only()
+      }
+      effects <- "conditional"
+      readings <- "conditional"
+    }
+
     estimates <- ipw_estimates_from_identity(
-      msm_coefficient_identity(outcome_mod, exposure_name),
+      identity,
       theta = variance_system$theta,
       vcov = variance_system$vcov,
       conf_level = conf_level
@@ -912,7 +992,8 @@ method(causalgenerics_ipw, balancing) <- function(
       vcov = variance_system$vcov,
       conf_level = conf_level,
       continuous = is_gaussian_outcome(outcome_mod),
-      levels = if (categorical) levels else NULL,
+      levels = levels,
+      categorical = categorical,
       by = by,
       joint = joint
     )
@@ -950,8 +1031,35 @@ method(causalgenerics_ipw, balancing) <- function(
     estimates = estimates,
     se_method = "mestimation",
     fit = variance_system,
-    effects = effects
+    effects = effects,
+    readings = readings
   )
+}
+
+# The lead sentence and the reasons behind it, kept in one place because the
+# announcement of the recorded reading and the refusal of the other one make the
+# same claim and would otherwise drift apart as either is reworded. What differs
+# between them is the sentence in between, which reports what the caller asked
+# for, and the closing sentence, which tells a caller who was told something how
+# to stop being told and a caller who was refused what to ask for instead.
+msm_conditional_only_reasons <- function() {
+  c(
+    "{.fun ipw} reports only the conditional reading because the exposure enters {.arg outcome_mod} through more than one term, such as a spline or polynomial.",
+    "With a nonlinear dose-response, no single coefficient is the effect of the exposure, so there is no marginal effect to report.",
+    "Use the {.pkg marginaleffects} package to marginalize over the dose: {.fun avg_slopes} for slopes, {.fun avg_comparisons} for contrasts, and {.fun avg_predictions} for causal dose-response functions. See {.url https://marginaleffects.com/chapters/interactions.html}."
+  )
+}
+
+# The announcement is written one bullet at a time because a single alert
+# carrying a vector collapses to one line, and each of these sentences is a
+# separate point: what was recorded, why there is no alternative, where the
+# marginalization this package does not compute belongs, and how to silence the
+# message.
+announce_msm_conditional_only <- function() {
+  for (reason in msm_conditional_only_reasons()) {
+    alert_info(reason)
+  }
+  alert_info("Set {.code effects = \"conditional\"} to silence this message.")
 }
 
 # The data the counterfactual designs of a discrete exposure are built from,
@@ -1697,24 +1805,24 @@ ipw_estimate_rows <- function(theta, vcov, conf_level, keys, effects) {
     ci.lower = estimate - z_value * std_err,
     ci.upper = estimate + z_value * std_err,
     conf.level = conf_level,
-    p.value = 2 * (1 - stats::pnorm(abs(z)))
+    p.value = 2 * stats::pnorm(abs(z), lower.tail = FALSE)
   )
 }
 
-# A categorical exposure reports one block of measures per non-reference level,
-# so the `effect` column alone no longer identifies a row: the same three
-# measures appear once per contrast. The table therefore gains a `contrast`
-# column naming the two levels, placed immediately after `effect`, since the
-# column qualifies the measure it follows. That is the column the causalgenerics
-# contract names, and every surface built from the table reads it from there. A
-# binary exposure has a single contrast and keeps the eight-column table, since a
-# column repeating one label on every row identifies nothing.
+# An exposure with levels reports a marginal mean for each of them and then one
+# block of measures per non-reference level, so the `effect` column alone does
+# not identify a row: `mean` appears once per level and the same measures appear
+# once per contrast. The table therefore carries a `contrast` column, placed
+# immediately after `effect` since the column qualifies the measure it follows,
+# naming the level a mean belongs to and the pair a contrast compares. That is
+# the column the causalgenerics contract names, and every surface built from the
+# table reads it from there.
 #
-# A `.by` request repeats the measures again across subgroups, so the table
-# gains a `group` column on the same terms, after the contrast column where
-# there is one and after `effect` where there is not, since a subgroup qualifies
-# the whole comparison rather than one side of it. The subgroup blocks follow
-# the whole-sample block and run subgroup-major, each of them repeating the
+# A `.by` request repeats those rows again across subgroups, so the table gains
+# a `group` column on the same terms, after the contrast column, since a
+# subgroup qualifies the whole comparison rather than one side of it. The
+# subgroup blocks follow the whole-sample block: first the stratum means, then
+# the stratum contrasts running subgroup-major, each of them repeating the
 # whole-sample block's own contrast-major order over the measures a subgroup
 # reports.
 # A declared crossing replaces the vs-reference block rather than adding to it,
@@ -1726,12 +1834,13 @@ ipw_estimates <- function(
   vcov,
   conf_level,
   continuous,
-  levels = NULL,
+  levels,
+  categorical,
   by = NULL,
   joint = NULL
 ) {
   identity <- if (is.null(joint)) {
-    ipw_contrast_identity(continuous, levels, by)
+    ipw_contrast_identity(continuous, levels, categorical, by)
   } else {
     ipw_joint_identity(joint)
   }
@@ -1776,48 +1885,73 @@ ipw_estimates_from_identity <- function(identity, theta, vcov, conf_level) {
 
 # The stacked keys and the identity columns of the vs-reference surface, which
 # is what every exposure reports when nothing else is declared or requested.
-ipw_contrast_identity <- function(continuous, levels, by) {
-  keys <- ipw_contrast_names(continuous, levels)
+#
+# The surface leads with the marginal mean of every exposure level, since each
+# of them is a parameter of the stack in its own right and the contrasts below
+# are transformations of them. The `contrast` column names what a row belongs
+# to: the level itself for a mean, and the pair a contrast compares. That gives
+# a binary exposure the same column a categorical one carries, which is what
+# lets one rule read either table.
+#
+# `levels` is the fit's own level order with the reference level first, whatever
+# the exposure's type. Only the stack's spelling of the mean and contrast blocks
+# depends on the exposure being categorical, since a binary block is keyed
+# positionally, so that distinction stays inside the keys and never reaches the
+# labels.
+ipw_contrast_identity <- function(continuous, levels, categorical, by) {
+  stack_levels <- if (categorical) levels else NULL
+  mean_keys <- ipw_mean_names(levels, categorical)
+  contrast_keys <- ipw_contrast_names(continuous, stack_levels)
   measures <- ipw_contrast_names(continuous)
-  contrast_labels <- if (is.null(levels)) {
-    NULL
-  } else {
-    paste(levels[-1], "vs", levels[[1]])
-  }
+  contrast_labels <- paste(levels[-1], "vs", levels[[1]])
 
-  effect <- rep(measures, times = length(keys) / length(measures))
-  contrast <- if (is.null(contrast_labels)) {
-    NULL
-  } else {
-    rep(contrast_labels, each = length(measures))
-  }
+  keys <- c(mean_keys, contrast_keys)
+  effect <- c(
+    rep("mean", length(levels)),
+    rep(measures, times = length(contrast_keys) / length(measures))
+  )
+  contrast <- c(levels, rep(contrast_labels, each = length(measures)))
   group <- NULL
 
+  # The stratum blocks follow the whole-sample ones in the order the stack
+  # builds them, means before contrasts on either side of that boundary, so a
+  # block of means is never split by the contrasts written from it. The means
+  # repeat over the strata alone: a contrast of two strata compares two effects
+  # and has no mean of its own.
   if (!is.null(by)) {
     groups <- c(by$labels, by$em_labels)
     by_measures <- ipw_contrast_names(continuous, collapsible_only = TRUE)
-    by_keys <- ipw_contrast_names(continuous, levels, collapsible_only = TRUE)
+    by_contrast_keys <- ipw_contrast_names(
+      continuous,
+      stack_levels,
+      collapsible_only = TRUE
+    )
+    by_mean_keys <- ipw_by_names(mean_keys, by$labels)
     group <- c(
       rep(ipw_overall_group, length(effect)),
-      rep(groups, each = length(by_keys))
+      rep(by$labels, each = length(levels)),
+      rep(groups, each = length(by_contrast_keys))
     )
-    keys <- c(keys, ipw_by_names(by_keys, groups))
+    keys <- c(keys, by_mean_keys, ipw_by_names(by_contrast_keys, groups))
     effect <- c(
       effect,
+      rep("mean", length(by_mean_keys)),
       rep(
-        rep(by_measures, times = length(by_keys) / length(by_measures)),
+        rep(
+          by_measures,
+          times = length(by_contrast_keys) / length(by_measures)
+        ),
         times = length(groups)
       )
     )
-    if (!is.null(contrast_labels)) {
-      contrast <- c(
-        contrast,
-        rep(
-          rep(contrast_labels, each = length(by_measures)),
-          times = length(groups)
-        )
+    contrast <- c(
+      contrast,
+      rep(levels, times = length(by$labels)),
+      rep(
+        rep(contrast_labels, each = length(by_measures)),
+        times = length(groups)
       )
-    }
+    )
   }
 
   list(keys = keys, effect = effect, contrast = contrast, group = group)

@@ -71,8 +71,15 @@ test_that("pool_ipw() pools balancing results across imputations", {
 
   expect_s3_class(pooled, "ipw_pooled")
   expect_identical(pooled$m, 3L)
-  expect_identical(nrow(pooled$estimates), 3L)
-  expect_identical(pooled$estimates$effect, c("rd", "log(rr)", "log(or)"))
+  expect_identical(nrow(pooled$estimates), 5L)
+  expect_identical(
+    pooled$estimates$effect,
+    c("mean", "mean", "rd", "log(rr)", "log(or)")
+  )
+  expect_identical(
+    pooled$estimates$contrast,
+    c("0", "1", rep("1 vs 0", 3L))
+  )
   expect_true(all(is.finite(pooled$estimates$estimate)))
   expect_true(all(is.finite(pooled$estimates$std.err)))
 
@@ -235,8 +242,14 @@ test_that("the pooled accessors report either reading for one call", {
   # Naming a reading answers in it and leaves the result where it was, so a
   # following call with nothing named answers in the stored one.
   expect_identical(pooled$effects, "marginal")
-  expect_identical(names(stats::coef(pooled)), c("rd", "log(rr)", "log(or)"))
-  expect_identical(as.data.frame(pooled)$term, c("rd", "log(rr)", "log(or)"))
+  expect_identical(
+    names(stats::coef(pooled)),
+    c("mean 0", "mean 1", "rd 1 vs 0", "log(rr) 1 vs 0", "log(or) 1 vs 0")
+  )
+  expect_identical(
+    as.data.frame(pooled)$term,
+    c("mean", "mean", "rd", "log(rr)", "log(or)")
+  )
 })
 
 # Only the estimating-equation methods carry the container `ipw()`
@@ -266,6 +279,70 @@ test_that("a bootstrap-only method refuses at the per-imputation step", {
   expect_error(
     ipw(fit, outcome_mod),
     class = "balancing_ipw_unsupported_error"
+  )
+})
+
+# ---- Pooling a reading the results support alone ---------------------------
+
+# What is pooled is the reading the per-analysis results record, and a
+# continuous fit whose outcome model reads the exposure through several columns
+# records the conditional one and supports no other. So the set pools by
+# coefficient rather than by causal contrast, and the pooled result carries the
+# refusal forward: there was no marginal surface in any analysis for the pooling
+# to combine, so there is none of it to flip to afterwards.
+#
+# Three fits of one model to three datasets, which is the shape a set of
+# imputations arrives in. `mice` is not in it: what this pins is the reading the
+# pooling starts from, and drawing the sets from three seeds says that without
+# making the spec wait on an imputation it makes no claim about.
+test_that("pool_ipw() over basis fits pools the conditional reading", {
+  fits <- lapply(c(101, 102, 103), function(seed) {
+    data <- sim_continuous_indicator(seed = seed)
+    data$y_cont <- withr::with_seed(seed, {
+      1 +
+        0.5 * data$exposure +
+        0.25 * data$exposure^2 +
+        0.4 * data$x1 +
+        stats::rnorm(nrow(data))
+    })
+    fit <- balance(
+      data,
+      exposure,
+      c(x1, g),
+      method = bw_entropy(),
+      estimand = "ate"
+    )
+    data$.wts <- stats::weights(fit)
+    ipw(fit, stats::lm(y_cont ~ poly(exposure, 2), data = data, weights = .wts))
+  })
+
+  pooled <- pool_ipw(fits)
+  coefficients <- names(stats::coef(fits[[1L]]$outcome_mod))
+
+  expect_identical(
+    coefficients,
+    c("(Intercept)", "poly(exposure, 2)1", "poly(exposure, 2)2")
+  )
+  expect_identical(pooled$effects, "conditional")
+  expect_identical(pooled$estimates$effect, coefficients)
+  expect_identical(pooled$m, 3L)
+  expect_true(all(is.finite(pooled$estimates$std.err)))
+
+  # Rubin's rule pools point estimates by averaging them, so each pooled row is
+  # the mean of that coefficient across the analyses. Reading the analyses
+  # through `coef()` takes the conditional reading each of them records, which
+  # is the surface being pooled, and keys the comparison to the coefficient a
+  # row is named after rather than to whichever row sits at that position.
+  analyses <- vapply(fits, stats::coef, numeric(length(coefficients)))
+  expect_identical(rownames(analyses), coefficients)
+  expect_equal(pooled$estimates$estimate, unname(rowMeans(analyses)))
+
+  # The pooled refusal is its own condition rather than the one an unpooled
+  # result raises: a pooled result records which surfaces it combined, and the
+  # marginal one is missing rather than unsupported.
+  expect_error(
+    as_marginal(pooled),
+    class = "causalgenerics_pool_missing_surface_marginal"
   )
 })
 
@@ -361,8 +438,11 @@ test_that("pool_ipw() keys grouped balancing results by effect and subgroup", {
 
   expect_s3_class(pooled, "ipw_pooled")
   expect_identical(pooled$m, 3L)
-  expect_identical(names(pooled$estimates)[1:2], c("effect", "group"))
-  expect_identical(nrow(pooled$estimates), 9L)
+  expect_identical(
+    names(pooled$estimates)[1:3],
+    c("effect", "contrast", "group")
+  )
+  expect_identical(nrow(pooled$estimates), 15L)
   expect_identical(
     unique(pooled$estimates$group),
     c(
@@ -378,6 +458,7 @@ test_that("pool_ipw() keys grouped balancing results by effect and subgroup", {
   # the frames it pooled.
   for (fit in fits) {
     expect_identical(fit$estimates$effect, pooled$estimates$effect)
+    expect_identical(fit$estimates$contrast, pooled$estimates$contrast)
     expect_identical(fit$estimates$group, pooled$estimates$group)
   }
 
@@ -385,9 +466,13 @@ test_that("pool_ipw() keys grouped balancing results by effect and subgroup", {
   expect_true(all(is.finite(pooled$estimates$std.err)))
   expect_true(all(is.finite(pooled$estimates$df)))
 
-  # The pooled accessors label their rows by measure and subgroup together, the
-  # way each analysis labels its own.
-  labels <- paste(pooled$estimates$effect, pooled$estimates$group)
+  # The pooled accessors label their rows by measure, contrast, and subgroup
+  # together, the way each analysis labels its own.
+  labels <- paste(
+    pooled$estimates$effect,
+    pooled$estimates$contrast,
+    pooled$estimates$group
+  )
   expect_identical(names(stats::coef(pooled)), labels)
   expect_identical(as.data.frame(pooled)$group, pooled$estimates$group)
 })
@@ -405,12 +490,17 @@ test_that("pool_ipw() applies Rubin's rules within each subgroup", {
   pooled <- pool_ipw(fits)
 
   cells <- list(
-    c("rd", "modifier = hi"),
-    c("log(rr)", "modifier = hi vs modifier = lo")
+    c("mean", "1", "modifier = hi"),
+    c("rd", "1 vs 0", "modifier = hi"),
+    c("log(rr)", "1 vs 0", "modifier = hi vs modifier = lo")
   )
-  labels <- paste(pooled$estimates$effect, pooled$estimates$group)
+  labels <- paste(
+    pooled$estimates$effect,
+    pooled$estimates$contrast,
+    pooled$estimates$group
+  )
   for (cell in cells) {
-    label <- paste(cell[[1L]], cell[[2L]])
+    label <- paste(cell[[1L]], cell[[2L]], cell[[3L]])
     row <- match(label, labels)
 
     # The cell has to be in the pooled frame before anything can be read at its
@@ -425,7 +515,8 @@ test_that("pool_ipw() applies Rubin's rules within each subgroup", {
     per_imputation <- vapply(
       fits,
       function(fit) {
-        expect_identical(fit$estimates$group[[row]], cell[[2L]])
+        expect_identical(fit$estimates$contrast[[row]], cell[[2L]])
+        expect_identical(fit$estimates$group[[row]], cell[[3L]])
         fit$estimates$estimate[[row]]
       },
       numeric(1)

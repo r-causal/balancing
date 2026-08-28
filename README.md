@@ -122,8 +122,14 @@ ipw(fit, outcome_mod)
 #>   Call: lm(formula = outcome ~ exposure, data = study, weights = w) 
 #> 
 #> Marginal estimates:
-#>      estimate std.err      z ci.lower ci.upper conf.level   p.value    
-#> diff  1.13168 0.12345 9.1673  0.88972   1.3736       0.95 < 2.2e-16 ***
+#>             estimate  std.err       z ci.lower ci.upper conf.level   p.value
+#> mean 0      1.116450 0.096021 11.6272  0.92825   1.3046       0.95 < 2.2e-16
+#> mean 1      2.248127 0.077585 28.9764  2.09606   2.4002       0.95 < 2.2e-16
+#> diff 1 vs 0 1.131677 0.123448  9.1673  0.88972   1.3736       0.95 < 2.2e-16
+#>                
+#> mean 0      ***
+#> mean 1      ***
+#> diff 1 vs 0 ***
 #> ---
 #> Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 ```
