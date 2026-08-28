@@ -567,12 +567,23 @@ constant_columns <- function(columns) {
 # augmented matrix, falls beyond the rank. The later member of an affine set is
 # therefore the one dropped, which for a factor is its last level, and the choice
 # is deterministic rather than a function of column ordering within the pivot.
+#
+# Rank is a tolerance question rather than an exact one, so the tolerance is
+# named here rather than left to the default: a column whose residual, after the
+# constant and the columns ahead of it are projected out, falls below `tol` times
+# that column's own norm is moved beyond the rank and dropped as aliased. The
+# default 1e-07 is the right order for this matrix because every column arrives
+# at unit scale, the numeric and interaction columns standardized and the
+# indicator and quantile columns zero or one, so the relative test reads against
+# the same magnitude column by column. It sits far above the residual that
+# rounding leaves on a set that is dependent in exact arithmetic and far below
+# the residual a column that varies on its own keeps.
 aliased_columns <- function(columns) {
   if (ncol(columns) == 0L) {
     return(integer(0))
   }
   augmented <- cbind(1, columns)
-  decomposition <- qr(augmented)
+  decomposition <- qr(augmented, tol = 1e-07)
   if (decomposition$rank == ncol(augmented)) {
     return(integer(0))
   }

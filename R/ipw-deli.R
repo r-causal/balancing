@@ -729,9 +729,11 @@ measure_jacobian_rank <- function(jacobian) {
 # Jacobian is. The converse needs the stack's other diagonal blocks to be
 # nonsingular, which holds for a converged glm with estimable coefficients and,
 # on the discrete path, for the mean and contrast blocks, whose diagonals are
-# minus the standardization total and minus one.
-# Asking the finite difference to report that is asking too much of
-# it. A deficiency that is a second-order cancellation comes back as a pivot of
+# minus the standardization total and minus one. With those blocks nonsingular a
+# singular stack means a singular weight block and nothing else, so the
+# deficiency this check has to detect is exactly the one the fit's own Jacobian
+# carries. Asking the finite difference to report that is asking too much of it.
+# A deficiency that is a second-order cancellation comes back as a pivot of
 # rounding size rather than as a zero, and `solve()` accepts it, so
 # `allow_pinv = FALSE` refuses only the deficiencies that survive to the last bit
 # and answers the rest with standard errors resting on rounding error. The check
