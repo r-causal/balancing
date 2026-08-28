@@ -24,7 +24,7 @@
     Condition <balancing_balance_warning>
       Warning in `balance()`:
       The achieved balance exceeds the requested tolerance.
-      x The largest imbalance is 0.1751.
+      x The largest imbalance is 0.175.
       i Raise `tolerance` in `balance_terms()`, lower the moments, or drop interactions.
     Output
       -- Entropy balancing -----------------------------------------------------------

@@ -319,7 +319,10 @@ balance <- function(
 # measured. That case reports the assessment as the thing that failed, since no
 # tolerance the caller could raise would answer it. Requiring every exposure level
 # to carry base-measure mass removes the reachable cause, so this is the guard
-# behind that rather than a case a fit reaches.
+# behind that rather than a case a fit reaches. The imbalance prints to significant
+# digits rather than to a fixed number of decimals because a tolerance can sit far
+# below the fourth decimal, and a fixed-decimal format would then round the value
+# that triggered the warning down to a zero that contradicts it.
 warn_balance_exceeded <- function(worst, call = rlang::caller_env()) {
   if (!is.finite(worst)) {
     warn(
@@ -336,7 +339,7 @@ warn_balance_exceeded <- function(worst, call = rlang::caller_env()) {
   warn(
     c(
       "The achieved balance exceeds the requested tolerance.",
-      x = "The largest imbalance is {formatC(worst, format = 'f', digits = 4)}.",
+      x = "The largest imbalance is {formatC(worst, format = 'g', digits = 3)}.",
       i = "Raise {.arg tolerance} in {.fn balance_terms}, lower the moments, or drop interactions."
     ),
     warning_class = "balancing_balance_warning",
