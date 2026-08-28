@@ -64,8 +64,9 @@ order counts as naming nothing in the same way. Every later door into the
 marginal reading is shut as well: the
 accessors and \code{\link[causalgenerics:as_marginal]{causalgenerics::as_marginal()}} refuse it, and a pooled set
 of such results carries the refusal forward. Marginalizing a dose response
-over the observed doses is left to the marginaleffects package, whose
-\code{avg_slopes()} and \code{avg_comparisons()} read the conditional result; see
+over the observed doses is left to the marginaleffects package, applied to
+the conditional result: \code{avg_slopes()} for slopes, \code{avg_comparisons()} for
+contrasts, and \code{avg_predictions()} for causal dose-response functions; see
 \url{https://marginaleffects.com/chapters/interactions.html}.
 
 The conditional reading reports the coefficients of the stored

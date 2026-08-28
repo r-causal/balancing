@@ -511,8 +511,9 @@
 #'   marginal reading is shut as well: the
 #'   accessors and [causalgenerics::as_marginal()] refuse it, and a pooled set
 #'   of such results carries the refusal forward. Marginalizing a dose response
-#'   over the observed doses is left to the marginaleffects package, whose
-#'   `avg_slopes()` and `avg_comparisons()` read the conditional result; see
+#'   over the observed doses is left to the marginaleffects package, applied to
+#'   the conditional result: `avg_slopes()` for slopes, `avg_comparisons()` for
+#'   contrasts, and `avg_predictions()` for causal dose-response functions; see
 #'   <https://marginaleffects.com/chapters/interactions.html>.
 #'
 #'   The conditional reading reports the coefficients of the stored
@@ -882,7 +883,7 @@ method(causalgenerics_ipw, balancing) <- function(
         abort(
           c(
             reasons[[1L]],
-            x = "{.code effects = \"marginal\"} asks for a reading this model has none of.",
+            x = "{.code effects = \"marginal\"} is not available for this model.",
             i = reasons[[2L]],
             i = reasons[[3L]],
             i = "Use {.code effects = \"conditional\"} or omit {.arg effects}."
@@ -1043,9 +1044,9 @@ method(causalgenerics_ipw, balancing) <- function(
 # to stop being told and a caller who was refused what to ask for instead.
 msm_conditional_only_reasons <- function() {
   c(
-    "{.fun ipw} reports only the conditional reading when the exposure enters {.arg outcome_mod} through several columns.",
-    "The coefficient surface is the outcome model's own, and no single row of it is a causal effect.",
-    "Marginalizing over the dose is left to the {.pkg marginaleffects} package: call {.fun avg_slopes} or {.fun avg_comparisons} on the conditional result. See {.url https://marginaleffects.com/chapters/interactions.html}."
+    "{.fun ipw} reports only the conditional reading because the exposure enters {.arg outcome_mod} through more than one term, such as a spline or polynomial.",
+    "With a nonlinear dose-response, no single coefficient is the effect of the exposure, so there is no marginal effect to report.",
+    "Use the {.pkg marginaleffects} package to marginalize over the dose: {.fun avg_slopes} for slopes, {.fun avg_comparisons} for contrasts, and {.fun avg_predictions} for causal dose-response functions. See {.url https://marginaleffects.com/chapters/interactions.html}."
   )
 }
 
