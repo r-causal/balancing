@@ -934,7 +934,8 @@ test_that("the conditional reading of a basis fit is the whole coefficient vecto
   labels <- paste(result$estimates$effect, result$estimates$contrast)
   keys <- c("beta_(Intercept)", labels)
   expect_true(all(keys %in% names(result$fit$theta)))
-  # `keys` spans the whole vector only because the fixture has no covariate.
+  # `keys` spans the whole vector only because this outcome model reads no
+  # covariate: every column of it is the intercept or an exposure basis term.
   expect_identical(unname(covariance), unname(result$fit$vcov[keys, keys]))
 
   # The stored table is the exposure-reading coefficients alone, so it is one
