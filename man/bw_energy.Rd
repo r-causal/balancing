@@ -49,11 +49,13 @@ marginals are held equal to the unweighted sample.}
 \item{dimension_adjustment}{For a continuous exposure, whether to weight the
 covariate energy distance by the covariate dimensionality adjustment.}
 
-\item{convergence_tolerance}{The quadratic-program solver tolerance, or \code{NULL}
-for the core default.}
+\item{convergence_tolerance}{The quadratic-program solver tolerance, or
+\code{NULL} for the resolved default of \code{1e-8}, which the solver applies as both
+its absolute and its relative tolerance. A tolerance below what the problem
+can reach spends the full iteration cap and then warns.}
 
-\item{max_iterations}{The maximum solver iterations, or \code{NULL} for the core
-default.}
+\item{max_iterations}{The maximum solver iterations, or \code{NULL} for the
+resolved default of 200000.}
 }
 \value{
 An \code{bw_energy} specification, a \link{balance_method}.

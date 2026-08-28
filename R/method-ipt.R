@@ -31,9 +31,10 @@
 #' @param link The propensity link, one of `"logit"`, `"probit"`, or
 #'   `"cloglog"`.
 #' @param convergence_tolerance The solver convergence tolerance on the tilting
-#'   moment.
-#' @param max_iterations The maximum solver iterations, or `NULL` for the core
-#'   default.
+#'   moment. `1e-10` is both this argument's default and the value the solver
+#'   resolves for `NULL`.
+#' @param max_iterations The maximum solver iterations, or `NULL` for the
+#'   resolved default of 1000.
 #' @param ... Reserved for future extensions; must be empty. Tuning parameters
 #'   must be passed by name.
 #'

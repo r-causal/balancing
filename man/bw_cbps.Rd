@@ -31,10 +31,11 @@ Ignored, with a warning, whenever the fit is not over-identified.}
 and consume it. A continuous exposure fits none, so the setting is ignored,
 with a warning, there.}
 
-\item{convergence_tolerance}{The solver convergence tolerance.}
+\item{convergence_tolerance}{The solver convergence tolerance. \code{1e-10} is
+both this argument's default and the value the solver resolves for \code{NULL}.}
 
-\item{max_iterations}{The maximum solver iterations, or \code{NULL} for the core
-default.}
+\item{max_iterations}{The maximum solver iterations, or \code{NULL} for the
+resolved default of 1000.}
 }
 \value{
 A \code{bw_cbps} specification, a \link{balance_method}.

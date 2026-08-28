@@ -25,10 +25,14 @@ cat_cli <- function(expr) {
 #' stable balancing weights) subclasses `quadratic_program_method`. None of the
 #' abstract classes can be constructed directly.
 #'
-#' @param convergence_tolerance The solver convergence tolerance, or `NULL` for
-#'   the core default.
-#' @param max_iterations The maximum solver iterations, or `NULL` for the core
-#'   default.
+#' @param convergence_tolerance The solver convergence tolerance, or `NULL` to
+#'   leave it to the solver. The value resolved for `NULL` differs by family:
+#'   `1e-10` on the gradient for the estimating-equation methods, and `1e-8` as
+#'   both the absolute and the relative tolerance for the quadratic-program
+#'   methods.
+#' @param max_iterations The maximum solver iterations, or `NULL` to leave the
+#'   cap to the solver. The value resolved for `NULL` is 1000 for the
+#'   estimating-equation methods and 200000 for the quadratic-program methods.
 #' @param weight_penalty The L2 penalty on the weights.
 #' @param min_weight The smallest permitted weight.
 #'

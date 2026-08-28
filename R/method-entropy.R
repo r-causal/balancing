@@ -54,9 +54,14 @@
 #'   the inexact problem, solved by FISTA against the relative change in the
 #'   loss; that criterion is the weaker of the two, so the value is tightened to
 #'   at most `1e-14` to hold the achieved balance inside the requested box, and
-#'   anything above `1e-14` is inert there.
-#' @param max_iterations The maximum solver iterations, or `NULL` for the core
-#'   default.
+#'   anything above `1e-14` is inert there. `1e-10` is both this argument's
+#'   default and the value the solver resolves for `NULL`.
+#' @param max_iterations The maximum solver iterations, or `NULL` for the
+#'   resolved default of 1000. When the L-BFGS then Newton hybrid runs, either
+#'   as the automatic retry of a Newton solve that came back short or because
+#'   `options(balancing.entropy_solver = "lbfgs_then_newton")` asked for it, the
+#'   cap applies to each phase separately and the reported iteration count is
+#'   the sum of the two, so such a fit can report more iterations than the cap.
 #' @param ... Reserved for future extensions; must be empty. Tuning parameters
 #'   must be passed by name.
 #'
