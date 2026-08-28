@@ -14,6 +14,11 @@
   Continuous exposures and declared joint crossings report the rows they
   always did.
 
+* Two-sided p-values in the `ipw()` estimates table are now computed in the
+  upper tail of the normal distribution rather than by subtracting the lower
+  tail from one. The subtraction lost precision in very small p-values to
+  cancellation, and reported them as zero below about 1e-16.
+
 * Added `balance()`, which fits optimization-based balancing weights to a data
   frame with tidyselect covariate selection.
 

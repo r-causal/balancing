@@ -1804,7 +1804,7 @@ ipw_estimate_rows <- function(theta, vcov, conf_level, keys, effects) {
     ci.lower = estimate - z_value * std_err,
     ci.upper = estimate + z_value * std_err,
     conf.level = conf_level,
-    p.value = 2 * (1 - stats::pnorm(abs(z)))
+    p.value = 2 * stats::pnorm(abs(z), lower.tail = FALSE)
   )
 }
 
