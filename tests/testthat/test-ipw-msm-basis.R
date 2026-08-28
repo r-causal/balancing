@@ -1221,3 +1221,39 @@ test_that("a basis fit reports the stacked variance system it was read from", {
     list(names(result$fit$theta), names(result$fit$theta))
   )
 })
+
+# The surface is the one description of what the exposure contributed to the
+# outcome design, and the sandwich has to work it out before it can name the
+# stacked parameters it returns. Handing it back is what keeps the caller from
+# deriving the same description a second time, so the two cannot disagree about
+# which columns carry the dose response or what their rows are called. Both
+# shapes are pinned, since a lone exposure column and a basis describe the
+# surface differently and only one of them is exercised by the naming above.
+
+test_that("the msm sandwich returns the coefficient surface it named from", {
+  data <- msm_basis_fixture()
+  fit <- msm_basis_fit(data)
+  w <- as.numeric(stats::weights(fit))
+  container <- estimating_equations(fit)
+
+  formulas <- list(
+    bare = y_cont ~ exposure,
+    basis = y_cont ~ poly(exposure, 2)
+  )
+
+  for (formula in formulas) {
+    outcome_mod <- fit_basis_msm(formula, data, w)
+    result <- ipw_deli_msm_sandwich(
+      container = container,
+      outcome_mod = outcome_mod,
+      exposure_name = "exposure",
+      sampling_weights = fit@sampling_weights
+    )
+
+    expect_true("surface" %in% names(result))
+    expect_identical(
+      result$surface,
+      msm_coefficient_identity(outcome_mod, "exposure")
+    )
+  }
+})
