@@ -90,7 +90,7 @@ data.frame(
 
 ### Categorical exposures
 
-A categorical exposure works the same way, with one marginal mean per level. The stacked system carries all of them, and the reported effects are the contrasts of each non-reference level against the reference level, which is the first of the exposure's own levels. The outcome model enters the exposure as a factor.
+A categorical exposure works the same way, with one marginal mean per level. The stacked system carries all of them, and the table reports each of those means and then the contrasts of each non-reference level against the reference level, which is the first of the exposure's own levels. The outcome model enters the exposure as a factor.
 
 ```{r categorical}
 odds_medium <- exp(0.6 * age - 0.3 * score)
@@ -137,7 +137,7 @@ arm_mod <- glm(
 ipw(arm_fit, arm_mod)
 ```
 
-Each effect measure appears once per contrast, so the estimates table gains a `contrast` column naming the two levels each row contrasts. Everything else carries over unchanged: the outcome model may adjust for covariates, the marginal means standardize over the estimand's target population, and the standard errors account for having estimated the weights.
+The table leads with the marginal mean of each arm and then reports each effect measure once per contrast, and the `contrast` column names what each row belongs to: the level itself for a mean, and the two levels compared for an effect. A binary exposure is read by the same rule, its means named for the two levels and its single comparison named as a contrast of them. Everything else carries over unchanged: the outcome model may adjust for covariates, the marginal means standardize over the estimand's target population, and the standard errors account for having estimated the weights.
 
 A categorical exposure that `causalgenerics::joint_exposure()` declares as a crossing of two treatments is reported in those treatments instead of cell against cell: the cell means, each treatment's simple effects within the levels of the other, and their interaction. See `?ipw.balancing` for that surface. `ipw()` also takes a `.by` argument, which reports the effects again within the levels of a modifier and contrasts the subgroups, documented on the same page.
 

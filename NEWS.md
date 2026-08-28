@@ -1,5 +1,19 @@
 # balancing 0.0.0.9000
 
+* `ipw()` now reports the counterfactual mean of every exposure level as a row
+  of its own on a binary or categorical result, ahead of the contrasts written
+  from them, under the effect measure `"mean"` and keyed in the `contrast`
+  column by the level it belongs to. The stacked system has always carried those
+  means as parameters, so the reported standard errors and the covariance the
+  estimates table carries are the same sandwich the contrasts are read from. A
+  `.by` request repeats the means within each stratum, after the whole-sample
+  rows and ahead of the stratum contrasts. A binary result now carries a
+  `contrast` column as a categorical one always has, naming its comparison
+  `"1 vs 0"`, which is a breaking change for code that matched a bare `"rd"` in
+  a label or filtered the estimates table on the absence of that column.
+  Continuous exposures and declared joint crossings report the rows they
+  always did.
+
 * Added `balance()`, which fits optimization-based balancing weights to a data
   frame with tidyselect covariate selection.
 
