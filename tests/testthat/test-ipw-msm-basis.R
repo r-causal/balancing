@@ -923,6 +923,19 @@ test_that("the conditional reading of a basis fit is the whole coefficient vecto
   expect_true(all(is.finite(covariance)))
   expect_true(all(diag(covariance) > 0))
 
+  # The whole block rather than its diagonal: what the reading reports is the
+  # outcome block of the stacked covariance, off-diagonal entries included, so
+  # a route that rebuilt it from the model alone would agree nowhere. The block
+  # is addressed here by the names the stack carries, which are not the model's:
+  # the intercept keeps the `beta_` prefix every column that reads no exposure
+  # keeps, and each exposure-reading column is renamed to the label its
+  # estimates row is read under. The dimnames differ by construction, since the
+  # reading presents the model's own names, so the values are what is compared.
+  labels <- paste(result$estimates$effect, result$estimates$contrast)
+  keys <- c("beta_(Intercept)", labels)
+  expect_true(all(keys %in% names(result$fit$theta)))
+  expect_identical(unname(covariance), unname(result$fit$vcov[keys, keys]))
+
   # The stored table is the exposure-reading coefficients alone, so it is one
   # row shorter than the vector the reading presents: the intercept is a
   # coefficient of the model and no row of the surface the stack estimated.
@@ -1009,7 +1022,10 @@ test_that("a basis fit refuses the marginal reading at construction", {
   # Asking for the marginal reading of a model that has none is a question
   # rather than a preference, so it is answered rather than quietly given the
   # other reading. It is answered the same way whether or not the announcement
-  # would have been printed.
+  # would have been printed, which is why the messages are left on: the recorded
+  # entry is the error alone, and an announcement reaching a caller who is about
+  # to be refused would grow a Message block into it.
+  withr::local_options(balancing.quiet = FALSE)
   expect_error(
     ipw(fit, outcome_mod, effects = "marginal"),
     class = "balancing_ipw_input_error"

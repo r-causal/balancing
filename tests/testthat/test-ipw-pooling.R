@@ -313,8 +313,16 @@ test_that("pool_ipw() over basis fits pools the conditional reading", {
   expect_identical(pooled$effects, "conditional")
   expect_identical(pooled$estimates$effect, coefficients)
   expect_identical(pooled$m, 3L)
-  expect_true(all(is.finite(pooled$estimates$estimate)))
   expect_true(all(is.finite(pooled$estimates$std.err)))
+
+  # Rubin's rule pools point estimates by averaging them, so each pooled row is
+  # the mean of that coefficient across the analyses. Reading the analyses
+  # through `coef()` takes the conditional reading each of them records, which
+  # is the surface being pooled, and keys the comparison to the coefficient a
+  # row is named after rather than to whichever row sits at that position.
+  analyses <- vapply(fits, stats::coef, numeric(length(coefficients)))
+  expect_identical(rownames(analyses), coefficients)
+  expect_equal(pooled$estimates$estimate, unname(rowMeans(analyses)))
 
   # The pooled refusal is its own condition rather than the one an unpooled
   # result raises: a pooled result records which surfaces it combined, and the
