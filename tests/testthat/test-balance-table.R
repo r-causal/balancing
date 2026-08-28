@@ -182,6 +182,23 @@ test_that("a prebuilt matrix reports the arm-to-arm constraint table", {
   )
 })
 
+test_that("a prebuilt matrix reports the base-weighted pooled target table", {
+  # Entropy balancing is the only method carrying base weights, and they enter
+  # the table as the reference measure the average-treatment-effect pooled
+  # target is taken against. Non-uniform base weights move that target away from
+  # the plain column mean, so this pins the branch a uniform measure hides.
+  data <- sim_binary(n = 200)
+  base_weights <- withr::with_seed(13, stats::runif(nrow(data), 0.5, 2))
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, x3),
+    method = bw_entropy(base_weights = base_weights)
+  )
+
+  expect_prebuilt_matrix_equivalence(fit, data, c("x1", "x2", "x3"))
+})
+
 # ---- Column statistics -----------------------------------------------------
 
 # A fixture with the features the column statistics have to survive: a column
@@ -256,6 +273,59 @@ test_that("standardize_columns() centers and scales on the sampling-weighted sca
     standardize_columns(m, sampling_weights = w),
     expected,
     tolerance = 1e-12
+  )
+})
+
+test_that("standardize_columns() reproduces the per-column weighted statistics", {
+  # The vectorized weighted branch is bit for bit the per-column formulation it
+  # replaced, so this pins identity rather than agreement to a tolerance. A
+  # tolerance here would let a genuine change of accumulation order pass.
+  fixture <- column_statistic_fixture()
+  m <- fixture$m
+  w <- fixture$sampling_weights
+
+  centers <- apply(m, 2, weighted_center, w = w)
+  scales <- apply(m, 2, weighted_scale, w = w)
+  scales[scales == 0] <- 1
+  expected <- sweep(sweep(m, 2, centers, "-"), 2, scales, "/")
+
+  expect_identical(standardize_columns(m, sampling_weights = w), expected)
+})
+
+test_that("standardize_columns() agrees with stats::sd() to rounding", {
+  # The unweighted scale carries the same corrected two-pass center `stats::sd()`
+  # does, but `stats::sd()` carries the correction in long double, so the two
+  # agree to a unit in the last place rather than exactly.
+  fixture <- column_statistic_fixture()
+  m <- fixture$m
+
+  scales <- apply(m, 2, stats::sd)
+  scales[scales == 0] <- 1
+  expected <- sweep(sweep(m, 2, colMeans(m), "-"), 2, scales, "/")
+
+  expect_equal(standardize_columns(m), expected, tolerance = 1e-14)
+
+  # An offset of 1e14 on the non-constant columns is large enough against their
+  # spread to separate the corrected two-pass center from the plain one: on this
+  # input the plain form departs from `stats::sd()` by a relative 1.2e-4, well
+  # outside the tolerance below, while the corrected form still tracks it.
+  shifted <- m
+  offset <- setdiff(colnames(m), "constant")
+  shifted[, offset] <- shifted[, offset] + 1e14
+
+  shifted_scales <- apply(shifted, 2, stats::sd)
+  shifted_scales[shifted_scales == 0] <- 1
+  shifted_expected <- sweep(
+    sweep(shifted, 2, colMeans(shifted), "-"),
+    2,
+    shifted_scales,
+    "/"
+  )
+
+  expect_equal(
+    standardize_columns(shifted),
+    shifted_expected,
+    tolerance = 1e-14
   )
 })
 

@@ -34,21 +34,57 @@ new_balancing_tibble <- function(cols) {
 # mean differences against. Without sampling weights the weighted statistics reduce
 # to the unweighted ones. The re-standardization expect_balanced() applies uses the
 # same convention.
+#
+# The centers and scales are taken as column arithmetic over the whole matrix
+# rather than column by column, since the balance table is assembled once per fit
+# over as many columns as the fit has constraints. `colSums()` accumulates in the
+# same extended precision `sum()` does, so the weighted branch reproduces the
+# per-column `weighted_center()` and `weighted_scale()` values (R/utils.R) bit for
+# bit rather than merely approximating them: the reliability denominator and the
+# zero-scale guard are both carried over unchanged, the former as a single scalar
+# because it depends only on the weights.
+#
+# The unweighted scale takes its sum of squares about a corrected two-pass
+# center, the first column mean plus the mean of the residuals from it.
+# `stats::sd()` applies the same correction, but carries it entirely in long
+# double, whereas this reproduction rounds to double between the two passes. The
+# two therefore agree to rounding rather than exactly, occasionally differing by
+# a final unit in the last place. The correction still earns its pass: without it
+# the plain two-pass form matches `stats::sd()` only while a column's values are
+# comparable to their spread, and its error grows with the ratio of the column's
+# offset to that spread, whereas the corrected form tracks `stats::sd()` to
+# rounding at any offset. The reported centering stays on the plain column mean,
+# as before.
 standardize_columns <- function(m, sampling_weights = NULL) {
   if (is.null(sampling_weights)) {
     centers <- colMeans(m)
-    scales <- apply(m, 2, stats::sd)
+    centered <- sweep(m, 2, centers, "-")
+    corrected <- sweep(m, 2, centers + colMeans(centered), "-")
+    scales <- sqrt(colSums(corrected^2) / (nrow(m) - 1))
   } else {
-    centers <- apply(m, 2, weighted_center, w = sampling_weights)
-    scales <- apply(m, 2, weighted_scale, w = sampling_weights)
+    total <- sum(sampling_weights)
+    centers <- colSums(m * sampling_weights) / total
+    centered <- sweep(m, 2, centers, "-")
+    denominator <- total - sum(sampling_weights * sampling_weights) / total
+    variances <- if (denominator > 0) {
+      colSums(centered^2 * sampling_weights) / denominator
+    } else {
+      rep(0, ncol(m))
+    }
+    scales <- sqrt(pmax(variances, 0))
   }
   scales[scales == 0] <- 1
-  sweep(sweep(m, 2, centers, "-"), 2, scales, "/")
+  sweep(centered, 2, scales, "/")
+}
+
+# Weighted mean of every column of a matrix, as one pass of column arithmetic.
+column_weighted_means <- function(z, w) {
+  colSums(z * w) / sum(w)
 }
 
 # Weighted mean of every column of `z` over the rows in `idx`.
 weighted_column_means <- function(z, idx, w) {
-  apply(z[idx, , drop = FALSE], 2, stats::weighted.mean, w = w[idx])
+  column_weighted_means(z[idx, , drop = FALSE], w[idx])
 }
 
 compute_balance_table <- function(
@@ -63,13 +99,22 @@ compute_balance_table <- function(
   tolerance,
   reference = NULL,
   constraint_target = c("pooled", "arms"),
-  sampling_weights = NULL
+  sampling_weights = NULL,
+  matrix = NULL
 ) {
   if (is.null(reference)) {
     reference <- rep(1, length(weights))
   }
   constraint_target <- match.arg(constraint_target)
-  matrix <- rebuild_constraint_matrix(recipe, data)
+  # A caller that already holds the constraint matrix passes it rather than
+  # letting the table rebuild one. Rebuilding costs about as much as the fit
+  # itself on a wide constraint set, and the recipe reproduces the matrix
+  # exactly, so the second build only repeats work. A caller holding nothing but
+  # the recipe, such as a diagnostic run against a stored result, leaves this
+  # NULL and gets the rebuild.
+  if (is.null(matrix)) {
+    matrix <- rebuild_constraint_matrix(recipe, data)
+  }
   z <- standardize_columns(matrix, sampling_weights)
   p <- ncol(z)
   terms <- vapply(recipe, function(term) term$term, character(1))
@@ -154,7 +199,7 @@ compute_balance_table <- function(
     constraint_residual <- if (
       identical(estimand, "ate") && identical(constraint_target, "pooled")
     ) {
-      pooled_target <- apply(z, 2, stats::weighted.mean, w = reference)
+      pooled_target <- column_weighted_means(z, reference)
       per_arm <- lapply(names(groups), function(level) {
         abs(weighted_column_means(z, groups[[level]], weights) - pooled_target)
       })

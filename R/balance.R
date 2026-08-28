@@ -270,7 +270,8 @@ balance <- function(
     tolerance = 0,
     reference = base_measure,
     constraint_target = fit$constraint_target %||% "pooled",
-    sampling_weights = sampling_weights_value
+    sampling_weights = sampling_weights_value,
+    matrix = built$matrix
   )
 
   # A fit warns when a constraint sits outside its tolerance box, judged on the
