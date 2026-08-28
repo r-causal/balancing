@@ -3949,6 +3949,67 @@ test_that("ipw() rejects a supplied data frame without two exposure levels", {
   )
 })
 
+# A design matrix whose columns are linearly dependent leaves the fit with an
+# `NA` coefficient for every column the pivoting dropped. The stack reads those
+# coefficients back to build the outcome score, so an aliased column makes every
+# stacked estimating function non-finite and the variance engine refuses the
+# whole sandwich. That refusal names neither the outcome model nor the column
+# that caused it, and the caller can only see the fit they passed, so the
+# preflight has to read the aliasing off the coefficients and say which column
+# is redundant.
+
+test_that("ipw() rejects an outcome model with an aliased exposure coefficient", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(
+    y ~ exposure + I(2 * exposure),
+    data,
+    w,
+    stats::binomial()
+  )
+
+  cnd <- expect_error(
+    ipw(fit, outcome_mod),
+    class = "balancing_ipw_input_error"
+  )
+  message <- condition_line(cnd)
+  expect_match(message, "I(2 * exposure)", fixed = TRUE)
+  expect_match(message, "rank[- ]deficient")
+})
+
+test_that("ipw() rejects an outcome model with an aliased covariate coefficient", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(
+    y ~ exposure + x1 + I(2 * x1),
+    data,
+    w,
+    stats::binomial()
+  )
+
+  cnd <- expect_error(
+    ipw(fit, outcome_mod),
+    class = "balancing_ipw_input_error"
+  )
+  message <- condition_line(cnd)
+  expect_match(message, "I(2 * x1)", fixed = TRUE)
+  expect_match(message, "rank[- ]deficient")
+})
+
 # ---- Weight consistency between the fit and the outcome model -------------
 
 # The stacked variance differentiates the outcome-model score through the
