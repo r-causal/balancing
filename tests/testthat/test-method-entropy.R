@@ -819,6 +819,30 @@ test_that("non-finite weights from both entropy solvers name them in the error",
   expect_match(conditionMessage(condition), "BFGS")
 })
 
+test_that("non-finite continuous entropy weights name both solvers in the error", {
+  # An exposure that repeats a covariate makes the exact continuous problem
+  # infeasible. The exposure crosses that covariate into a column of squares,
+  # whose weighted mean is positive under any positive weights and so can never
+  # reach the zero target the cross constraints carry. The duals run off to the
+  # range where the exponential tilt overflows, so the Newton solve and the
+  # hybrid retry both return non-finite weights. The continuous path has to
+  # refuse that solve the way the discrete path does, naming the solvers that
+  # ran rather than failing on the arithmetic downstream.
+  data <- sim_continuous()
+  data$exposure <- data$x1
+
+  condition <- expect_error(
+    balance(data, exposure, c(x1, x2), method = bw_entropy(), estimand = "ate"),
+    class = "balancing_convergence_error"
+  )
+  expect_match(
+    conditionMessage(condition),
+    "Neither solver produced finite weights"
+  )
+  expect_match(conditionMessage(condition), "Newton")
+  expect_match(conditionMessage(condition), "BFGS")
+})
+
 # ---- distribution_moments (continuous) ------------------------------------
 
 test_that("distribution_moments holds the exposure variance", {
