@@ -3982,6 +3982,8 @@ test_that("ipw() rejects an outcome model with an aliased exposure coefficient",
   message <- condition_line(cnd)
   expect_match(message, "I(2 * exposure)", fixed = TRUE)
   expect_match(message, "rank[- ]deficient")
+
+  expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
 })
 
 test_that("ipw() rejects an outcome model with an aliased covariate coefficient", {
@@ -4008,6 +4010,8 @@ test_that("ipw() rejects an outcome model with an aliased covariate coefficient"
   message <- condition_line(cnd)
   expect_match(message, "I(2 * x1)", fixed = TRUE)
   expect_match(message, "rank[- ]deficient")
+
+  expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
 })
 
 # ---- Weight consistency between the fit and the outcome model -------------

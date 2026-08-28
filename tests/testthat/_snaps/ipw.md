@@ -100,6 +100,26 @@
       i Supply a model of class <glm> or <lm>.
       x `outcome_mod` has class <list>.
 
+# ipw() rejects an outcome model with an aliased exposure coefficient
+
+    Code
+      stop(cnd)
+    Condition <balancing_ipw_input_error>
+      Error in `ipw()`:
+      ! `outcome_mod` must have an estimate for every coefficient.
+      x It is rank deficient, so the coefficient "I(2 * exposure)" is not estimable.
+      i Drop the aliased term from `outcome_mod` and fit it again before calling `ipw()`.
+
+# ipw() rejects an outcome model with an aliased covariate coefficient
+
+    Code
+      stop(cnd)
+    Condition <balancing_ipw_input_error>
+      Error in `ipw()`:
+      ! `outcome_mod` must have an estimate for every coefficient.
+      x It is rank deficient, so the coefficient "I(2 * x1)" is not estimable.
+      i Drop the aliased term from `outcome_mod` and fit it again before calling `ipw()`.
+
 # ipw() rejects an outcome model fitted without weights
 
     Code
