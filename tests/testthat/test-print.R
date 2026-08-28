@@ -88,6 +88,25 @@ test_that("print() of a categorical ate fit lists every level", {
   expect_balancing_snapshot(print(fit))
 })
 
+# A factor covariate contributes one constraint per level, and the full set is
+# affine with the intercept, so the aliasing check drops the last level. The
+# print block is the record that a fit still describes itself correctly once a
+# constraint has gone: the term count is the surviving four, not the five the
+# formula named. The block does not carry the balance table, so the surviving
+# terms are asserted directly below it.
+test_that("print() of a fit whose factor lost a level is stable", {
+  data <- sim_binary()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, x3),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  expect_balancing_snapshot(print(fit))
+  expect_identical(fit@balance_table$term, c("x1", "x2", "x3_a", "x3_b"))
+})
+
 # The quadratic-program family reports a solver backend and a minimum-weight
 # floor, so its print and summary blocks differ from the estimating-equation
 # family. The weight summary names the count of weights resting on the floor.

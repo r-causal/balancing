@@ -78,6 +78,19 @@
       Constraints: 2 terms (tolerance 0)
       Largest imbalance: 0.0000 (standardized mean difference)
 
+# print() of a fit whose factor lost a level is stable
+
+    Code
+      print(fit)
+    Output
+      -- Entropy balancing -----------------------------------------------------------
+      Exposure: "exposure" (binary)
+      Estimand: "ate"
+      Observations: 500
+      Solver: converged in <n> iterations
+      Constraints: 4 terms (tolerance 0)
+      Largest imbalance: 0.0000 (standardized mean difference)
+
 # print() of an energy fit is stable
 
     Code
