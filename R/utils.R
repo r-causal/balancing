@@ -72,6 +72,46 @@ group_target_sums <- function(s, groups, focal_level = NULL) {
   targets
 }
 
+# A solve that diverged returns weights that are not finite, which leaves the
+# total a renormalization divides by as a missing value. That is a failed solve
+# rather than a reporting-scale question, so it is refused with a classed error
+# instead of steering a comparison with a missing value. Both exposure paths
+# refuse it here so the failure reads the same either way. `solvers` names the
+# solvers that produced the weights, so a fit that fell back from one solver to
+# another reports both rather than an anonymous single failure. `level` names
+# the exposure level whose total failed, which only a grouped fit has; the
+# continuous path normalizes the sample as a whole and passes none.
+check_finite_weight_total <- function(
+  total,
+  solvers = NULL,
+  level = NULL,
+  call = rlang::caller_env()
+) {
+  if (is.finite(total)) {
+    return(invisible(NULL))
+  }
+  tried <- solver_labels(solvers)
+  detail <- if (is.null(level)) {
+    "The weights do not sum to a finite total."
+  } else {
+    "The weights for exposure level {.val {level}} do not sum to a finite total."
+  }
+  bullets <- c(
+    "The solver did not produce finite weights.",
+    x = detail,
+    i = "Check the covariates for collinearity or for a column the exposure determines."
+  )
+  if (length(tried) > 1L) {
+    bullets[[1L]] <- "Neither solver produced finite weights."
+    bullets <- append(bullets, c(x = "The fit tried {tried}."), after = 1L)
+  }
+  abort(
+    bullets,
+    error_class = "balancing_convergence_error",
+    call = call
+  )
+}
+
 # Move each exposure group's weights onto its reported total. The solvers
 # normalize on their own internal convention and the reported convention places
 # each group's sampling-weighted total at `targets`, so the correction is one
@@ -80,13 +120,6 @@ group_target_sums <- function(s, groups, focal_level = NULL) {
 # scale to move to and is left alone. The arguments are the weights together
 # with the groups and targets rather than a fitted object, so a caller
 # re-evaluating the weights at other parameters can apply the same convention.
-#
-# A solve that diverged returns weights that are not finite, which leaves the
-# group total this divides by as a missing value. That is a failed solve rather
-# than a reporting-scale question, so it is refused here with a classed error
-# instead of steering the comparison below with a missing value. `solvers` names
-# the solvers that produced the weights, so a fit that fell back from one solver
-# to another reports both rather than an anonymous single failure.
 renormalize_group_weights <- function(
   w,
   s,
@@ -95,26 +128,15 @@ renormalize_group_weights <- function(
   solvers = NULL,
   call = rlang::caller_env()
 ) {
-  tried <- solver_labels(solvers)
   for (level in names(groups)) {
     idx <- groups[[level]]
     current <- sum(s[idx] * w[idx])
-    if (!is.finite(current)) {
-      bullets <- c(
-        "The solver did not produce finite weights.",
-        x = "The weights for exposure level {.val {level}} do not sum to a finite total.",
-        i = "Check the covariates for collinearity or for a column the exposure determines."
-      )
-      if (length(tried) > 1L) {
-        bullets[[1L]] <- "Neither solver produced finite weights."
-        bullets <- append(bullets, c(x = "The fit tried {tried}."), after = 1L)
-      }
-      abort(
-        bullets,
-        error_class = "balancing_convergence_error",
-        call = call
-      )
-    }
+    check_finite_weight_total(
+      current,
+      solvers = solvers,
+      level = level,
+      call = call
+    )
     if (current > 0) {
       w[idx] <- w[idx] * (targets[[level]] / current)
     }

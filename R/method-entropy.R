@@ -744,8 +744,18 @@ fit_entropy_continuous <- function(method, prepared) {
   )
   result <- solved$result
 
+  # The whole sample is one group here, so the reporting scale is a single
+  # constant rather than the per-group vector the discrete path builds. The
+  # divergence check the discrete renormalization applies still has to run: a
+  # tilt that overflowed leaves this total missing, and that is a failed solve
+  # rather than a reporting-scale question.
   w <- result$weights
   current <- sum(s * w)
+  check_finite_weight_total(
+    current,
+    solvers = solved$solvers_tried,
+    call = rlang::current_env()
+  )
   if (current > 0) {
     w <- w * (n_eff / current)
   }
