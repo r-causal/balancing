@@ -66,16 +66,39 @@ having estimated the weights.
   The presentation mode the result records, either `"marginal"` (the
   default) or `"conditional"`. The marginal reading reports the
   population-averaged causal contrasts described above; the conditional
-  reading reports the outcome model's coefficient surface. Both surfaces
-  are computed whichever mode is named, since the stacked system is
-  solved either way, so the argument settles which one the result
-  presents and nothing else.
+  reading reports the outcome model's coefficient surface. Where a
+  result has both surfaces, both are computed whichever mode is named,
+  since the stacked system is solved either way, so the argument settles
+  which one the result presents and nothing else.
   [`causalgenerics::as_marginal()`](https://r-causal.github.io/causalgenerics/reference/ipw-modes.html)
   and
   [`causalgenerics::as_conditional()`](https://r-causal.github.io/causalgenerics/reference/ipw-modes.html)
-  move a result between the two readings afterwards, a pooled result as
-  much as an unpooled one, and the accessors take an `effects` argument
-  of their own for a single call.
+  move such a result between the two readings afterwards, a pooled
+  result as much as an unpooled one, and the accessors take an `effects`
+  argument of their own for a single call.
+
+  One shape of result has a single reading. When a continuous exposure
+  enters `outcome_mod` through several design columns, as a polynomial
+  or a spline basis does, no coefficient of that model is a causal
+  effect: a curve has a different slope at every dose. Such a result
+  therefore records the conditional reading, supports no other, and
+  announces that it has done so. Naming `effects = "conditional"` builds
+  the same result without the announcement, and naming
+  `effects = "marginal"` raises `balancing_ipw_input_error`, since it
+  asks for a reading the model has none of. Naming every reading is
+  naming none of them, so a call that supplies more than one reading, as
+  a wrapper forwarding an `effects` default of its own does, is
+  announced rather than refused. How many readings arrived is all that
+  is read, not which ones, so a default vector given in another order
+  counts as naming nothing in the same way. Every later door into the
+  marginal reading is shut as well: the accessors and
+  [`causalgenerics::as_marginal()`](https://r-causal.github.io/causalgenerics/reference/ipw-modes.html)
+  refuse it, and a pooled set of such results carries the refusal
+  forward. Marginalizing a dose response over the observed doses is left
+  to the marginaleffects package, applied to the conditional result:
+  `avg_slopes()` for slopes, `avg_comparisons()` for contrasts, and
+  `avg_predictions()` for causal dose-response functions; see
+  <https://marginaleffects.com/chapters/interactions.html>.
 
   The conditional reading reports the coefficients of the stored
   `outcome_mod` against the outcome block of the stacked sandwich, which
@@ -169,24 +192,27 @@ then smaller than `length(weights(result))`.
 
 The point estimates are the g-computation marginal means: the outcome
 model is predicted with the exposure fixed to each level and averaged
-over the estimand's target population. For a binary outcome the method
-returns the risk difference (`rd`), the log risk ratio (`log(rr)`), and
-the log odds ratio (`log(or)`); for a continuous outcome it returns the
-difference in means (`diff`).
+over the estimand's target population. Those means are reported in their
+own right, one row per exposure level under the effect label `"mean"`,
+and the effect measures follow as contrasts of them. For a binary
+outcome the method returns the risk difference (`rd`), the log risk
+ratio (`log(rr)`), and the log odds ratio (`log(or)`); for a continuous
+outcome it returns the difference in means (`diff`).
 
-A categorical exposure reports those same measures for each
-non-reference level against the reference level, which is the first of
-the fit's own levels: a factor's declared level order for a factor
-exposure, and the sorted values otherwise. A K-level exposure therefore
-contributes K marginal means and one block of measures per non-reference
-level, and the estimates table gains a `contrast` column, placed after
-`effect`, naming each contrast as `"<level> vs <reference>"`. A binary
-exposure keeps the table it has always returned, with no `contrast`
-column. A categorical exposure declared as a crossing of two treatments
-by
+A binary and a categorical exposure are read by one rule. The reference
+level is the first of the fit's own levels: a factor's declared level
+order for a factor exposure, and the sorted values otherwise. The
+estimates table carries a `contrast` column, placed after `effect`,
+naming the level a mean row belongs to and naming each contrast row as
+`"<level> vs <reference>"`, so a binary result names its single
+comparison `"1 vs 0"` rather than leaving it unnamed. A K-level exposure
+therefore leads with K mean rows, in the fit's own level order with the
+reference level first, and follows them with one block of measures per
+non-reference level. A categorical exposure declared as a crossing of
+two treatments by
 [`causalgenerics::joint_exposure()`](https://r-causal.github.io/causalgenerics/reference/joint_exposure.html)
 replaces those level-against-reference rows with the surface described
-under Joint exposures below.
+under Joint exposures below, which reports its cell means the same way.
 
 A continuous exposure has no levels to contrast, so there is no pair of
 marginal means to difference. What the method reports instead is the
@@ -199,10 +225,10 @@ read straight off the weighted fit, since nothing is standardized here.
 An exposure entering through one design column, whether as a bare term
 or as a transformation of one, is the whole of the dose response, so its
 coefficient is that response's slope everywhere. Such a model keeps the
-single-row table it has always returned, with the columns every other
-exposure's table holds and no `contrast` column, and the row is named
-for the link: `slope` for an identity link, whether the model arrives as
-a [`stats::lm()`](https://rdrr.io/r/stats/lm.html) or as a gaussian
+single-row table it has always returned, with the eight columns of the
+shared contract and no `contrast` column, and the row is named for the
+link: `slope` for an identity link, whether the model arrives as a
+[`stats::lm()`](https://rdrr.io/r/stats/lm.html) or as a gaussian
 [`stats::glm()`](https://rdrr.io/r/stats/glm.html); `log(or)` for a
 logit; and `log(rr)` for a log link.
 
@@ -427,13 +453,15 @@ exposure-reading case is refused above.
 
 ## Effect modification
 
-`.by` names a modifier, and a result carrying one reports the effects it
-reports without a request, then those same effects within each of the
-modifier's levels, then each non-reference level against the reference
-one. The estimates table gains a `group` column naming the subgroup each
-row was estimated in, placed after `contrast` where a categorical
-exposure names one and after `effect` where it does not, since a
-subgroup qualifies the whole comparison rather than one side of it. The
+`.by` names a modifier, and a result carrying one reports the rows it
+reports without a request, then the marginal means within each of the
+modifier's levels, then the effects within each of them, then each
+non-reference subgroup against the reference one. The estimates table
+gains a `group` column naming the subgroup each row was estimated in,
+placed after `contrast`, since a subgroup qualifies the whole comparison
+rather than one side of it. A block of means is never split by the
+contrasts written from it, which is what puts every subgroup's means
+ahead of every subgroup's contrasts rather than beside them. The
 whole-sample rows come first, under the group `"overall"`; a subgroup's
 rows are named `"var = value"`, as `"sex = female"`; and a contrast of
 subgroups joins the two, as `"sex = female vs sex = male"`. The
@@ -444,16 +472,19 @@ the way in and its reference subgroup is its alphabetically first value,
 whatever order the values appear in. Declare the column a factor to
 measure the contrasts against some other subgroup.
 
-A subgroup reports the collapsible measures alone. For a binary outcome
-that is `rd` and `log(rr)`; a continuous outcome reports `diff`, the
-only measure it has. The log odds ratio stays among the whole-sample
-rows. An odds ratio is noncollapsible, so the odds ratio over a sample
-is not an average of the odds ratios within its subgroups and the
-difference of two of them is not the difference in effect it reads as;
-nothing in the whole-sample rows averages anything over subgroups, which
-is why they keep it. A categorical exposure crosses its contrasts with
-the subgroups, so each subgroup block reports each contrast in the order
-the whole-sample block reports it.
+A subgroup reports its marginal means and then the collapsible measures
+alone. For a binary outcome those measures are `rd` and `log(rr)`; a
+continuous outcome reports `diff`, the only measure it has. The log odds
+ratio stays among the whole-sample rows. An odds ratio is
+noncollapsible, so the odds ratio over a sample is not an average of the
+odds ratios within its subgroups and the difference of two of them is
+not the difference in effect it reads as; nothing in the whole-sample
+rows averages anything over subgroups, which is why they keep it. A
+contrast of two subgroups compares two effects and has no mean of its
+own, so the mean rows repeat over the subgroups themselves alone. A
+categorical exposure crosses its contrasts with the subgroups, so each
+subgroup block reports each contrast in the order the whole-sample block
+reports it.
 
 A subgroup's marginal means are the g-computation means over that
 subgroup alone, standardized the way the whole-sample means are: over
@@ -695,12 +726,8 @@ ipw(fit, outcome_mod)
 #>     weights = .wts) 
 #> 
 #> Estimates:
-#>         estimate  std.err        z ci.lower ci.upper conf.level   p.value    
-#> rd       0.28118 0.066447 4.231587   0.1509  0.41141       0.95 2.320e-05 ***
-#> log(rr)  0.59317 0.154680 3.834844   0.2900  0.89634       0.95 0.0001256 ***
-#> log(or)  1.15663 0.288897 4.003589   0.5904  1.72285       0.95 6.239e-05 ***
-#> ---
-#> Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+#> Warning: non-unique value when setting 'row.names': ‘mean’
+#> Error in `.rowNamesDF<-`(x, value = value): duplicate 'row.names' are not allowed
 
 # The outcome model may also adjust for covariates, in which case the
 # marginal means are standardized over the estimand's target population.
@@ -723,12 +750,8 @@ ipw(fit, adjusted_mod)
 #>     weights = .wts) 
 #> 
 #> Estimates:
-#>         estimate std.err       z ci.lower ci.upper conf.level   p.value    
-#> rd       0.28010 0.06674 4.19690   0.1493  0.41091       0.95 2.706e-05 ***
-#> log(rr)  0.59109 0.15589 3.79170   0.2856  0.89664       0.95 0.0001496 ***
-#> log(or)  1.15198 0.29001 3.97213   0.5836  1.72039       0.95 7.123e-05 ***
-#> ---
-#> Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+#> Warning: non-unique value when setting 'row.names': ‘mean’
+#> Error in `.rowNamesDF<-`(x, value = value): duplicate 'row.names' are not allowed
 
 # `.by` reports the effects again within the levels of a modifier, then
 # contrasts each level against the first of them.
@@ -752,7 +775,7 @@ ipw(fit, by_mod, .by = grp)
 #>     weights = .wts) 
 #> 
 #> Estimates:
-#> Warning: non-unique values when setting 'row.names': ‘log(rr)’, ‘rd’
+#> Warning: non-unique values when setting 'row.names': ‘log(rr)’, ‘mean’, ‘rd’
 #> Error in `.rowNamesDF<-`(x, value = value): duplicate 'row.names' are not allowed
 
 # A categorical exposure reports each level against the reference level, and
@@ -797,7 +820,7 @@ ipw(arm_fit, arm_mod)
 #>     weights = .arm_wts) 
 #> 
 #> Estimates:
-#> Warning: non-unique values when setting 'row.names': ‘log(or)’, ‘log(rr)’, ‘rd’
+#> Warning: non-unique values when setting 'row.names': ‘log(or)’, ‘log(rr)’, ‘mean’, ‘rd’
 #> Error in `.rowNamesDF<-`(x, value = value): duplicate 'row.names' are not allowed
 
 # A continuous exposure reports the dose response of a weighted marginal
@@ -827,11 +850,13 @@ ipw(dose_fit, dose_mod)
 #> ---
 #> Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
 
-# An exposure entering through several columns reports one row per
-# coefficient, named after the coefficient the fit names.
+# An exposure entering through several columns has no coefficient that is a
+# causal effect, so the result records the conditional reading and supports
+# no other. Naming that reading builds the same result without the
+# announcement that explains the default.
 curve_mod <- lm(score ~ poly(dose, 2), data = df, weights = .dose_wts)
 
-ipw(dose_fit, curve_mod)
+ipw(dose_fit, curve_mod, effects = "conditional")
 #> Inverse Probability Weight Estimator
 #> Estimand: ATE 
 #> 
@@ -888,10 +913,20 @@ pool_ipw(fits)
 #> Complete-data df: 148 
 #> 
 #> Pooled marginal estimates:
-#>         estimate  std.err      t     df  ci.lower ci.upper conf.level p.value
-#> rd      0.093662 0.086512 1.0827 64.596 -0.079134  0.26646       0.95  0.2830
-#> log(rr) 0.178972 0.165070 1.0842 67.103 -0.150501  0.50844       0.95  0.2821
-#> log(or) 0.376786 0.350486 1.0750 64.419 -0.323302  1.07687       0.95  0.2864
+#>                estimate  std.err      t      df  ci.lower ci.upper conf.level
+#> mean 0         0.477677 0.055775 8.5644 127.863  0.367316  0.58804       0.95
+#> mean 1         0.571339 0.063762 8.9605  84.328  0.444549  0.69813       0.95
+#> rd 1 vs 0      0.093662 0.086512 1.0827  64.596 -0.079134  0.26646       0.95
+#> log(rr) 1 vs 0 0.178972 0.165070 1.0842  67.103 -0.150501  0.50844       0.95
+#> log(or) 1 vs 0 0.376786 0.350486 1.0750  64.419 -0.323302  1.07687       0.95
+#>                  p.value    
+#> mean 0         2.969e-14 ***
+#> mean 1         6.909e-14 ***
+#> rd 1 vs 0         0.2830    
+#> log(rr) 1 vs 0    0.2821    
+#> log(or) 1 vs 0    0.2864    
+#> ---
+#> Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
 
 # The pooled result carries both readings, so it moves to the outcome
 # models' coefficients after pooling.

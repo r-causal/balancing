@@ -112,13 +112,33 @@ an estimand that disagrees with the fit raises <code>balancing_estimand_error</c
 <dd><p>The presentation mode the result records, either <code>"marginal"</code>
 (the default) or <code>"conditional"</code>. The marginal reading reports the
 population-averaged causal contrasts described above; the conditional
-reading reports the outcome model's coefficient surface. Both surfaces are
-computed whichever mode is named, since the stacked system is solved either
-way, so the argument settles which one the result presents and nothing
-else. <code><a href="https://r-causal.github.io/causalgenerics/reference/ipw-modes.html" class="external-link">causalgenerics::as_marginal()</a></code> and <code><a href="https://r-causal.github.io/causalgenerics/reference/ipw-modes.html" class="external-link">causalgenerics::as_conditional()</a></code>
-move a result between the two readings afterwards, a pooled result as much
-as an unpooled one, and the accessors take an <code>effects</code> argument of their
-own for a single call.</p>
+reading reports the outcome model's coefficient surface. Where a result
+has both surfaces, both are computed whichever mode is named, since the
+stacked system is solved either way, so the argument settles which one the
+result presents and nothing else. <code><a href="https://r-causal.github.io/causalgenerics/reference/ipw-modes.html" class="external-link">causalgenerics::as_marginal()</a></code> and
+<code><a href="https://r-causal.github.io/causalgenerics/reference/ipw-modes.html" class="external-link">causalgenerics::as_conditional()</a></code> move such a result between the two
+readings afterwards, a pooled result as much as an unpooled one, and the
+accessors take an <code>effects</code> argument of their own for a single call.</p>
+<p>One shape of result has a single reading. When a continuous exposure enters
+<code>outcome_mod</code> through several design columns, as a polynomial or a spline
+basis does, no coefficient of that model is a causal effect: a curve has a
+different slope at every dose. Such a result therefore records the
+conditional reading, supports no other, and announces that it has done so.
+Naming <code>effects = "conditional"</code> builds the same result without the
+announcement, and naming <code>effects = "marginal"</code> raises
+<code>balancing_ipw_input_error</code>, since it asks for a reading the model has none
+of. Naming every reading is naming none of them, so a call that supplies
+more than one reading, as a wrapper forwarding an <code>effects</code> default of its
+own does, is announced rather than refused. How many readings arrived is
+all that is read, not which ones, so a default vector given in another
+order counts as naming nothing in the same way. Every later door into the
+marginal reading is shut as well: the
+accessors and <code><a href="https://r-causal.github.io/causalgenerics/reference/ipw-modes.html" class="external-link">causalgenerics::as_marginal()</a></code> refuse it, and a pooled set
+of such results carries the refusal forward. Marginalizing a dose response
+over the observed doses is left to the marginaleffects package, applied to
+the conditional result: <code>avg_slopes()</code> for slopes, <code>avg_comparisons()</code> for
+contrasts, and <code>avg_predictions()</code> for causal dose-response functions; see
+<a href="https://marginaleffects.com/chapters/interactions.html" class="external-link">https://marginaleffects.com/chapters/interactions.html</a>.</p>
 <p>The conditional reading reports the coefficients of the stored
 <code>outcome_mod</code> against the outcome block of the stacked sandwich, which is
 the block the wrapper around that model carries, so its standard errors
@@ -197,21 +217,24 @@ for each pinned unit, and <code><a href="https://rdrr.io/r/stats/nobs.html" clas
     <h2 id="details">Details<a class="anchor" aria-label="anchor" href="#details"></a></h2>
     <p>The point estimates are the g-computation marginal means: the outcome model
 is predicted with the exposure fixed to each level and averaged over the
-estimand's target population. For a binary
+estimand's target population. Those means are reported in their own right,
+one row per exposure level under the effect label <code>"mean"</code>, and the effect
+measures follow as contrasts of them. For a binary
 outcome the method returns the risk difference (<code>rd</code>), the log risk ratio
 (<code>log(rr)</code>), and the log odds ratio (<code>log(or)</code>); for a continuous outcome it
 returns the difference in means (<code>diff</code>).</p>
-<p>A categorical exposure reports those same measures for each non-reference
-level against the reference level, which is the first of the fit's own levels:
-a factor's declared level order for a factor exposure, and the sorted values
-otherwise. A K-level exposure therefore contributes K marginal means and one
-block of measures per non-reference level, and the estimates table gains a
-<code>contrast</code> column, placed after <code>effect</code>, naming each contrast as
-<code>"&lt;level&gt; vs &lt;reference&gt;"</code>. A binary exposure keeps the table it has always
-returned, with no <code>contrast</code> column. A categorical exposure declared as a
-crossing of two treatments by <code><a href="https://r-causal.github.io/causalgenerics/reference/joint_exposure.html" class="external-link">causalgenerics::joint_exposure()</a></code> replaces
+<p>A binary and a categorical exposure are read by one rule. The reference level
+is the first of the fit's own levels: a factor's declared level order for a
+factor exposure, and the sorted values otherwise. The estimates table carries
+a <code>contrast</code> column, placed after <code>effect</code>, naming the level a mean row
+belongs to and naming each contrast row as <code>"&lt;level&gt; vs &lt;reference&gt;"</code>, so a
+binary result names its single comparison <code>"1 vs 0"</code> rather than leaving it
+unnamed. A K-level exposure therefore leads with K mean rows, in the fit's
+own level order with the reference level first, and follows them with one
+block of measures per non-reference level. A categorical exposure declared as
+a crossing of two treatments by <code><a href="https://r-causal.github.io/causalgenerics/reference/joint_exposure.html" class="external-link">causalgenerics::joint_exposure()</a></code> replaces
 those level-against-reference rows with the surface described under Joint
-exposures below.</p>
+exposures below, which reports its cell means the same way.</p>
 <p>A continuous exposure has no levels to contrast, so there is no pair of
 marginal means to difference. What the method reports instead is the
 dose response of a weighted marginal structural model: the balancing weights
@@ -222,8 +245,8 @@ weighted fit, since nothing is standardized here.</p>
 <p>An exposure entering through one design column, whether as a bare term or as a
 transformation of one, is the whole of the dose response, so its coefficient
 is that response's slope everywhere. Such a model keeps the single-row table
-it has always returned, with the columns every other exposure's table holds
-and no <code>contrast</code> column, and the row is named for the link: <code>slope</code> for an
+it has always returned, with the eight columns of the shared contract and no
+<code>contrast</code> column, and the row is named for the link: <code>slope</code> for an
 identity link, whether the model arrives as a <code><a href="https://rdrr.io/r/stats/lm.html" class="external-link">stats::lm()</a></code> or as a gaussian
 <code><a href="https://rdrr.io/r/stats/glm.html" class="external-link">stats::glm()</a></code>; <code>log(or)</code> for a logit; and <code>log(rr)</code> for a log link.</p>
 <p>An exposure entering through several columns, as in <code>y ~ exposure + I(exposure^2)</code> or <code>y ~ splines::ns(exposure, 3)</code>, has no such row, since a
@@ -404,14 +427,16 @@ above.</p>
     </div>
     <div class="section level2">
     <h2 id="effect-modification">Effect modification<a class="anchor" aria-label="anchor" href="#effect-modification"></a></h2>
-    <p><code>.by</code> names a modifier, and a result carrying one reports the effects it
-reports without a request, then those same effects within each of the
-modifier's levels, then each non-reference level against the reference one.
-The estimates table gains a <code>group</code> column naming the subgroup each row was
-estimated in, placed after <code>contrast</code> where a categorical exposure names one
-and after <code>effect</code> where it does not, since a subgroup qualifies the whole
-comparison rather than one side of it. The whole-sample rows come first,
-under the group <code>"overall"</code>; a subgroup's rows are named <code>"var = value"</code>, as
+    <p><code>.by</code> names a modifier, and a result carrying one reports the rows it reports
+without a request, then the marginal means within each of the modifier's
+levels, then the effects within each of them, then each non-reference
+subgroup against the reference one. The estimates table gains a <code>group</code>
+column naming the subgroup each row was estimated in, placed after
+<code>contrast</code>, since a subgroup qualifies the whole comparison rather than one
+side of it. A block of means is never split by the contrasts written from it,
+which is what puts every subgroup's means ahead of every subgroup's contrasts
+rather than beside them. The whole-sample rows come first, under the group
+<code>"overall"</code>; a subgroup's rows are named <code>"var = value"</code>, as
 <code>"sex = female"</code>; and a contrast of subgroups joins the two, as
 <code>"sex = female vs sex = male"</code>. The reference subgroup is the modifier's first
 level, which for a factor is the first of its declared levels rather than the
@@ -419,16 +444,18 @@ first in sorted order. A character modifier declares no levels, so it is read
 as a factor on the way in and its reference subgroup is its alphabetically
 first value, whatever order the values appear in. Declare the column a factor
 to measure the contrasts against some other subgroup.</p>
-<p>A subgroup reports the collapsible measures alone. For a binary outcome that
-is <code>rd</code> and <code>log(rr)</code>; a continuous outcome reports <code>diff</code>, the only measure
-it has. The log odds ratio stays among the whole-sample rows. An odds ratio
-is noncollapsible, so the odds ratio over a sample is not an average of the
-odds ratios within its subgroups and the difference of two of them is not
+<p>A subgroup reports its marginal means and then the collapsible measures
+alone. For a binary outcome those measures are <code>rd</code> and <code>log(rr)</code>; a
+continuous outcome reports <code>diff</code>, the only measure it has. The log odds
+ratio stays among the whole-sample rows. An odds ratio is noncollapsible, so
+the odds ratio over a sample is not an average of the odds ratios within its
+subgroups and the difference of two of them is not
 the difference in effect it reads as; nothing in the whole-sample rows
-averages anything over subgroups, which is why they keep it. A categorical
-exposure crosses its
-contrasts with the subgroups, so each subgroup block reports each contrast in
-the order the whole-sample block reports it.</p>
+averages anything over subgroups, which is why they keep it. A contrast of
+two subgroups compares two effects and has no mean of its own, so the mean
+rows repeat over the subgroups themselves alone. A categorical exposure
+crosses its contrasts with the subgroups, so each subgroup block reports each
+contrast in the order the whole-sample block reports it.</p>
 <p>A subgroup's marginal means are the g-computation means over that subgroup
 alone, standardized the way the whole-sample means are: over every unit of
 the subgroup for a pooled estimand, and over its focal units for <code>"att"</code> or
@@ -619,12 +646,8 @@ different types of propensity score weights. <em>Statistics in Medicine</em>.
 <span class="r-out co"><span class="r-pr">#&gt;</span>     weights = .wts) </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> Estimates:</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>         estimate  std.err        z ci.lower ci.upper conf.level   p.value    </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> rd       0.28118 0.066447 4.231587   0.1509  0.41141       0.95 2.320e-05 ***</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> log(rr)  0.59317 0.154680 3.834844   0.2900  0.89634       0.95 0.0001256 ***</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> log(or)  1.15663 0.288897 4.003589   0.5904  1.72285       0.95 6.239e-05 ***</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> ---</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1</span>
+<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>non-unique value when setting 'row.names': ‘mean’</span>
+<span class="r-err co"><span class="r-pr">#&gt;</span> <span class="error">Error in `.rowNamesDF&lt;-`(x, value = value):</span> duplicate 'row.names' are not allowed</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># The outcome model may also adjust for covariates, in which case the</span></span></span>
 <span class="r-in"><span><span class="co"># marginal means are standardized over the estimand's target population.</span></span></span>
@@ -647,12 +670,8 @@ different types of propensity score weights. <em>Statistics in Medicine</em>.
 <span class="r-out co"><span class="r-pr">#&gt;</span>     weights = .wts) </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> Estimates:</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>         estimate std.err       z ci.lower ci.upper conf.level   p.value    </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> rd       0.28010 0.06674 4.19690   0.1493  0.41091       0.95 2.706e-05 ***</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> log(rr)  0.59109 0.15589 3.79170   0.2856  0.89664       0.95 0.0001496 ***</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> log(or)  1.15198 0.29001 3.97213   0.5836  1.72039       0.95 7.123e-05 ***</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> ---</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1</span>
+<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>non-unique value when setting 'row.names': ‘mean’</span>
+<span class="r-err co"><span class="r-pr">#&gt;</span> <span class="error">Error in `.rowNamesDF&lt;-`(x, value = value):</span> duplicate 'row.names' are not allowed</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># `.by` reports the effects again within the levels of a modifier, then</span></span></span>
 <span class="r-in"><span><span class="co"># contrasts each level against the first of them.</span></span></span>
@@ -676,7 +695,7 @@ different types of propensity score weights. <em>Statistics in Medicine</em>.
 <span class="r-out co"><span class="r-pr">#&gt;</span>     weights = .wts) </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> Estimates:</span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>non-unique values when setting 'row.names': ‘log(rr)’, ‘rd’</span>
+<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>non-unique values when setting 'row.names': ‘log(rr)’, ‘mean’, ‘rd’</span>
 <span class="r-err co"><span class="r-pr">#&gt;</span> <span class="error">Error in `.rowNamesDF&lt;-`(x, value = value):</span> duplicate 'row.names' are not allowed</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># A categorical exposure reports each level against the reference level, and</span></span></span>
@@ -721,7 +740,7 @@ different types of propensity score weights. <em>Statistics in Medicine</em>.
 <span class="r-out co"><span class="r-pr">#&gt;</span>     weights = .arm_wts) </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> Estimates:</span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>non-unique values when setting 'row.names': ‘log(or)’, ‘log(rr)’, ‘rd’</span>
+<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>non-unique values when setting 'row.names': ‘log(or)’, ‘log(rr)’, ‘mean’, ‘rd’</span>
 <span class="r-err co"><span class="r-pr">#&gt;</span> <span class="error">Error in `.rowNamesDF&lt;-`(x, value = value):</span> duplicate 'row.names' are not allowed</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># A continuous exposure reports the dose response of a weighted marginal</span></span></span>
@@ -751,11 +770,13 @@ different types of propensity score weights. <em>Statistics in Medicine</em>.
 <span class="r-out co"><span class="r-pr">#&gt;</span> ---</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1</span>
 <span class="r-in"><span></span></span>
-<span class="r-in"><span><span class="co"># An exposure entering through several columns reports one row per</span></span></span>
-<span class="r-in"><span><span class="co"># coefficient, named after the coefficient the fit names.</span></span></span>
+<span class="r-in"><span><span class="co"># An exposure entering through several columns has no coefficient that is a</span></span></span>
+<span class="r-in"><span><span class="co"># causal effect, so the result records the conditional reading and supports</span></span></span>
+<span class="r-in"><span><span class="co"># no other. Naming that reading builds the same result without the</span></span></span>
+<span class="r-in"><span><span class="co"># announcement that explains the default.</span></span></span>
 <span class="r-in"><span><span class="va">curve_mod</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/lm.html" class="external-link">lm</a></span><span class="op">(</span><span class="va">score</span> <span class="op">~</span> <span class="fu"><a href="https://rdrr.io/r/stats/poly.html" class="external-link">poly</a></span><span class="op">(</span><span class="va">dose</span>, <span class="fl">2</span><span class="op">)</span>, data <span class="op">=</span> <span class="va">df</span>, weights <span class="op">=</span> <span class="va">.dose_wts</span><span class="op">)</span></span></span>
 <span class="r-in"><span></span></span>
-<span class="r-in"><span><span class="fu"><a href="https://r-causal.github.io/causalgenerics/reference/ipw.html" class="external-link">ipw</a></span><span class="op">(</span><span class="va">dose_fit</span>, <span class="va">curve_mod</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="fu"><a href="https://r-causal.github.io/causalgenerics/reference/ipw.html" class="external-link">ipw</a></span><span class="op">(</span><span class="va">dose_fit</span>, <span class="va">curve_mod</span>, effects <span class="op">=</span> <span class="st">"conditional"</span><span class="op">)</span></span></span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> Inverse Probability Weight Estimator</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> Estimand: ATE </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> </span>
@@ -812,10 +833,20 @@ different types of propensity score weights. <em>Statistics in Medicine</em>.
 <span class="r-out co"><span class="r-pr">#&gt;</span> Complete-data df: 148 </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> Pooled marginal estimates:</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>         estimate  std.err      t     df  ci.lower ci.upper conf.level p.value</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> rd      0.093662 0.086512 1.0827 64.596 -0.079134  0.26646       0.95  0.2830</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> log(rr) 0.178972 0.165070 1.0842 67.103 -0.150501  0.50844       0.95  0.2821</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> log(or) 0.376786 0.350486 1.0750 64.419 -0.323302  1.07687       0.95  0.2864</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>                estimate  std.err      t      df  ci.lower ci.upper conf.level</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> mean 0         0.477677 0.055775 8.5644 127.863  0.367316  0.58804       0.95</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> mean 1         0.571339 0.063762 8.9605  84.328  0.444549  0.69813       0.95</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> rd 1 vs 0      0.093662 0.086512 1.0827  64.596 -0.079134  0.26646       0.95</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> log(rr) 1 vs 0 0.178972 0.165070 1.0842  67.103 -0.150501  0.50844       0.95</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> log(or) 1 vs 0 0.376786 0.350486 1.0750  64.419 -0.323302  1.07687       0.95</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>                  p.value    </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> mean 0         2.969e-14 ***</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> mean 1         6.909e-14 ***</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> rd 1 vs 0         0.2830    </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> log(rr) 1 vs 0    0.2821    </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> log(or) 1 vs 0    0.2864    </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> ---</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># The pooled result carries both readings, so it moves to the outcome</span></span></span>
 <span class="r-in"><span><span class="co"># models' coefficients after pooling.</span></span></span>

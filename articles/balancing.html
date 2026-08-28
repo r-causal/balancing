@@ -264,10 +264,18 @@ standard errors that account for the estimation of the weights.</p>
 <span><span class="co">#&gt;     weights = w_ate) </span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; Marginal estimates:</span></span>
-<span><span class="co">#&gt;         estimate  std.err      z ci.lower ci.upper conf.level   p.value    </span></span>
-<span><span class="co">#&gt; rd      0.134288 0.036908 3.6385  0.06195  0.20663       0.95 0.0002743 ***</span></span>
-<span><span class="co">#&gt; log(rr) 0.263052 0.073661 3.5711  0.11868  0.40742       0.95 0.0003554 ***</span></span>
-<span><span class="co">#&gt; log(or) 0.540819 0.150477 3.5940  0.24589  0.83575       0.95 0.0003256 ***</span></span>
+<span><span class="co">#&gt;                estimate  std.err       z ci.lower ci.upper conf.level   p.value</span></span>
+<span><span class="co">#&gt; mean 0         0.446296 0.025965 17.1883  0.39541  0.49719       0.95 &lt; 2.2e-16</span></span>
+<span><span class="co">#&gt; mean 1         0.580583 0.026230 22.1344  0.52917  0.63199       0.95 &lt; 2.2e-16</span></span>
+<span><span class="co">#&gt; rd 1 vs 0      0.134288 0.036908  3.6385  0.06195  0.20663       0.95 0.0002743</span></span>
+<span><span class="co">#&gt; log(rr) 1 vs 0 0.263052 0.073661  3.5711  0.11868  0.40742       0.95 0.0003554</span></span>
+<span><span class="co">#&gt; log(or) 1 vs 0 0.540819 0.150477  3.5940  0.24589  0.83575       0.95 0.0003256</span></span>
+<span><span class="co">#&gt;                   </span></span>
+<span><span class="co">#&gt; mean 0         ***</span></span>
+<span><span class="co">#&gt; mean 1         ***</span></span>
+<span><span class="co">#&gt; rd 1 vs 0      ***</span></span>
+<span><span class="co">#&gt; log(rr) 1 vs 0 ***</span></span>
+<span><span class="co">#&gt; log(or) 1 vs 0 ***</span></span>
 <span><span class="co">#&gt; ---</span></span>
 <span><span class="co">#&gt; Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1</span></span></code></pre></div>
 <p>The <code><a href="../articles/inference.html">vignette("inference")</a></code> article explains why these

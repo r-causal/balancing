@@ -107,10 +107,18 @@ result
 #>     weights = w) 
 #> 
 #> Marginal estimates:
-#>         estimate  std.err      z ci.lower ci.upper conf.level   p.value    
-#> rd      0.160314 0.026838 5.9734  0.10771  0.21292       0.95 2.323e-09 ***
-#> log(rr) 0.332094 0.057547 5.7709  0.21931  0.44488       0.95 7.886e-09 ***
-#> log(or) 0.647283 0.110286 5.8691  0.43113  0.86344       0.95 4.381e-09 ***
+#>                estimate  std.err       z ci.lower ci.upper conf.level   p.value
+#> mean 0         0.407009 0.019144 21.2600  0.36949  0.44453       0.95 < 2.2e-16
+#> mean 1         0.567323 0.018809 30.1628  0.53046  0.60419       0.95 < 2.2e-16
+#> rd 1 vs 0      0.160314 0.026838  5.9734  0.10771  0.21292       0.95 2.323e-09
+#> log(rr) 1 vs 0 0.332094 0.057547  5.7709  0.21931  0.44488       0.95 7.886e-09
+#> log(or) 1 vs 0 0.647283 0.110286  5.8691  0.43113  0.86344       0.95 4.381e-09
+#>                   
+#> mean 0         ***
+#> mean 1         ***
+#> rd 1 vs 0      ***
+#> log(rr) 1 vs 0 ***
+#> log(or) 1 vs 0 ***
 #> ---
 #> Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 ```
@@ -158,10 +166,10 @@ yours to honor.
 ### Categorical exposures
 
 A categorical exposure works the same way, with one marginal mean per
-level. The stacked system carries all of them, and the reported effects
-are the contrasts of each non-reference level against the reference
-level, which is the first of the exposure’s own levels. The outcome
-model enters the exposure as a factor.
+level. The stacked system carries all of them, and the table reports
+each of those means and then the contrasts of each non-reference level
+against the reference level, which is the first of the exposure’s own
+levels. The outcome model enters the exposure as a factor.
 
 ``` r
 
@@ -220,14 +228,20 @@ ipw(arm_fit, arm_mod)
 #>     weights = arm_w) 
 #> 
 #> Marginal estimates:
-#>                       estimate  std.err      z ci.lower ci.upper conf.level
-#> rd medium vs low      0.106453 0.034223 3.1105 0.039377  0.17353       0.95
-#> log(rr) medium vs low 0.243221 0.078185 3.1108 0.089982  0.39646       0.95
-#> log(or) medium vs low 0.433836 0.140134 3.0959 0.159179  0.70849       0.95
-#> rd high vs low        0.220273 0.033521 6.5713 0.154574  0.28597       0.95
-#> log(rr) high vs low   0.450921 0.071158 6.3369 0.311454  0.59039       0.95
-#> log(or) high vs low   0.895815 0.140884 6.3585 0.619686  1.17194       0.95
+#>                       estimate  std.err       z ci.lower ci.upper conf.level
+#> mean low              0.386610 0.022665 17.0577 0.342188  0.43103       0.95
+#> mean medium           0.493063 0.026132 18.8685 0.441846  0.54428       0.95
+#> mean high             0.606883 0.025079 24.1986 0.557729  0.65604       0.95
+#> rd medium vs low      0.106453 0.034223  3.1105 0.039377  0.17353       0.95
+#> log(rr) medium vs low 0.243221 0.078185  3.1108 0.089982  0.39646       0.95
+#> log(or) medium vs low 0.433836 0.140134  3.0959 0.159179  0.70849       0.95
+#> rd high vs low        0.220273 0.033521  6.5713 0.154574  0.28597       0.95
+#> log(rr) high vs low   0.450921 0.071158  6.3369 0.311454  0.59039       0.95
+#> log(or) high vs low   0.895815 0.140884  6.3585 0.619686  1.17194       0.95
 #>                         p.value    
+#> mean low              < 2.2e-16 ***
+#> mean medium           < 2.2e-16 ***
+#> mean high             < 2.2e-16 ***
 #> rd medium vs low       0.001867 ** 
 #> log(rr) medium vs low  0.001866 ** 
 #> log(or) medium vs low  0.001962 ** 
@@ -238,12 +252,15 @@ ipw(arm_fit, arm_mod)
 #> Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 ```
 
-Each effect measure appears once per contrast, so the estimates table
-gains a `contrast` column naming the two levels each row contrasts.
-Everything else carries over unchanged: the outcome model may adjust for
-covariates, the marginal means standardize over the estimand’s target
-population, and the standard errors account for having estimated the
-weights.
+The table leads with the marginal mean of each arm and then reports each
+effect measure once per contrast, and the `contrast` column names what
+each row belongs to: the level itself for a mean, and the two levels
+compared for an effect. A binary exposure is read by the same rule, its
+means named for the two levels and its single comparison named as a
+contrast of them. Everything else carries over unchanged: the outcome
+model may adjust for covariates, the marginal means standardize over the
+estimand’s target population, and the standard errors account for having
+estimated the weights.
 
 A categorical exposure that
 [`causalgenerics::joint_exposure()`](https://r-causal.github.io/causalgenerics/reference/joint_exposure.html)
@@ -320,7 +337,7 @@ curve_mod <- lm(response ~ splines::ns(dose, 3), data = study, weights = dose_w)
 ipw(dose_fit, curve_mod)
 #> Inverse Probability Weight Estimator
 #> Estimand: ATE 
-#> Effects: marginal (population-averaged) 
+#> Effects: conditional (outcome model) 
 #> 
 #> Weight Estimator:
 #>   Call: balance(.data = study, .exposure = dose, .covariates = c(age, 
@@ -329,15 +346,12 @@ ipw(dose_fit, curve_mod)
 #> Outcome Model:
 #>   Call: lm(formula = response ~ splines::ns(dose, 3), data = study, weights = dose_w) 
 #> 
-#> Marginal estimates:
-#>                            estimate std.err      z ci.lower ci.upper conf.level
-#> coef splines::ns(dose, 3)1  1.49752 0.48211 3.1062   0.5526   2.4424       0.95
-#> coef splines::ns(dose, 3)2  3.07443 2.09429 1.4680  -1.0303   7.1792       0.95
-#> coef splines::ns(dose, 3)3  3.53318 0.86708 4.0748   1.8337   5.2326       0.95
-#>                              p.value    
-#> coef splines::ns(dose, 3)1  0.001895 ** 
-#> coef splines::ns(dose, 3)2  0.142102    
-#> coef splines::ns(dose, 3)3 4.605e-05 ***
+#> Conditional estimates (outcome model):
+#>                       Estimate Std. Error z value  Pr(>|z|)    
+#> (Intercept)           -0.10938    0.97476 -0.1122  0.910657    
+#> splines::ns(dose, 3)1  1.49752    0.48211  3.1062  0.001895 ** 
+#> splines::ns(dose, 3)2  3.07443    2.09429  1.4680  0.142102    
+#> splines::ns(dose, 3)3  3.53318    0.86708  4.0748 4.605e-05 ***
 #> ---
 #> Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 ```
@@ -395,10 +409,18 @@ ipw(fit, adjusted_mod)
 #>     data = study, weights = w) 
 #> 
 #> Marginal estimates:
-#>         estimate  std.err      z ci.lower ci.upper conf.level   p.value    
-#> rd      0.159491 0.026781 5.9555  0.10700  0.21198       0.95 2.593e-09 ***
-#> log(rr) 0.330306 0.057430 5.7515  0.21775  0.44287       0.95 8.848e-09 ***
-#> log(or) 0.643897 0.110020 5.8525  0.42826  0.85953       0.95 4.842e-09 ***
+#>                estimate  std.err       z ci.lower ci.upper conf.level   p.value
+#> mean 0         0.407496 0.019320 21.0920  0.36963  0.44536       0.95 < 2.2e-16
+#> mean 1         0.566987 0.018973 29.8846  0.52980  0.60417       0.95 < 2.2e-16
+#> rd 1 vs 0      0.159491 0.026781  5.9555  0.10700  0.21198       0.95 2.593e-09
+#> log(rr) 1 vs 0 0.330306 0.057430  5.7515  0.21775  0.44287       0.95 8.848e-09
+#> log(or) 1 vs 0 0.643897 0.110020  5.8525  0.42826  0.85953       0.95 4.842e-09
+#>                   
+#> mean 0         ***
+#> mean 1         ***
+#> rd 1 vs 0      ***
+#> log(rr) 1 vs 0 ***
+#> log(or) 1 vs 0 ***
 #> ---
 #> Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 ```
