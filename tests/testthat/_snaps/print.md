@@ -32,12 +32,12 @@
       
       -- Balance --
       
-        term   kind statistic group unweighted     weighted tolerance
-      1   x1 moment       smd     1  0.552 <1e-7         0
-      2   x2 moment       smd     1  0.416 <1e-7         0
-        within_tolerance
-      1             TRUE
-      2             TRUE
+      term kind statistic group unweighted weighted tolerance
+      1 x1 moment smd 1 0.552 <1e-7 0
+      2 x2 moment smd 1 0.416 <1e-7 0
+      within_tolerance
+      1 TRUE
+      2 TRUE
 
 # print() of a binary att fit renders the focal level
 
@@ -126,9 +126,9 @@
       
       -- Balance --
       
-        term   kind statistic group unweighted   weighted tolerance within_tolerance
-      1   x1 moment       smd     1  0.552 0.0118         0            FALSE
-      2   x2 moment       smd     1  0.416 0.00511         0            FALSE
+      term kind statistic group unweighted weighted tolerance within_tolerance
+      1 x1 moment smd 1 0.552 0.0118 0 FALSE
+      2 x2 moment smd 1 0.416 0.00511 0 FALSE
 
 # summary() of a stable balancing fit reports the weight floor count
 
@@ -152,9 +152,9 @@
       
       -- Balance --
       
-        term   kind statistic group unweighted weighted tolerance within_tolerance
-      1   x1 moment       smd     1  0.552      0.1      0.05             TRUE
-      2   x2 moment       smd     1  0.416      0.1      0.05             TRUE
+      term kind statistic group unweighted weighted tolerance within_tolerance
+      1 x1 moment smd 1 0.552 0.1 0.05 TRUE
+      2 x2 moment smd 1 0.416 0.1 0.05 TRUE
 
 # summary() of a cfd fit reports the weight floor count
 
@@ -178,7 +178,7 @@
       
       -- Balance --
       
-        term   kind statistic group unweighted   weighted tolerance within_tolerance
-      1   x1 moment       smd     1  0.552 0.00515         0            FALSE
-      2   x2 moment       smd     1  0.416 0.00222         0            FALSE
+      term kind statistic group unweighted weighted tolerance within_tolerance
+      1 x1 moment smd 1 0.552 0.00515 0 FALSE
+      2 x2 moment smd 1 0.416 0.00222 0 FALSE
 

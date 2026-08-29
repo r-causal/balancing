@@ -75,3 +75,69 @@ test_that("scrub_platform_values() leaves a measurable balance value alone", {
   line <- "2   x2 moment       smd     1  0.416 0.00511         0            FALSE"
   expect_identical(scrub_platform_values(line), line)
 })
+
+# `print.data.frame()` right-aligns every column under a header sized to the
+# widest value in it, so a value whose last digit drifts between platforms can
+# change the column's width and shift the header even when the rounding above
+# leaves the value itself alone: 0.00511 and 0.0051 print one character apart. A
+# snapshot then flips with nothing visible changing. Inside a balance-table block
+# the alignment carries no information the snapshot is for, so runs of spaces
+# collapse to one and only the values and the column order remain.
+test_that("scrub_platform_values() collapses balance-table alignment", {
+  wide <- c(
+    "  term   kind statistic group unweighted   weighted tolerance",
+    "1   x1 moment       smd     1  0.552 0.00511         0",
+    "2   x2 moment       smd     1  0.416 0.00222         0"
+  )
+  narrow <- c(
+    "  term   kind statistic group unweighted  weighted tolerance",
+    "1   x1 moment       smd     1  0.552 0.00511        0",
+    "2   x2 moment       smd     1  0.416 0.00222        0"
+  )
+
+  expect_identical(
+    scrub_platform_values(wide),
+    scrub_platform_values(narrow)
+  )
+  expect_identical(
+    scrub_platform_values(wide),
+    c(
+      "term kind statistic group unweighted weighted tolerance",
+      "1 x1 moment smd 1 0.552 0.00511 0",
+      "2 x2 moment smd 1 0.416 0.00222 0"
+    )
+  )
+})
+
+# The block runs from its header to its last row, and `print.data.frame()` wraps
+# a table too wide for the console into further header-and-rows chunks, so a
+# continuation header is part of the same block. Everything outside it keeps its
+# spacing: the fit's own lines are cli output, whose alignment is written rather
+# than computed from the values, and collapsing them would give up the layout
+# these snapshots exist to pin.
+test_that("scrub_platform_values() collapses only the balance-table block", {
+  lines <- c(
+    "-- Balance --",
+    "",
+    "  term   kind statistic group unweighted     weighted tolerance",
+    "1   x1 moment       smd     1  0.552 0.0118         0",
+    "  within_tolerance",
+    "1             TRUE",
+    "",
+    "Range: 0.220 to  3.122"
+  )
+
+  expect_identical(
+    scrub_platform_values(lines),
+    c(
+      "-- Balance --",
+      "",
+      "term kind statistic group unweighted weighted tolerance",
+      "1 x1 moment smd 1 0.552 0.0118 0",
+      "within_tolerance",
+      "1 TRUE",
+      "",
+      "Range: 0.220 to  3.122"
+    )
+  )
+})

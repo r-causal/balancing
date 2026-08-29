@@ -118,7 +118,67 @@ scrub_platform_values <- function(lines) {
     lines,
     perl = TRUE
   )
-  round_wide_decimals(lines)
+  collapse_balance_table_spacing(round_wide_decimals(lines))
+}
+
+# The columns a printed balance table carries, which is what its header is
+# recognized by.
+balance_table_column_names <- c(
+  "term",
+  "kind",
+  "statistic",
+  "group",
+  "unweighted",
+  "weighted",
+  "tolerance",
+  "within_tolerance"
+)
+
+# Give up the balance table's alignment and keep its values.
+#
+# `print.data.frame()` sizes each column to the widest thing in it and
+# right-aligns the rest under a header padded to match, so the width of a column
+# is a function of the values it holds. A value whose last digit differs by a
+# platform therefore moves the header even when the value itself survives the
+# rounding above: 0.00511 and 0.0051 print one character apart, and a snapshot
+# recorded on one machine fails on another with no visible change in what it
+# reports. Collapsing every run of spaces inside the table leaves the values and
+# their order, which is what the snapshot is for, and gives up the padding, which
+# is not.
+#
+# The rewrite is confined to the table. Everything else in a printed fit is cli
+# output whose spacing is written rather than computed, so it is stable and worth
+# pinning as it stands.
+#
+# The block runs from a header to its last row. A header is a line made only of
+# the table's own column names, which covers both the first one and the
+# continuation headers `print.data.frame()` emits when the table is too wide for
+# the console; a row is a line opening with its row number. The block ends at the
+# first line that is neither.
+collapse_balance_table_spacing <- function(lines) {
+  header <- vapply(
+    lines,
+    is_balance_table_header,
+    logical(1),
+    USE.NAMES = FALSE
+  )
+  row <- grepl("^\\s*[0-9]+\\s", lines, perl = TRUE)
+
+  inside <- FALSE
+  for (i in seq_along(lines)) {
+    inside <- header[[i]] || (inside && row[[i]])
+    if (inside) {
+      lines[[i]] <- gsub("\\s{2,}", " ", trimws(lines[[i]]), perl = TRUE)
+    }
+  }
+  lines
+}
+
+is_balance_table_header <- function(line) {
+  words <- strsplit(trimws(line), "\\s+", perl = TRUE)[[1L]]
+  length(words) > 0L &&
+    nzchar(words[[1L]]) &&
+    all(words %in% balance_table_column_names)
 }
 
 # Round a printed decimal to three significant digits once it carries more than
