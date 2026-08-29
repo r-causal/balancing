@@ -285,6 +285,7 @@ fn mahalanobis(covs: &[f64], n: usize, p: usize, w: &[f64], threads: usize) -> V
 mod tests {
     use super::*;
     use crate::dist::pairwise;
+    use crate::threads::REDUCE_CHUNK;
 
     #[test]
     fn equal_weights_reproduce_the_sample_variance() {
@@ -529,25 +530,37 @@ mod tests {
             .collect()
     }
 
-    /// Fifty rows of two columns and their non-uniform weights. Column zero sits
-    /// at date-time scale, `offset + spread * z` with the offset the magnitude
-    /// `as.numeric()` gives a POSIXct and the spread one hour, which is the shape
-    /// that makes a one-pass variance cancel: the mean is roughly half a million
-    /// standard deviations from zero. Column one is an ordinary unit-scale column
-    /// carried alongside so the same fixture covers the undemanding case. The
-    /// offset is returned because the tests center by it exactly.
-    fn offset_fixture() -> (Vec<f64>, Vec<f64>, usize, f64) {
-        let n = 50;
-        let offset = 1.7e9;
+    /// The offset the fixtures below sit at: the magnitude `as.numeric()` gives a
+    /// POSIXct, with an hour of spread around it.
+    const DATE_TIME_OFFSET: f64 = 1.7e9;
+
+    /// `n` rows of two columns and their non-uniform weights. Column zero sits at
+    /// date-time scale, `offset + spread * z` with the offset above and the
+    /// spread one hour, which is the shape that makes a one-pass variance
+    /// cancel: the mean is roughly half a million standard deviations from zero.
+    /// Column one is an ordinary unit-scale column carried alongside so the same
+    /// fixture covers the undemanding case.
+    fn offset_fixture_n(n: usize) -> (Vec<f64>, Vec<f64>) {
         let spread = 3600.0;
         let z = lcg_unit(n, 20_250_828);
         let plain = lcg_unit(n, 12_345_677);
         let weight_draws = lcg_unit(n, 987_654_321);
         let mut covs = Vec::with_capacity(2 * n);
-        covs.extend(z.iter().map(|&zi| offset + spread * (2.0 * zi - 1.0)));
+        covs.extend(
+            z.iter()
+                .map(|&zi| DATE_TIME_OFFSET + spread * (2.0 * zi - 1.0)),
+        );
         covs.extend(plain.iter().map(|&pi| 2.0 * pi - 1.0));
         let w = weight_draws.iter().map(|&vi| 0.25 + 1.5 * vi).collect();
-        (covs, w, n, offset)
+        (covs, w)
+    }
+
+    /// The fifty-row instance of that fixture, with its row count and offset, for
+    /// the tests that center by the offset exactly.
+    fn offset_fixture() -> (Vec<f64>, Vec<f64>, usize, f64) {
+        let n = 50;
+        let (covs, w) = offset_fixture_n(n);
+        (covs, w, n, DATE_TIME_OFFSET)
     }
 
     /// Two-pass reliability-weighted variance: the weighted mean first, then the
@@ -680,6 +693,59 @@ mod tests {
                 (a - b).abs() < 1e-12,
                 "entry {k}: centered distance {a}, uncentered reference {b}"
             );
+        }
+    }
+
+    #[test]
+    fn the_moments_are_bit_identical_across_thread_counts() {
+        // The chunked reduction fixes its summation tree independently of the
+        // pool size, but a fixture below `REDUCE_CHUNK` never forms more than one
+        // chunk and so never exercises the combine. These sizes do: one an exact
+        // multiple of the chunk length and one that leaves a short final chunk.
+        // The offset column is carried because a large mean is where a reordered
+        // sum shows first.
+        for n in [2 * REDUCE_CHUNK, 10_000] {
+            let (covs, w) = offset_fixture_n(n);
+            let (means_one, vars_one) = weighted_moments(&covs, n, 2, &w, 1);
+            let (means_many, vars_many) = weighted_moments(&covs, n, 2, &w, 4);
+            for j in 0..2 {
+                assert_eq!(
+                    means_one[j].to_bits(),
+                    means_many[j].to_bits(),
+                    "n {n}, column {j}: mean {} against {}",
+                    means_one[j],
+                    means_many[j]
+                );
+                assert_eq!(
+                    vars_one[j].to_bits(),
+                    vars_many[j].to_bits(),
+                    "n {n}, column {j}: variance {} against {}",
+                    vars_one[j],
+                    vars_many[j]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_transforms_are_bit_identical_across_thread_counts() {
+        // The same guarantee at the transform's own output. Mahalanobis reduces a
+        // second time for the covariance, so it needs its own multi-chunk check
+        // rather than inheriting the moments one.
+        for n in [2 * REDUCE_CHUNK, 10_000] {
+            let (covs, w) = offset_fixture_n(n);
+            for distance in [Distance::ScaledEuclidean, Distance::Mahalanobis] {
+                let one = transform(&covs, n, 2, distance, &w, 1);
+                let many = transform(&covs, n, 2, distance, &w, 4);
+                assert_eq!(one.len(), many.len());
+                for (k, (&a, &b)) in one.iter().zip(&many).enumerate() {
+                    assert_eq!(
+                        a.to_bits(),
+                        b.to_bits(),
+                        "n {n}, {distance:?}, entry {k}: {a} against {b}"
+                    );
+                }
+            }
         }
     }
 }
