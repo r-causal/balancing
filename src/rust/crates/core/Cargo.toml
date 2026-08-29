@@ -45,3 +45,7 @@ harness = false
 [[bench]]
 name = "sbw_backends"
 harness = false
+
+[[bench]]
+name = "transforms"
+harness = false
