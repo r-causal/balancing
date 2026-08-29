@@ -90,7 +90,7 @@ data.frame(
 
 ### Categorical exposures
 
-A categorical exposure works the same way, with one marginal mean per level. The stacked system carries all of them, and the table reports each of those means and then the contrasts of each non-reference level against the reference level, which is the first of the exposure's own levels. The outcome model enters the exposure as a factor.
+A categorical exposure works the same way, with one marginal mean per level. The stacked system carries all of them, and the table reports each of those means and then, for a plain categorical exposure, the contrasts of each non-reference level against the reference level, which is the first of the exposure's own levels. A crossing of two treatments declared with `causalgenerics::joint_exposure()` is reported in the treatments rather than in the cells, and the section on joint exposures below describes those rows. The outcome model enters the exposure as a factor.
 
 ```{r categorical}
 odds_medium <- exp(0.6 * age - 0.3 * score)
@@ -139,7 +139,118 @@ ipw(arm_fit, arm_mod)
 
 The table leads with the marginal mean of each arm and then reports each effect measure once per contrast, and the `contrast` column names what each row belongs to: the level itself for a mean, and the two levels compared for an effect. A binary exposure is read by the same rule, its means named for the two levels and its single comparison named as a contrast of them. Everything else carries over unchanged: the outcome model may adjust for covariates, the marginal means standardize over the estimand's target population, and the standard errors account for having estimated the weights.
 
-A categorical exposure that `causalgenerics::joint_exposure()` declares as a crossing of two treatments is reported in those treatments instead of cell against cell: the cell means, each treatment's simple effects within the levels of the other, and their interaction. See `?ipw.balancing` for that surface. `ipw()` also takes a `.by` argument, which reports the effects again within the levels of a modifier and contrasts the subgroups, documented on the same page.
+### Effect modification with `.by`
+
+`.by` names a modifier, and the result reports the rows it would report without one, then the marginal means and effects within each level of the modifier, then each non-reference subgroup against the reference one. The table gains a `group` column naming the subgroup a row was estimated in, placed after `contrast`, since a subgroup qualifies a whole comparison rather than one side of it.
+
+The data below carry a treatment whose effect is larger among men than among women by construction.
+
+```{r by-data}
+set.seed(7)
+m <- 500
+severity <- rnorm(m)
+comorbidity <- rnorm(m)
+sex <- factor(
+  sample(c("female", "male"), m, replace = TRUE),
+  levels = c("female", "male")
+)
+treated <- rbinom(m, 1, plogis(0.5 * severity - 0.4 * comorbidity))
+recovery <- rbinom(
+  m,
+  1,
+  plogis(
+    -0.4 +
+      0.45 * treated +
+      0.9 * treated * (sex == "male") +
+      0.4 * severity -
+      0.3 * comorbidity
+  )
+)
+
+trial <- data.frame(treated, severity, comorbidity, sex, recovery)
+```
+
+The weights are fit once, over the whole sample, and the outcome model interacts the exposure with the modifier so that the fitted response is free to differ between the two groups.
+
+```{r by}
+trial_fit <- balance(
+  trial,
+  treated,
+  c(severity, comorbidity),
+  method = bw_entropy(),
+  estimand = "ate"
+)
+trial$trial_w <- weights(trial_fit)
+
+trial_mod <- glm(
+  recovery ~ treated * sex,
+  data = trial,
+  family = quasibinomial(),
+  weights = trial_w
+)
+
+ipw(trial_fit, trial_mod, .by = sex)
+```
+
+The `overall` block is the result an ungrouped call reports, and the blocks after it are the effect within each level of `sex`. A subgroup's marginal means are the g-computation means over that subgroup's units alone, and its risk difference is the contrast of those two means. Nothing is refit inside a subgroup: the weights are the ones the single fit produced, and no subgroup gets balance conditions of its own. The last two rows compare the subgroups, and since every row here is a parameter of the same stacked system, that comparison is a parameter as well rather than a difference taken between two separately fitted effects. Its standard error therefore carries the covariance between the two subgroups, which share the weight parameters and the outcome model's coefficients, where adding two independently estimated variances would miss that covariance in a direction the design decides.
+
+The log odds ratio stays among the whole-sample rows. It is noncollapsible, so the odds ratio over a sample is not an average of the odds ratios within its subgroups, and a difference of two of them moves with each subgroup's baseline risk whether or not the effect is modified at all. The collapsible measures, `rd` and `log(rr)`, are the ones reported for the subgroups and for their contrast.
+
+The subgroup contrast is not what the interaction term in `recovery ~ treated * sex` reports. That coefficient belongs to the outcome model's conditional surface: it is the change in the model's log odds ratio between the two levels of `sex`, on the link scale the model was fitted with. The `.by` rows are an estimand instead, the marginal effect of treating standardized over each subgroup's own covariate distribution, and their contrast is the difference between two such effects on each collapsible scale. The two are different quantities and generally different numbers, so a term in the model is not a reading of the request and the request is not a reading of the term. What `.by` does need from the model is room for the effect to differ. The subgroup rows are g-computation on the model as it was specified, so a model carrying no term that reads both the exposure and the modifier is warned about rather than refused: the modification may reach it through a column derived from the modifier instead.
+
+### Joint exposures
+
+Intervening on two treatments at once is a third question again, and it is not the one `.by` answers. `causalgenerics::joint_exposure()` crosses two discrete treatments into one categorical exposure and records the crossing on the column. `balance()` weights that column as it weights any factor over the same cells, so what the declaration changes is which effects are reported rather than which population is balanced.
+
+```{r joint-data}
+set.seed(21)
+k <- 500
+frailty <- rnorm(k)
+drug <- rbinom(k, 1, plogis(0.4 * frailty))
+diet <- rbinom(k, 1, plogis(-0.2 + 0.5 * frailty + 0.6 * drug))
+remission <- rbinom(
+  k,
+  1,
+  plogis(-1.4 + 0.3 * drug + 0.3 * diet + 1.6 * drug * diet + 0.5 * frailty)
+)
+
+regimens <- data.frame(
+  frailty = frailty,
+  remission = remission,
+  drug = factor(drug),
+  diet = factor(diet)
+)
+# Assigned after the frame is built, which keeps the crossing from being
+# coerced away before anything can read it.
+regimens$regimen <- causalgenerics::joint_exposure(
+  drug = regimens$drug,
+  diet = regimens$diet
+)
+```
+
+```{r joint}
+regimen_fit <- balance(
+  regimens,
+  regimen,
+  c(frailty),
+  method = bw_ipt(),
+  estimand = "ate"
+)
+regimens$regimen_w <- weights(regimen_fit)
+
+regimen_mod <- glm(
+  remission ~ regimen + frailty,
+  data = regimens,
+  family = quasibinomial(),
+  weights = regimen_w
+)
+
+ipw(regimen_fit, regimen_mod)
+```
+
+The table leads with the counterfactual mean of each cell, one per combination of the two treatments, each standardized over the whole sample. The simple effects follow: each treatment against its own reference level, within a level of the other that the `group` column names. The last pair of rows is the interaction, the difference between the drug's effect at `diet = 1` and its effect at `diet = 0`, which is large here because each treatment does much less on its own than the two do together. Reported as a plain categorical exposure, these four cells would give each cell against the reference cell, under contrasts like `"drug = 1, diet = 0 vs drug = 0, diet = 0"`; the declaration replaces those rows rather than adding to them, so no row here is named that way. The interaction appears once, under the first treatment's framing, because it is symmetric in the two: the change in the drug's effect across the levels of the diet is the change in the diet's effect across the levels of the drug, and reporting it twice would put one quantity in the table under two names. No contrast row carries a log odds ratio, for the reason no subgroup row does.
+
+The declaration is read off the exposure column of the frame `ipw()` resolves, which is the outcome model's own frame here, so dropping it with `factor()` returns the cell-against-cell rows. A declared crossing is reported for the ATE alone, and `.by` on one is refused: effect modification of a joint intervention is a three-way question, and this surface reports neither it nor a projection of it. `?ipw.balancing` gives the full row set and both restrictions.
 
 ### Continuous exposures
 
