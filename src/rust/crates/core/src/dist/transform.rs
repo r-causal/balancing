@@ -628,12 +628,15 @@ mod tests {
         // The mean is held to 1e-9 instead, and the looser bound is a property of
         // the stored input rather than of the centering. A double near 1.7e9
         // resolves to about 2.4e-7, so the exact weighted mean of the stored
-        // column cannot be named to better than half of that, which is 6e-11 of
-        // the hour of spread the column is divided by. No arrangement of the
-        // arithmetic reaches 1e-12 here; the measured residual, 9e-11, is already
-        // inside one unit in the last place of the input read in standard
-        // deviations. The plain column, which has no such floor, comes back at
-        // 4e-17 and shows the check is not merely loose.
+        // column cannot be named to better than half of that, which is 5.9e-11
+        // of the hour of spread the column is divided by. That floor is not the
+        // whole of the residual: `sx`, the weighted sum the mean divides,
+        // accumulates one row at a time, and its own rounding error is of the
+        // same order, so what the measurement reads is the two together. No
+        // arrangement of the arithmetic reaches 1e-12 here; the measured
+        // residual, 8.9e-11, is already inside one unit in the last place of the
+        // input read in standard deviations. The plain column, which has no such
+        // floor, comes back at 4e-17 and shows the check is not merely loose.
         let (covs, w, n, _offset) = offset_fixture();
         let out = scaled_euclidean(&covs, n, 2, &w, 1);
         for j in 0..2 {
