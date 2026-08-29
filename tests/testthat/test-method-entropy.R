@@ -934,6 +934,61 @@ test_that("a continuous tolerance relaxes correlations but holds the marginals",
   )
 })
 
+# ---- The solver's tolerance box -------------------------------------------
+
+# `solver_box()` converts a standardized-scale tolerance to the raw scale its
+# constraint row is written on by multiplying it by the column's standard
+# deviation, taken under the sampling weights when they vary and unweighted
+# otherwise. The weighted branch reads the whole matrix in one pass of column
+# arithmetic rather than a column at a time, and the two are the same arithmetic
+# in the same order, so this pins identity rather than agreement to a tolerance.
+# A tolerance would let a genuine change of accumulation order through, and a
+# changed box is a changed fit.
+#
+# The fixture carries a constant column so the guard that leaves a column with no
+# spread at its own tolerance is exercised on both branches.
+solver_box_fixture <- function() {
+  withr::with_seed(404, {
+    n <- 300L
+    z <- cbind(
+      stats::rnorm(n),
+      stats::runif(n, -2, 3),
+      rep(0.98, n),
+      as.numeric(stats::rbinom(n, 1L, 0.4)),
+      1e6 + stats::rnorm(n)
+    )
+    list(z = z, sampling_weights = stats::runif(n, 0.3, 2.5))
+  })
+}
+
+test_that("solver_box() reproduces the per-column weighted scale", {
+  fixture <- solver_box_fixture()
+  z <- fixture$z
+  w <- fixture$sampling_weights
+  tolerances <- seq_len(ncol(z)) / 100
+
+  column_sd <- apply(z, 2, weighted_scale, w = w)
+  column_sd[column_sd == 0] <- 1
+
+  expect_identical(
+    solver_box(z, tolerances, w),
+    tolerances * column_sd
+  )
+})
+
+test_that("solver_box() reads uniform sampling weights on the unweighted scale", {
+  fixture <- solver_box_fixture()
+  z <- fixture$z
+  tolerances <- seq_len(ncol(z)) / 100
+
+  column_sd <- apply(z, 2, stats::sd)
+  column_sd[column_sd == 0] <- 1
+  expected <- tolerances * column_sd
+
+  expect_identical(solver_box(z, tolerances), expected)
+  expect_identical(solver_box(z, tolerances, rep(1, nrow(z))), expected)
+})
+
 # ---- Property tests under sampling and base weights -----------------------
 
 test_that("entropy balancing balances a binary ate under sampling weights", {

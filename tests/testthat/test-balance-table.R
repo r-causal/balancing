@@ -391,6 +391,22 @@ test_that("standardize_columns() leaves a nearly constant column alone", {
   expect_gt(diff(range(unweighted[, 1L])), 1)
 })
 
+# The column arithmetic the weighted standardization and the solver's tolerance
+# box both read their scales from. It takes an already-centered matrix because
+# both callers have one in hand, and it reproduces the per-column
+# `weighted_scale()` bit for bit rather than approximately.
+test_that("centered_column_scales() reproduces the per-column weighted scale", {
+  fixture <- column_statistic_fixture()
+  m <- fixture$m
+  w <- fixture$sampling_weights
+  centered <- sweep(m, 2, apply(m, 2, weighted_center, w = w), "-")
+
+  expect_identical(
+    centered_column_scales(centered, w),
+    apply(m, 2, weighted_scale, w = w)
+  )
+})
+
 test_that("weighted_column_means() averages each column over the row subset", {
   fixture <- column_statistic_fixture()
   z <- standardize_columns(fixture$m, fixture$sampling_weights)

@@ -297,11 +297,19 @@ entropy_solve_succeeded <- function(result) {
 # constraint row uses. A numeric column already standardized to that scale has a
 # unit standard deviation, so its box equals the tolerance; a raw indicator or
 # quantile column is scaled by its own standard deviation.
+#
+# The weighted branch reads every column in one pass of column arithmetic, which
+# is the same arithmetic in the same order as the per-column form and so gives
+# the same box to the bit. The unweighted branch stays on `stats::sd()` a column
+# at a time, which is the faster of the two there: its long double correction is
+# carried in C, and reproducing it in R costs more than the per-column dispatch
+# saves.
 solver_box <- function(z, tolerances, sampling_weights = NULL) {
   weighted <- !is.null(sampling_weights) &&
     length(unique(sampling_weights)) > 1L
   column_sd <- if (weighted) {
-    apply(z, 2, weighted_scale, w = sampling_weights)
+    centers <- column_weighted_means(z, sampling_weights)
+    centered_column_scales(sweep(z, 2, centers, "-"), sampling_weights)
   } else {
     apply(z, 2, stats::sd)
   }
