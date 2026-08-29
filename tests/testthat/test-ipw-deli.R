@@ -126,6 +126,22 @@ test_that("stack_psi_blocks() pads unnamed rows the way rbind does", {
   expect_identical(rownames(stacked), c("mu0", "mu1", ""))
 })
 
+# The buffer is allocated at the width the caller declares, so a block that is
+# not that wide is a mistake in the block rather than something to fit in. R
+# would recycle it into the rows instead, and the stack would carry a psi matrix
+# whose values belong to no unit, so the width is checked rather than trusted.
+
+test_that("stack_psi_blocks() refuses a block whose column count is not the sample size", {
+  n <- 4L
+  wide_enough <- matrix(seq_len(n) + 0.5, nrow = 1L)
+  too_narrow <- matrix(c(1, 2), nrow = 1L)
+
+  expect_error(
+    stack_psi_blocks(list(wide_enough, too_narrow), n),
+    class = "balancing_internal_error"
+  )
+})
+
 # ---- The assembly a real fit performs --------------------------------------
 
 # Four routes build four different sets of blocks: a binary exposure two mean

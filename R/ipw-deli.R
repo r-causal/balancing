@@ -594,9 +594,18 @@ make_hooks_cache <- function(container, rescale, parameters) {
 #
 # The buffer is filled with `NA_real_` rather than zero. The two measure the
 # same, since either way the allocation writes a value into every cell, so the
-# choice falls to what an unwritten row should look like: `NA` propagates into
-# the bread and is refused there, where a zero row would read as a coordinate
-# the system does not depend on and quietly return a wrong variance.
+# choice falls to what an unwritten row should look like: an unwritten `NA` row
+# reaches deli, which refuses a non-finite psi return with
+# `deli_psi_return_error` before it forms either half of the sandwich, where a
+# zero row would read as a coordinate the system does not depend on and quietly
+# return a wrong variance.
+#
+# The width of each block is checked rather than trusted. Assigning into the
+# rows of a preallocated buffer recycles a block that is not `n` columns wide,
+# so a block of the wrong width would be spread across the rows instead of
+# refused and the stack would carry values belonging to no unit. `rbind()` has
+# the same recycling behavior, so this is a guard the assembly adds rather than
+# one it inherits.
 stack_psi_blocks <- function(blocks, n) {
   blocks <- blocks[!vapply(blocks, is.null, logical(1))]
   rows <- vapply(blocks, nrow, integer(1))
@@ -605,7 +614,17 @@ stack_psi_blocks <- function(blocks, n) {
 
   for (i in seq_along(blocks)) {
     if (rows[[i]] > 0L) {
-      stacked[starts[[i]] + seq_len(rows[[i]]), ] <- blocks[[i]]
+      block <- blocks[[i]]
+      if (ncol(block) != n) {
+        abort(
+          c(
+            "Every block of the stacked estimating function must carry one column per observation.",
+            x = "Block {i} carries {ncol(block)} column{?s} for a sample of {n}."
+          ),
+          error_class = "balancing_internal_error"
+        )
+      }
+      stacked[starts[[i]] + seq_len(rows[[i]]), ] <- block
     }
   }
 
