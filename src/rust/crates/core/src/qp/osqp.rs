@@ -389,4 +389,46 @@ mod tests {
             .expect("setup succeeds");
         assert!(sol.status.is_solved());
     }
+
+    /// A spec with no decision variables and `rows` constraint rows. This is the
+    /// shape a stable-balancing solve assembles when its active set turns out
+    /// empty: the balance rows survive and demand a group total from nothing at
+    /// all.
+    fn empty_spec(rows: usize) -> QpSpec {
+        QpSpec {
+            n: 0,
+            m: rows,
+            p: PMat::Diagonal(vec![]),
+            q: vec![],
+            a_indptr: vec![0],
+            a_indices: vec![],
+            a_values: vec![],
+            l: vec![1.0; rows],
+            u: vec![1.0; rows],
+            convexity: Convexity::Psd,
+        }
+    }
+
+    #[test]
+    fn a_spec_with_no_decision_variables_is_refused_before_the_c_core() {
+        // OSQP's C core validates that the variable count is positive, but it
+        // reports the refusal by writing to stderr before it returns, so every
+        // solve of this shape prints a line no caller asked for and none can
+        // suppress. The wrapper therefore refuses the spec on its own terms and
+        // never reaches the C core, which is observable in the refusal message:
+        // the wrapper names the missing decision variables, where the relayed C
+        // refusal is an empty `DataInvalid`.
+        for rows in [0usize, 1, 3] {
+            let err = Osqp
+                .solve(&empty_spec(rows), &QpOptions::default(), &|| false)
+                .unwrap_err();
+            let QpError::Setup(message) = &err else {
+                panic!("{rows} rows: expected a setup refusal, got {err:?}");
+            };
+            assert!(
+                message.contains("decision variable"),
+                "{rows} rows: refusal message {message:?} does not name the missing decision variables"
+            );
+        }
+    }
 }
