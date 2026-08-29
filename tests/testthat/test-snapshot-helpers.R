@@ -46,6 +46,29 @@ test_that("scrub_platform_values() leaves a zero on any other line alone", {
   expect_identical(scrub_platform_values(line), line)
 })
 
+# A tolerance a condition message reports is a constant the package chose, the
+# same on every platform, and it is often the thing the message is about. It sits
+# in the magnitude range the near-zero rule scrubs, so the rule has to step
+# around it.
+test_that("scrub_platform_values() leaves a tolerance a message reports alone", {
+  lines <- c(
+    "The solve met tolerance 1e-10.",
+    "The solve met tolerance = 1e-10.",
+    "The solve met tolerance of 1e-10.",
+    "The solve met Tolerance 1e-10."
+  )
+  expect_identical(scrub_platform_values(lines), lines)
+})
+
+# The exemption is on the word before the number rather than on the magnitude,
+# so a residual of the same size somewhere else is still scrubbed.
+test_that("scrub_platform_values() still scrubs a near-zero the word does not cover", {
+  expect_identical(
+    scrub_platform_values("The solve left 1e-10 behind."),
+    "The solve left <1e-7 behind."
+  )
+})
+
 # A method that balances a term only approximately reports a real distance, and
 # that number is the point of the snapshot, so it has to survive untouched.
 test_that("scrub_platform_values() leaves a measurable balance value alone", {

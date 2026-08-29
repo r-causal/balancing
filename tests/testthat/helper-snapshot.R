@@ -88,8 +88,19 @@ scrub_platform_values <- function(lines) {
   # Narrowing the rule to the values below 1e-8 alone would mean parsing every
   # match, which buys nothing: a value between the two is as unportable as one
   # below both.
+  #
+  # A number the text introduces as a tolerance is exempt. The package's own
+  # tolerances live in this magnitude range, and a message that reports one is
+  # reporting a constant the package chose rather than a residual a platform
+  # arrived at, so scrubbing it would hide the value the message is about. The
+  # exemption is written as three fixed-width lookbehinds because PCRE takes no
+  # variable-width one, and they cover the forms a message uses: the bare word,
+  # an equals sign, and "of".
   lines <- gsub(
-    "(?<![0-9.])[-+]?[0-9]+(?:[.][0-9]+)?e-(?:0*[89]|0*[1-9][0-9]+)(?![0-9])",
+    paste0(
+      "(?<!(?i:tolerance) )(?<!(?i:tolerance) = )(?<!(?i:tolerance) of )",
+      "(?<![0-9.])[-+]?[0-9]+(?:[.][0-9]+)?e-(?:0*[89]|0*[1-9][0-9]+)(?![0-9])"
+    ),
     "<1e-7",
     lines,
     perl = TRUE
