@@ -115,8 +115,9 @@ snap_smoothness <- function(smoothness) {
 #' @param min_weight The smallest permitted weight.
 #' @param convergence_tolerance The quadratic-program solver tolerance, or
 #'   `NULL` for the resolved default of `1e-8`, which the solver applies as both
-#'   its absolute and its relative tolerance. A tolerance below what the problem
-#'   can reach spends the full iteration cap and then warns.
+#'   its absolute and its relative tolerance. Under the default backend, a
+#'   tolerance below what the problem can reach spends the full iteration cap and
+#'   then warns.
 #' @param max_iterations The maximum solver iterations, or `NULL` for the
 #'   resolved default of 200000.
 #' @param ... Reserved for future extensions; must be empty. Tuning parameters

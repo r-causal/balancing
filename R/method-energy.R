@@ -70,9 +70,10 @@
 #'   `1e-6` rather than to that family default because its quadratic form is
 #'   indefinite: on a small sample the alternating-direction residual floors
 #'   above `1e-8`, and a run that keeps going past that floor walks away from
-#'   the optimum instead of stalling at it. A tolerance below what the problem
-#'   can reach spends the full iteration cap, then warns and reports the iterate
-#'   of a re-solve at a tolerance the problem does reach.
+#'   the optimum instead of stalling at it. Under the default backend, a
+#'   tolerance below what the problem can reach spends the full iteration cap,
+#'   then warns and reports the iterate of a re-solve at a tolerance the problem
+#'   does reach.
 #' @param max_iterations The maximum solver iterations, or `NULL` for the
 #'   resolved default of 200000.
 #' @param ... Reserved for future extensions; must be empty. Tuning parameters
