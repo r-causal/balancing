@@ -46,6 +46,18 @@ impl QpBackend for Osqp {
         interrupt: &dyn Fn() -> bool,
     ) -> Result<QpSolution, QpError> {
         let n = spec.n;
+        // A spec with no decision variables has nothing to solve for. OSQP's C
+        // core validates the same condition, but it writes its complaint to
+        // stderr before returning an error that carries no text of its own, so a
+        // relayed refusal is an empty `DataInvalid` preceded by a line no caller
+        // asked for and none can suppress. The refusal therefore belongs to the
+        // wrapper, where it can be named and where the C core is never reached.
+        if n == 0 {
+            return Err(QpError::Setup(
+                "the problem has no decision variables".to_string(),
+            ));
+        }
+
         let (p_indptr, p_indices, p_values) = upper_triangular_csc(&spec.p, n);
         let p_csc = CscMatrix {
             nrows: n,
