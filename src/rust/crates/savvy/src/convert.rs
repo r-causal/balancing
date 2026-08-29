@@ -127,8 +127,10 @@ pub fn parse_entropy_options(options: ListSexp) -> savvy::Result<EntropyOptions>
     Ok(resolved)
 }
 
-/// Resolved solver options for the inverse probability tilting entrypoints.
-pub struct IptOptions {
+/// Resolved solver options shared by the inverse probability tilting and
+/// covariate balancing propensity score entrypoints, which reach the same core
+/// solver for their score equations.
+pub struct ScoreOptions {
     pub threads: usize,
     pub max_iter: usize,
     pub tol: f64,
@@ -137,12 +139,11 @@ pub struct IptOptions {
 /// The defaults the boundary resolves when the option list omits a value, reached
 /// by the same two routes as the entropy defaults above.
 ///
-/// This parser serves the covariate balancing propensity score entrypoints as well
-/// as the tilting ones, so the cap here is the budget for both families, and both
-/// R constructors leave `max_iterations` unset by default. It matches the entropy
-/// cap so that methods solving the same fit at the same tolerance are given the
-/// same budget to reach it.
-impl Default for IptOptions {
+/// The cap is the budget for both families that solve here, and every one of
+/// their R constructors leaves `max_iterations` unset by default. It matches the
+/// entropy cap so that methods solving the same fit at the same tolerance are
+/// given the same budget to reach it.
+impl Default for ScoreOptions {
     fn default() -> Self {
         Self {
             threads: balancing_core::available_threads().0,
@@ -152,10 +153,10 @@ impl Default for IptOptions {
     }
 }
 
-/// Parse the option list for an inverse probability tilting solve, rejecting
-/// unknown names. The link and estimand cross the boundary as their own
-/// arguments, so the option list carries only the solver tuning.
-pub fn parse_ipt_options(options: ListSexp) -> savvy::Result<IptOptions> {
+/// Parse the option list for a score equation solve, rejecting unknown names.
+/// The link and estimand cross the boundary as their own arguments, so the
+/// option list carries only the solver tuning.
+pub fn parse_score_options(options: ListSexp) -> savvy::Result<ScoreOptions> {
     const ALLOWED: [&str; 3] = ["threads", "max_iterations", "convergence_tolerance"];
 
     for name in options.names_iter() {
@@ -167,7 +168,7 @@ pub fn parse_ipt_options(options: ListSexp) -> savvy::Result<IptOptions> {
         }
     }
 
-    let mut resolved = IptOptions::default();
+    let mut resolved = ScoreOptions::default();
 
     if let Some(value) = options.get("threads") {
         resolved.threads = option_usize(value, "threads")?.max(1);
@@ -597,16 +598,16 @@ mod tests {
 
     // The iteration cap the boundary resolves is a portability contract rather
     // than a tuning preference, so it is pinned here. An option list arriving
-    // without `max_iterations` leaves the parser at these values, and an entropy
-    // or tilting fit that needs more iterations than the cap allows stops short
-    // of its tolerance and warns. The solvers walk a different floating-point
-    // path on each platform, so a cap tight enough that a fit converges just
-    // under it on one platform leaves the same fit warning on another. The cap
-    // has to be wide enough that the platform spread sits well inside it. The
-    // tolerance is pinned alongside it because the two halves only mean
-    // something together: a budget is generous or tight only relative to the
-    // convergence target it is spent reaching, and the documentation states
-    // both, so a change to either has to be a deliberate one.
+    // without `max_iterations` leaves the parser at these values, and an entropy,
+    // tilting or covariate balancing fit that needs more iterations than the cap
+    // allows stops short of its tolerance and warns. The solvers walk a different
+    // floating-point path on each platform, so a cap tight enough that a fit
+    // converges just under it on one platform leaves the same fit warning on
+    // another. The cap has to be wide enough that the platform spread sits well
+    // inside it. The tolerance is pinned alongside it because the two halves only
+    // mean something together: a budget is generous or tight only relative to the
+    // convergence target it is spent reaching, and the documentation states both,
+    // so a change to either has to be a deliberate one.
     #[test]
     fn the_entropy_solver_defaults_pin_the_iteration_cap_and_tolerance() {
         assert_eq!(EntropyOptions::default().max_iter, 1000);
@@ -614,9 +615,9 @@ mod tests {
     }
 
     #[test]
-    fn the_tilting_solver_defaults_pin_the_iteration_cap_and_tolerance() {
-        assert_eq!(IptOptions::default().max_iter, 1000);
-        assert_eq!(IptOptions::default().tol, 1e-10);
+    fn the_score_solver_defaults_pin_the_iteration_cap_and_tolerance() {
+        assert_eq!(ScoreOptions::default().max_iter, 1000);
+        assert_eq!(ScoreOptions::default().tol, 1e-10);
     }
 
     // The quadratic-program defaults reach the boundary by a different route:
