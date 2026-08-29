@@ -32,7 +32,7 @@
       Observations: 500
       Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0.1)
-      Largest imbalance: 0.1882 (correlation)
+      Largest imbalance: 0.188 (correlation)
 
 # an infeasible constraint set raises balancing_infeasible_error
 

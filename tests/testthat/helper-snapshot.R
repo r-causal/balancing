@@ -93,9 +93,12 @@ scrub_platform_values <- function(lines) {
 # Round a printed decimal to three significant digits once it carries more than
 # four, which is the width at which the platform difference starts. Anything
 # shorter is left byte-identical: a tolerance such as `0.05`, an imbalance such
-# as `0.0118` from formatC(digits = 4), a weight range such as `0.220`, and any
-# integer all survive untouched. Leading zeros do not count toward the width, so
-# `0.005149743` is seven digits wide rather than ten.
+# as `0.00515` from formatC(format = "g", digits = 3), a weight range such as
+# `0.220`, and any integer all survive untouched. Leading zeros do not count
+# toward the width, so `0.005149743` is seven digits wide rather than ten. That
+# three-significant-digit rendering also puts an imbalance the fit drove to zero
+# in exponent form, where the near-zero rule above replaces it with the `<1e-8`
+# placeholder rather than leaving a platform-specific mantissa.
 #
 # Rounding the parsed value rather than truncating the text is what makes two
 # platforms agree: 6.438292e-11 and 6.438290e-11 are different doubles that both

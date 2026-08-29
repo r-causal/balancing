@@ -14,7 +14,7 @@
       Observations: 500
       Solver: did not converge in <n> iterations
       Constraints: 2 terms (tolerance 0)
-      Largest imbalance: 0.0000 (standardized mean difference)
+      Largest imbalance: <1e-8 (standardized mean difference)
 
 # balancing_balance_warning: achieved balance exceeds the tolerance
 
@@ -33,7 +33,7 @@
       Observations: 500
       Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0.1)
-      Largest imbalance: 0.1751 (correlation)
+      Largest imbalance: 0.175 (correlation)
 
 # balancing_ignored_argument_warning: two_step without over_identified
 
@@ -51,7 +51,7 @@
       Observations: 500
       Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
-      Largest imbalance: 0.0000 (standardized mean difference)
+      Largest imbalance: <1e-8 (standardized mean difference)
 
 # balancing_ignored_argument_warning: over_identified for a categorical exposure
 
@@ -69,7 +69,7 @@
       Observations: 500
       Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
-      Largest imbalance: 0.0000 (standardized mean difference)
+      Largest imbalance: <1e-8 (standardized mean difference)
 
 # balancing_ignored_argument_warning: over_identified for a continuous exposure
 
@@ -87,7 +87,7 @@
       Observations: 500
       Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
-      Largest imbalance: 0.0000 (correlation)
+      Largest imbalance: <1e-8 (correlation)
 
 # balancing_ignored_argument_warning: link for a continuous exposure
 
@@ -104,7 +104,7 @@
       Observations: 500
       Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
-      Largest imbalance: 0.0000 (correlation)
+      Largest imbalance: <1e-8 (correlation)
 
 # balancing_ignored_argument_warning: every argument a categorical fit ignores
 
@@ -125,7 +125,7 @@
       Observations: 500
       Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
-      Largest imbalance: 0.0000 (standardized mean difference)
+      Largest imbalance: <1e-8 (standardized mean difference)
 
 # balancing_ignored_argument_warning: a clarabel pin the energy kernel cannot honor
 
@@ -180,7 +180,7 @@
       Observations: 500
       Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
-      Largest imbalance: 0.0000 (standardized mean difference)
+      Largest imbalance: <1e-8 (standardized mean difference)
 
 # balancing_class_downgrade_warning: mismatched estimands
 

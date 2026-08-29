@@ -510,6 +510,10 @@ method(print, balancing) <- function(x, ...) {
       # constraint's statistic is undefined, and printing "NaN" as the largest
       # imbalance states a distance that was never measured. Saying the
       # assessment is what failed is the same ruling the balance warning follows.
+      # The figure is rendered to three significant digits, matching the balance
+      # warning, because a well-solved fit can leave an imbalance far below the
+      # fourth decimal and a fixed format prints that as a zero, contradicting
+      # the warning that names the same number.
       statistic <- x@balance_table$statistic[1]
       largest <- max(abs(x@balance_table$weighted))
       if (is.finite(largest)) {
@@ -519,7 +523,7 @@ method(print, balancing) <- function(x, ...) {
           "standardized mean difference"
         }
         cli::cli_text(
-          "Largest imbalance: {formatC(largest, format = 'f', digits = 4)} ({label})"
+          "Largest imbalance: {formatC(largest, format = 'g', digits = 3)} ({label})"
         )
       } else {
         cli::cli_text("Largest imbalance: could not be assessed")

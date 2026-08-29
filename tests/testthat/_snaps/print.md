@@ -9,7 +9,7 @@
       Observations: 500
       Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
-      Largest imbalance: 0.0000 (standardized mean difference)
+      Largest imbalance: <1e-8 (standardized mean difference)
 
 # summary() of a binary ate fit is stable
 
@@ -22,7 +22,7 @@
       Observations: 500
       Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
-      Largest imbalance: 0.0000 (standardized mean difference)
+      Largest imbalance: <1e-8 (standardized mean difference)
       
       -- Weights --
       
@@ -50,7 +50,7 @@
       Observations: 500
       Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
-      Largest imbalance: 0.0000 (standardized mean difference)
+      Largest imbalance: <1e-8 (standardized mean difference)
 
 # print() of a continuous ate fit is stable
 
@@ -63,7 +63,7 @@
       Observations: 500
       Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
-      Largest imbalance: 0.0000 (correlation)
+      Largest imbalance: <1e-8 (correlation)
 
 # print() of a categorical ate fit lists every level
 
@@ -76,7 +76,7 @@
       Observations: 500
       Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
-      Largest imbalance: 0.0000 (standardized mean difference)
+      Largest imbalance: <1e-8 (standardized mean difference)
 
 # print() of a fit whose factor lost a level is stable
 
@@ -89,7 +89,7 @@
       Observations: 500
       Solver: converged in <n> iterations
       Constraints: 4 terms (tolerance 0)
-      Largest imbalance: 0.0000 (standardized mean difference)
+      Largest imbalance: <1e-8 (standardized mean difference)
 
 # print() of an energy fit is stable
 
@@ -141,7 +141,7 @@
       Observations: 500
       Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0.05)
-      Largest imbalance: 0.1000 (standardized mean difference)
+      Largest imbalance: 0.1 (standardized mean difference)
       
       -- Weights --
       
@@ -167,7 +167,7 @@
       Observations: 500
       Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
-      Largest imbalance: 0.0051 (standardized mean difference)
+      Largest imbalance: 0.00515 (standardized mean difference)
       
       -- Weights --
       
