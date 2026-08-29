@@ -192,7 +192,7 @@ trial_mod <- glm(
 ipw(trial_fit, trial_mod, .by = sex)
 ```
 
-The `overall` block is the result an ungrouped call reports, and the blocks after it are the effect within each level of `sex`. A subgroup's marginal means are the g-computation means over that subgroup's units alone, and its risk difference is the contrast of those two means. Nothing is refit inside a subgroup: the weights are the ones the single fit produced, and no subgroup gets balance conditions of its own. The last two rows compare the subgroups, and since every row here is a parameter of the same stacked system, that comparison is a parameter as well rather than a difference taken between two separately fitted effects. Its standard error therefore carries the covariance between the two subgroups, which share the weight parameters and the outcome model's coefficients, where adding two independently estimated variances would miss that covariance in a direction the design decides.
+The `overall` block is the result an ungrouped call reports, and the blocks after it are the effect within each level of `sex`. A subgroup's marginal means are the g-computation means over that subgroup's units alone, and its risk difference is the contrast of those two means. Nothing is refit inside a subgroup: the weights are the ones the single fit produced, and no subgroup gets balance conditions of its own. The last two rows compare the subgroups, and since every row here is a parameter of the same stacked system, that comparison is a parameter as well rather than a difference taken between two separately fitted effects. Its standard error therefore carries the covariance between the two subgroups, which share the weight parameters and the outcome model's coefficients; adding two independently estimated variances would miss that covariance, in a direction the design decides.
 
 The log odds ratio stays among the whole-sample rows. It is noncollapsible, so the odds ratio over a sample is not an average of the odds ratios within its subgroups, and a difference of two of them moves with each subgroup's baseline risk whether or not the effect is modified at all. The collapsible measures, `rd` and `log(rr)`, are the ones reported for the subgroups and for their contrast.
 
@@ -220,8 +220,8 @@ regimens <- data.frame(
   drug = factor(drug),
   diet = factor(diet)
 )
-# Assigned after the frame is built, which keeps the crossing from being
-# coerced away before anything can read it.
+# Built after the frame so the crossing reads the same two columns the frame
+# carries.
 regimens$regimen <- causalgenerics::joint_exposure(
   drug = regimens$drug,
   diet = regimens$diet
