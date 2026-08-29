@@ -178,7 +178,7 @@ test_that("summary() of a cfd fit reports the weight floor count", {
 # one the fit drove to zero. Both are read off the fit rather than written in,
 # because the low-order digits move with the platform's floating-point path.
 #
-# The `<1e-8` placeholder in helper-snapshot.R applies to recorded snapshots
+# The `<1e-7` placeholder in helper-snapshot.R applies to recorded snapshots
 # only. These tests capture the printed block directly, so they see the value
 # the print method rendered.
 test_that("print() renders the largest imbalance to three significant digits", {

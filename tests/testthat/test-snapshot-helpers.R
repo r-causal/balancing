@@ -11,7 +11,18 @@ test_that("scrub_platform_values() replaces a numerically zero balance value", {
   line <- "1   x1 moment       smd     1  0.552 1.24e-11         0"
   expect_identical(
     scrub_platform_values(line),
-    "1   x1 moment       smd     1  0.552 <1e-8         0"
+    "1   x1 moment       smd     1  0.552 <1e-7         0"
+  )
+})
+
+# The rule is written on the exponent rather than on the value, so the largest
+# number it can match is just under 1e-7 rather than just under 1e-8. The
+# placeholder states the cutoff the rule actually applies.
+test_that("scrub_platform_values() states the cutoff its exponent rule reaches", {
+  line <- "1   x1 moment       smd     1  0.552 9.9e-8         0"
+  expect_identical(
+    scrub_platform_values(line),
+    "1   x1 moment       smd     1  0.552 <1e-7         0"
   )
 })
 

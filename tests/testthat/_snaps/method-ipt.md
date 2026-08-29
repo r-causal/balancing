@@ -10,5 +10,5 @@
       Observations: 500
       Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
-      Largest imbalance: <1e-8 (standardized mean difference)
+      Largest imbalance: <1e-7 (standardized mean difference)
 

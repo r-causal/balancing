@@ -9,7 +9,7 @@
       Observations: 500
       Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
-      Largest imbalance: <1e-8 (standardized mean difference)
+      Largest imbalance: <1e-7 (standardized mean difference)
 
 # summary() of a binary ate fit is stable
 
@@ -22,7 +22,7 @@
       Observations: 500
       Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
-      Largest imbalance: <1e-8 (standardized mean difference)
+      Largest imbalance: <1e-7 (standardized mean difference)
       
       -- Weights --
       
@@ -33,8 +33,8 @@
       -- Balance --
       
         term   kind statistic group unweighted     weighted tolerance
-      1   x1 moment       smd     1  0.552 <1e-8         0
-      2   x2 moment       smd     1  0.416 <1e-8         0
+      1   x1 moment       smd     1  0.552 <1e-7         0
+      2   x2 moment       smd     1  0.416 <1e-7         0
         within_tolerance
       1             TRUE
       2             TRUE
@@ -50,7 +50,7 @@
       Observations: 500
       Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
-      Largest imbalance: <1e-8 (standardized mean difference)
+      Largest imbalance: <1e-7 (standardized mean difference)
 
 # print() of a continuous ate fit is stable
 
@@ -63,7 +63,7 @@
       Observations: 500
       Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
-      Largest imbalance: <1e-8 (correlation)
+      Largest imbalance: <1e-7 (correlation)
 
 # print() of a categorical ate fit lists every level
 
@@ -76,7 +76,7 @@
       Observations: 500
       Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
-      Largest imbalance: <1e-8 (standardized mean difference)
+      Largest imbalance: <1e-7 (standardized mean difference)
 
 # print() of a fit whose factor lost a level is stable
 
@@ -89,7 +89,7 @@
       Observations: 500
       Solver: converged in <n> iterations
       Constraints: 4 terms (tolerance 0)
-      Largest imbalance: <1e-8 (standardized mean difference)
+      Largest imbalance: <1e-7 (standardized mean difference)
 
 # print() of an energy fit is stable
 

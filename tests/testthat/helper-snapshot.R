@@ -36,7 +36,7 @@ expect_balancing_snapshot <- function(expr) {
 # keeps what these snapshots are for, the shape and wording of the output, and
 # gives up the values that cannot be pinned portably.
 #
-# A balance value at or below 1e-8 goes further and loses its digits entirely. A
+# A balance value below 1e-7 goes further and loses its digits entirely. A
 # term the fit drove to zero leaves behind whatever residual its arithmetic
 # happened to accumulate, and at that magnitude the residual is a report on the
 # platform's floating-point path rather than on the fit: the mantissa and the
@@ -81,9 +81,16 @@ scrub_platform_values <- function(lines) {
   # portable. Matching the exponent at or below -8 catches both forms, single
   # digit and padded, and the guards on either side keep the pattern off a
   # number that merely ends in something exponent-shaped.
+  #
+  # The rule reads the exponent rather than the value, so the largest number it
+  # can match is just under 1e-7 rather than just under 1e-8, and the
+  # placeholder states the cutoff the rule reaches rather than one it does not.
+  # Narrowing the rule to the values below 1e-8 alone would mean parsing every
+  # match, which buys nothing: a value between the two is as unportable as one
+  # below both.
   lines <- gsub(
     "(?<![0-9.])[-+]?[0-9]+(?:[.][0-9]+)?e-(?:0*[89]|0*[1-9][0-9]+)(?![0-9])",
-    "<1e-8",
+    "<1e-7",
     lines,
     perl = TRUE
   )
@@ -97,7 +104,7 @@ scrub_platform_values <- function(lines) {
 # `0.220`, and any integer all survive untouched. Leading zeros do not count
 # toward the width, so `0.005149743` is seven digits wide rather than ten. That
 # three-significant-digit rendering also puts an imbalance the fit drove to zero
-# in exponent form, where the near-zero rule above replaces it with the `<1e-8`
+# in exponent form, where the near-zero rule above replaces it with the `<1e-7`
 # placeholder rather than leaving a platform-specific mantissa.
 #
 # Rounding the parsed value rather than truncating the text is what makes two
