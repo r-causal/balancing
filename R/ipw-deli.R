@@ -926,7 +926,10 @@ msm_effect_name <- function(
 # produces and far above the rounding a deficient one leaves. Both readers of a
 # deficiency, the check made before the stack is differenced and the refusal
 # raised when the engine cannot invert it, measure it here so the two never
-# disagree about whether a given fit is deficient.
+# disagree about whether a given fit is deficient. A separate rank tolerance
+# lives in `aliased_columns()` (R/constraints.R), a column-norm-relative cutoff
+# on the constraint matrix, and the two values are set independently on purpose
+# because they read different matrices.
 measure_jacobian_rank <- function(jacobian) {
   decomposition <- svd(jacobian)
   deficient <- decomposition$d <= decomposition$d[[1]] * 1e-8

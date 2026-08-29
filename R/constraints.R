@@ -595,7 +595,10 @@ constant_columns <- function(columns) {
 # indicator and quantile columns zero or one, so the relative test reads against
 # the same magnitude column by column. It sits far above the residual that
 # rounding leaves on a set that is dependent in exact arithmetic and far below
-# the residual a column that varies on its own keeps.
+# the residual a column that varies on its own keeps. A separate rank tolerance
+# lives in `measure_jacobian_rank()` (R/ipw-deli.R), a relative singular-value
+# cutoff on an estimating-equation Jacobian, and the two values are set
+# independently on purpose because they read different matrices.
 aliased_columns <- function(columns) {
   if (ncol(columns) == 0L) {
     return(integer(0))
