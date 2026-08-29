@@ -1075,6 +1075,7 @@ test_that("balancing registers no S3 method on the ipw result classes", {
     "vcov.ipw_model",
     "as_marginal.ipw",
     "as_conditional.ipw",
+    "estimand.ipw",
     "coef.ipw_pooled",
     "vcov.ipw_pooled",
     "confint.ipw_pooled",
@@ -1084,7 +1085,8 @@ test_that("balancing registers no S3 method on the ipw result classes", {
     "print.ipw_pooled",
     "as.data.frame.ipw_pooled",
     "as_marginal.ipw_pooled",
-    "as_conditional.ipw_pooled"
+    "as_conditional.ipw_pooled",
+    "estimand.ipw_pooled"
   )
   defined <- vapply(specs, defined_in_balancing, logical(1))
   expect_identical(
