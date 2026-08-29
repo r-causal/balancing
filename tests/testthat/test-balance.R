@@ -1531,3 +1531,44 @@ test_that("a POSIXct covariate balances as the number it stores", {
     )
   }
 })
+
+# A POSIXlt date-time stores the same instant as a POSIXct one, split into
+# calendar components rather than held as a count of seconds, and `as.numeric()`
+# gives both the same seconds since 1970-01-01. Only the class differs, so the
+# two must reach the fit as the same column. Before the coercion read the shared
+# `POSIXt` class, a POSIXlt covariate met base R's own error from raising a
+# difftime to a power, which names neither the covariate nor the class that
+# could not be read.
+test_that("a POSIXlt covariate balances as the POSIXct one it stores", {
+  data <- sim_binary(n = 200)
+  stamp <- as.POSIXct(
+    1.7e9 + 3600 * data$x1 * data$x2,
+    origin = "1970-01-01",
+    tz = "UTC"
+  )
+  lt_data <- data
+  lt_data$stamp <- as.POSIXlt(stamp)
+  ct_data <- data
+  ct_data$stamp <- stamp
+
+  for (method in list(bw_entropy(), bw_energy())) {
+    lt_fit <- withr::with_seed(
+      2024,
+      balance(lt_data, exposure, c(x1, x2, stamp), method = method)
+    )
+    ct_fit <- withr::with_seed(
+      2024,
+      balance(ct_data, exposure, c(x1, x2, stamp), method = method)
+    )
+
+    expect_identical(lt_fit@covariates, c("x1", "x2", "stamp"))
+    expect_equal(
+      lt_fit@balance_table[lt_fit@balance_table$term == "stamp", ],
+      ct_fit@balance_table[ct_fit@balance_table$term == "stamp", ]
+    )
+    expect_equal(
+      as.numeric(stats::weights(lt_fit)),
+      as.numeric(stats::weights(ct_fit))
+    )
+  }
+})

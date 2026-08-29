@@ -60,10 +60,18 @@ new_recipe_record <- function(
 # expansion it then takes is decided from the numbers, exactly as it is for a
 # duration and for a column of bare numbers.
 #
+# The date-time test is on `POSIXt`, the class both date-time representations
+# share, rather than on `POSIXct` alone. A `POSIXlt` column holds the same
+# instant split into calendar components and `as.numeric()` gives it the same
+# seconds since 1970-01-01, so reading only the seconds-count representation
+# left the other one to fall through as an ordinary column and meet base R's own
+# error from raising a difftime to a power, which names neither the covariate
+# nor the class that could not be read.
+#
 # A column of any other class passes through unchanged.
 covariate_values <- function(data, name) {
   column <- data[[name]]
-  if (inherits(column, c("difftime", "Date", "POSIXct"))) {
+  if (inherits(column, c("difftime", "Date", "POSIXt"))) {
     return(as.numeric(column))
   }
   column

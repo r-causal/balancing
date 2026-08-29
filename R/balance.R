@@ -36,9 +36,11 @@
 #' A `difftime` covariate balances as the number it stores, in the unit its own
 #' column declares. Nothing rescales it and nothing reinterprets the unit, so its
 #' constraints, its recipe, and its balance table match those of the same
-#' durations supplied as bare numbers. A `Date` or `POSIXct` covariate balances
+#' durations supplied as bare numbers. A `Date` or `POSIXt` covariate balances
 #' the same way, as the number `as.numeric()` gives it: days since 1970-01-01 for
-#' a date, seconds since then for a date-time.
+#' a date, seconds since then for a date-time. Both date-time representations
+#' are read that way, so a `POSIXlt` column balances exactly as the `POSIXct`
+#' column holding the same instants does.
 #'
 #' @param .data A data frame.
 #' @param .exposure The exposure column, selected with data-masking. Exactly one
