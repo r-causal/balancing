@@ -14,15 +14,18 @@ pub mod transform;
 /// The distance definition the energy objective is built on.
 ///
 /// Each variant names a transform applied to the covariates before Euclidean
-/// distances are taken. `ScaledEuclidean` divides each column by its weighted
-/// standard deviation; `Mahalanobis` whitens by the weighted covariance;
-/// `Euclidean` uses the covariates unchanged.
+/// distances are taken. `ScaledEuclidean` centers each column at its weighted
+/// mean and divides by its weighted standard deviation; `Mahalanobis` centers
+/// and whitens by the weighted covariance; `Euclidean` uses the covariates
+/// unchanged. Centering shifts every row alike and so leaves the distances
+/// themselves untouched.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Distance {
-    /// Euclidean distance on columns divided by their weighted standard
-    /// deviation.
+    /// Euclidean distance on columns centered at their weighted mean and
+    /// divided by their weighted standard deviation.
     ScaledEuclidean,
-    /// Euclidean distance after whitening by the weighted covariance.
+    /// Euclidean distance after centering and whitening by the weighted
+    /// covariance.
     Mahalanobis,
     /// Euclidean distance on the covariates as supplied.
     Euclidean,

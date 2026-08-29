@@ -2,10 +2,15 @@
 //!
 //! Rescaling the covariates once and then taking plain Euclidean distances is
 //! equivalent to, and cheaper than, evaluating the target metric on every pair.
-//! Scaled Euclidean divides each column by its weighted standard deviation;
-//! Mahalanobis whitens by the weighted covariance through its eigendecomposition
-//! so that Euclidean distance on the whitened rows equals the Mahalanobis
-//! distance; plain Euclidean leaves the covariates unchanged.
+//! Scaled Euclidean centers each column at its weighted mean and divides by its
+//! weighted standard deviation; Mahalanobis centers as well and whitens by the
+//! weighted covariance through its eigendecomposition so that Euclidean distance
+//! on the whitened rows equals the Mahalanobis distance; plain Euclidean leaves
+//! the covariates unchanged.
+//!
+//! Centering is invisible to the metric, since a common shift of every row
+//! cancels in every pairwise difference, and it is what keeps the transformed
+//! values at the spread's own scale rather than at the column's offset.
 
 use faer::{Mat, Side};
 
@@ -139,16 +144,27 @@ pub fn transform(
     }
 }
 
-/// Divide each column by its weighted standard deviation. A column with no
-/// variance is left unscaled.
+/// Subtract each column's weighted mean and divide by its weighted standard
+/// deviation. A column with no variance is centered but left unscaled, so it
+/// comes back as exactly zero.
+///
+/// Subtracting the mean changes no pairwise Euclidean distance: it shifts every
+/// row by the same vector, which cancels in every difference. What it buys is
+/// the range the output occupies. A date-time column, which `as.numeric()` puts
+/// near 1.7e9, with an hour of spread divides to about 8e5 with deviations of
+/// order one, and a unit in the last place there is about 1.2e-10, so the
+/// distances built from it are quantized ten digits coarser than the doubles
+/// carrying them. Centering leaves the output at the deviations' own scale and
+/// costs one subtraction per entry, on a pass that already reads and writes
+/// every entry. The Mahalanobis transform centers for the same reason.
 fn scaled_euclidean(covs: &[f64], n: usize, p: usize, w: &[f64], threads: usize) -> Vec<f64> {
-    let (_means, vars) = weighted_moments(covs, n, p, w, threads);
-    let mut out = covs.to_vec();
+    let (means, vars) = weighted_moments(covs, n, p, w, threads);
+    let mut out = vec![0.0; n * p];
     for j in 0..p {
         let sd = vars[j].sqrt();
         let scale = if sd > 0.0 { 1.0 / sd } else { 1.0 };
         for i in 0..n {
-            out[j * n + i] *= scale;
+            out[j * n + i] = (covs[j * n + i] - means[j]) * scale;
         }
     }
     out
@@ -268,6 +284,7 @@ fn mahalanobis(covs: &[f64], n: usize, p: usize, w: &[f64], threads: usize) -> V
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dist::pairwise;
 
     #[test]
     fn equal_weights_reproduce_the_sample_variance() {
@@ -281,22 +298,25 @@ mod tests {
     }
 
     #[test]
-    fn scaled_euclidean_divides_by_the_standard_deviation() {
+    fn scaled_euclidean_centers_and_divides_by_the_standard_deviation() {
         let covs = [1.0, 2.0, 3.0, 4.0];
         let w = [1.0, 1.0, 1.0, 1.0];
         let out = scaled_euclidean(&covs, 4, 1, &w, 1);
         let sd = (5.0_f64 / 3.0).sqrt();
         for i in 0..4 {
-            assert!((out[i] - covs[i] / sd).abs() < 1e-12);
+            assert!((out[i] - (covs[i] - 2.5) / sd).abs() < 1e-12);
         }
     }
 
     #[test]
-    fn a_constant_column_is_left_unscaled() {
+    fn a_constant_column_centers_to_zero_and_is_left_unscaled() {
+        // Centering sends a column with no spread onto exactly zero, which is
+        // also where the Mahalanobis standardization puts it. The scale stays at
+        // one rather than dividing by a zero standard deviation.
         let covs = [2.0, 2.0, 2.0];
         let w = [1.0, 1.0, 1.0];
         let out = scaled_euclidean(&covs, 3, 1, &w, 1);
-        assert_eq!(out, covs.to_vec());
+        assert_eq!(out, vec![0.0, 0.0, 0.0]);
     }
 
     #[test]
@@ -570,29 +590,95 @@ mod tests {
         );
     }
 
+    /// Weighted mean of a single column, the reference the centered transform's
+    /// output is read against.
+    fn two_pass_mean(x: &[f64], w: &[f64]) -> f64 {
+        let sw: f64 = w.iter().sum();
+        x.iter().zip(w).map(|(&xi, &wi)| wi * xi).sum::<f64>() / sw
+    }
+
     #[test]
-    fn a_scaled_column_has_unit_weighted_sd_at_a_date_time_offset() {
-        // Scaled Euclidean divides each column by its weighted standard
-        // deviation, so every transformed column must read back a weighted
-        // standard deviation of one. The offset column is the demanding one; the
-        // plain column establishes that the check itself is satisfiable.
+    fn a_scaled_column_has_zero_mean_and_unit_weighted_sd_at_a_date_time_offset() {
+        // Scaled Euclidean subtracts each column's weighted mean and divides by
+        // its weighted standard deviation, so every transformed column must read
+        // back a weighted mean of zero and a weighted standard deviation of one.
+        // The offset column is the demanding one; the plain column establishes
+        // that the check itself is satisfiable.
         //
-        // The tolerance is 1e-10 rather than the 1e-12 the standardizing sd is
-        // held to, and the difference is a property of the output rather than of
-        // the statistic. The transform divides but does not center, so the offset
-        // column comes back around 8e5 while its deviations are of order one: a
-        // unit in the last place of the stored values is about 1e-10, so the
-        // deviations the output can represent are quantized at roughly that
-        // relative granularity, and any reading of the output's standard
-        // deviation inherits a few parts in 1e12 of it. That floor is five orders
-        // of magnitude below the error this test exists to catch.
+        // The standard deviation is held to 1e-12 because centering leaves the
+        // output at the deviations' own scale. Without it the offset column would
+        // come back around 8e5 with deviations of order one, so a unit in the
+        // last place of the output would be about 1e-10 and any reading taken
+        // from it would inherit that granularity, ten digits coarser than the
+        // statistic the transform computed.
+        //
+        // The mean is held to 1e-9 instead, and the looser bound is a property of
+        // the stored input rather than of the centering. A double near 1.7e9
+        // resolves to about 2.4e-7, so the exact weighted mean of the stored
+        // column cannot be named to better than half of that, which is 6e-11 of
+        // the hour of spread the column is divided by. No arrangement of the
+        // arithmetic reaches 1e-12 here; the measured residual, 9e-11, is already
+        // inside one unit in the last place of the input read in standard
+        // deviations. The plain column, which has no such floor, comes back at
+        // 4e-17 and shows the check is not merely loose.
         let (covs, w, n, _offset) = offset_fixture();
         let out = scaled_euclidean(&covs, n, 2, &w, 1);
         for j in 0..2 {
-            let sd = two_pass_variance(&out[j * n..(j + 1) * n], &w).sqrt();
+            let column = &out[j * n..(j + 1) * n];
+            let mean = two_pass_mean(column, &w);
             assert!(
-                (sd - 1.0).abs() < 1e-10,
+                mean.abs() < 1e-9,
+                "column {j} has weighted mean {mean} after scaling"
+            );
+            let sd = two_pass_variance(column, &w).sqrt();
+            assert!(
+                (sd - 1.0).abs() < 1e-12,
                 "column {j} has weighted sd {sd} after scaling"
+            );
+        }
+    }
+
+    #[test]
+    fn centering_leaves_the_scaled_euclidean_distances_where_they_were() {
+        // Subtracting a per-column constant shifts every row by the same vector,
+        // which cancels in every pairwise difference, so centering is a change of
+        // representation and not of the metric. On well-scaled covariates, where
+        // the uncentered form loses nothing to cancellation, the two must agree
+        // to rounding: the reference divides by the same standard deviations
+        // without subtracting the means.
+        let n = 40;
+        let p = 3;
+        let draws = lcg_unit(n * p, 24_680_135);
+        let covs: Vec<f64> = draws
+            .iter()
+            .enumerate()
+            .map(|(k, &u)| 2.0 * u - 1.0 + 3.0 * ((k / n) as f64 + 1.0))
+            .collect();
+        let weight_draws = lcg_unit(n, 13_579_246);
+        let w: Vec<f64> = weight_draws.iter().map(|&vi| 0.25 + 1.5 * vi).collect();
+
+        let (means, vars) = weighted_moments(&covs, n, p, &w, 1);
+        // Every column sits well away from zero, or centering would be a no-op
+        // and the agreement below would hold for the wrong reason.
+        for (j, mean) in means.iter().enumerate() {
+            assert!(*mean > 1.0, "column {j} has weighted mean {mean}");
+        }
+        let mut uncentered = covs.clone();
+        for (j, var) in vars.iter().enumerate() {
+            let sd = var.sqrt();
+            let scale = if sd > 0.0 { 1.0 / sd } else { 1.0 };
+            for i in 0..n {
+                uncentered[j * n + i] *= scale;
+            }
+        }
+
+        let out = transform(&covs, n, p, Distance::ScaledEuclidean, &w, 1);
+        let got = pairwise::euclidean(&out, n, p, 1);
+        let want = pairwise::euclidean(&uncentered, n, p, 1);
+        for (k, (&a, &b)) in got.iter().zip(&want).enumerate() {
+            assert!(
+                (a - b).abs() < 1e-12,
+                "entry {k}: centered distance {a}, uncentered reference {b}"
             );
         }
     }
