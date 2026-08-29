@@ -12,7 +12,7 @@ bw_energy(
   min_weight = 1e-08,
   distribution_moments = NULL,
   dimension_adjustment = TRUE,
-  convergence_tolerance = NULL,
+  convergence_tolerance = 1e-06,
   max_iterations = NULL
 )
 }
@@ -49,10 +49,15 @@ marginals are held equal to the unweighted sample.}
 \item{dimension_adjustment}{For a continuous exposure, whether to weight the
 covariate energy distance by the covariate dimensionality adjustment.}
 
-\item{convergence_tolerance}{The quadratic-program solver tolerance, or
-\code{NULL} for the resolved default of \code{1e-8}, which the solver applies as both
-its absolute and its relative tolerance. A tolerance below what the problem
-can reach spends the full iteration cap and then warns.}
+\item{convergence_tolerance}{The quadratic-program solver tolerance, which
+the solver applies as both its absolute and its relative tolerance, or
+\code{NULL} for the family default of \code{1e-8}. Energy balancing defaults to
+\code{1e-6} rather than to that family default because its quadratic form is
+indefinite: on a small sample the alternating-direction residual floors
+above \code{1e-8}, and a run that keeps going past that floor walks away from
+the optimum instead of stalling at it. A tolerance below what the problem
+can reach spends the full iteration cap, then warns and reports the iterate
+of a re-solve at a tolerance the problem does reach.}
 
 \item{max_iterations}{The maximum solver iterations, or \code{NULL} for the
 resolved default of 200000.}

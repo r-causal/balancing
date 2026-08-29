@@ -195,7 +195,7 @@ test_that("bw_energy() rejects missing or multi-element distribution moments", {
 })
 
 test_that("bw_energy() rejects a non-positive convergence tolerance", {
-  expect_null(bw_energy()@convergence_tolerance)
+  expect_identical(bw_energy()@convergence_tolerance, 1e-6)
   expect_error(bw_energy(convergence_tolerance = -1e-8))
 })
 

@@ -354,6 +354,47 @@ warn_balance_exceeded <- function(worst, call = rlang::caller_env()) {
   invisible()
 }
 
+# The tolerance a quadratic-program method asks of its backend. A method that
+# leaves the property NULL takes the core default, which the solver applies as
+# both its absolute and its relative tolerance.
+qp_default_tolerance <- 1e-8
+
+# A tolerance the quadratic programs reach on problems where the core default
+# does not. The energy objective matrix is indefinite, and on a small sample the
+# negative curvature it carries puts the alternating-direction residual floor
+# above the core default, so a fit asking for more than the iteration can deliver
+# spends its whole budget and returns an iterate that has left the optimum. This
+# value is the one the sweeps in that regime reach, and it is what the
+# non-convergence advice names.
+qp_reachable_tolerance <- 1e-6
+
+resolved_qp_tolerance <- function(method) {
+  tolerance <- method@convergence_tolerance
+  if (is.null(tolerance)) qp_default_tolerance else tolerance
+}
+
+# The non-convergence advice for the quadratic-program family, which fails its
+# criterion for the opposite reason to the estimating-equation family. A descent
+# method that spends its iteration cap stopped short of the answer and is helped
+# by a larger cap; an alternating-direction iteration that spends its cap has
+# usually passed the residual floor of its problem, past which each further
+# iteration moves away from the optimum rather than toward it. So the advice
+# leads with the tolerance, names a value the problem can usually reach when the
+# fit asked for something tighter, and keeps the cap for last.
+quadratic_program_convergence_bullets <- function(method) {
+  loosen <- if (resolved_qp_tolerance(method) < qp_reachable_tolerance) {
+    "Loosen {.arg convergence_tolerance} in {.fn {class(method)[1]}}, which the problem can usually reach at {.val {qp_reachable_tolerance}}."
+  } else {
+    "Loosen {.arg convergence_tolerance} in {.fn {class(method)[1]}}."
+  }
+  c(
+    "The solver did not reach its convergence tolerance.",
+    i = loosen,
+    x = "The weights of a solve that did not meet its tolerance should not be relied on.",
+    i = "Raising {.arg max_iterations} is the last resort, and helps only a solve that stopped short of the residual floor rather than past it."
+  )
+}
+
 # Raise or warn on the solver outcome. The quadratic-program family reports a
 # terminal status the backend assigns, so an infeasible constraint set raises
 # `balancing_infeasible_error` and a hard solver failure raises
@@ -366,9 +407,9 @@ warn_balance_exceeded <- function(worst, call = rlang::caller_env()) {
 #
 # Which knob a failure names is chosen by the status, so every status a backend
 # can assign is routed here. Only a status that genuinely means the solve ran out
-# of iterations falls through to the closing warning, whose advice is to raise the
-# cap; a solve that broke down numerically or stalled would not be helped by more
-# iterations, so it reports the conditioning of the problem instead.
+# of iterations falls through to the closing warning; a solve that broke down
+# numerically or stalled would not be helped by either knob, so it reports the
+# conditioning of the problem instead.
 check_solver_status <- function(fit, method, call = rlang::caller_env()) {
   if (!is.null(fit$status)) {
     if (isTRUE(fit$converged)) {
@@ -423,10 +464,14 @@ check_solver_status <- function(fit, method, call = rlang::caller_env()) {
   }
   if (!isTRUE(fit$converged)) {
     tried <- solver_labels(fit$solvers_tried)
-    bullets <- c(
-      "The solver did not reach its convergence tolerance.",
-      i = "Increase {.arg max_iterations} or loosen {.arg convergence_tolerance} in {.fn {class(method)[1]}}."
-    )
+    bullets <- if (S7::S7_inherits(method, quadratic_program_method)) {
+      quadratic_program_convergence_bullets(method)
+    } else {
+      c(
+        "The solver did not reach its convergence tolerance.",
+        i = "Increase {.arg max_iterations} or loosen {.arg convergence_tolerance} in {.fn {class(method)[1]}}."
+      )
+    }
     if (length(tried) > 1L) {
       bullets[[1L]] <- "Neither solver reached its convergence tolerance."
       bullets <- append(bullets, c(x = "The fit tried {tried}."), after = 1L)

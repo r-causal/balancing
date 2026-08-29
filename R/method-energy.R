@@ -64,10 +64,15 @@
 #'   marginals are held equal to the unweighted sample.
 #' @param dimension_adjustment For a continuous exposure, whether to weight the
 #'   covariate energy distance by the covariate dimensionality adjustment.
-#' @param convergence_tolerance The quadratic-program solver tolerance, or
-#'   `NULL` for the resolved default of `1e-8`, which the solver applies as both
-#'   its absolute and its relative tolerance. A tolerance below what the problem
-#'   can reach spends the full iteration cap and then warns.
+#' @param convergence_tolerance The quadratic-program solver tolerance, which
+#'   the solver applies as both its absolute and its relative tolerance, or
+#'   `NULL` for the family default of `1e-8`. Energy balancing defaults to
+#'   `1e-6` rather than to that family default because its quadratic form is
+#'   indefinite: on a small sample the alternating-direction residual floors
+#'   above `1e-8`, and a run that keeps going past that floor walks away from
+#'   the optimum instead of stalling at it. A tolerance below what the problem
+#'   can reach spends the full iteration cap, then warns and reports the iterate
+#'   of a re-solve at a tolerance the problem does reach.
 #' @param max_iterations The maximum solver iterations, or `NULL` for the
 #'   resolved default of 200000.
 #' @param ... Reserved for future extensions; must be empty. Tuning parameters
@@ -113,7 +118,7 @@ bw_energy <- new_class(
     min_weight = 1e-8,
     distribution_moments = NULL,
     dimension_adjustment = TRUE,
-    convergence_tolerance = NULL,
+    convergence_tolerance = 1e-6,
     max_iterations = NULL
   ) {
     check_method_dots(...)
@@ -228,6 +233,38 @@ energy_options <- function(method, backend) {
     options$max_iterations <- as.integer(method@max_iterations)
   }
   options
+}
+
+# Solve, and on a run that spent its iteration cap solve once more at a
+# tolerance the objective can reach. The energy quadratic form is indefinite, so
+# the alternating-direction iteration is a contraction only until its residuals
+# reach the floor of the problem; a tolerance below that floor keeps the run
+# going, and the iterate it carries at the cap has left the optimum rather than
+# stopped short of it. Renormalizing that iterate per group gives it the shape of
+# a real answer, so it must not be what the fit reports. The retry costs one
+# extra solve, and only on a fit that already failed. The fit still reports
+# itself as unconverged, because the tolerance the caller asked for was not met,
+# and the convergence warning that follows names the tolerance to ask for
+# instead. A run that ends on any other terminal status is diagnosed by
+# check_solver_status() and is not retried, and neither is a fit whose tolerance
+# is already at or above the reachable one, where the retry would repeat the
+# solve that just failed.
+solve_energy_with_fallback <- function(method, options, solve) {
+  result <- solve(options)
+  reached_cap <- !isTRUE(result$converged) &&
+    identical(result$status, "max_iter")
+  if (!reached_cap || resolved_qp_tolerance(method) >= qp_reachable_tolerance) {
+    return(result)
+  }
+  options$convergence_tolerance <- qp_reachable_tolerance
+  retry <- solve(options)
+  if (!isTRUE(retry$converged)) {
+    return(result)
+  }
+  retry$converged <- FALSE
+  retry$status <- result$status
+  retry$iterations <- result$iterations + retry$iterations
+  retry
 }
 
 # Whether the constraint set requests moment, quantile, or interaction balance,
@@ -389,20 +426,22 @@ fit_energy_discrete <- function(method, prepared, enforce, backend) {
       nvar <- n - length(groups[[focal]])
       n_group_levels <- 1L
     }
-    result <- solve_energy(
-      covs,
-      treat,
-      s,
-      method@distance,
-      core_estimand,
-      method@improved,
-      moment_covs,
-      targets,
-      tols,
-      method@min_weight,
-      method@weight_penalty,
-      options
-    )
+    result <- solve_energy_with_fallback(method, options, function(opts) {
+      solve_energy(
+        covs,
+        treat,
+        s,
+        method@distance,
+        core_estimand,
+        method@improved,
+        moment_covs,
+        targets,
+        tols,
+        method@min_weight,
+        method@weight_penalty,
+        opts
+      )
+    })
   } else {
     treat_idx <- match(key, levels) - 1L
     if (identical(estimand, "ate")) {
@@ -416,21 +455,23 @@ fit_energy_discrete <- function(method, prepared, enforce, backend) {
       nvar <- n - length(groups[[focal]])
       n_group_levels <- length(levels) - 1L
     }
-    result <- solve_energy_multi(
-      covs,
-      as.integer(treat_idx),
-      as.integer(focal_idx),
-      s,
-      method@distance,
-      core_estimand,
-      method@improved,
-      moment_covs,
-      targets,
-      tols,
-      method@min_weight,
-      method@weight_penalty,
-      options
-    )
+    result <- solve_energy_with_fallback(method, options, function(opts) {
+      solve_energy_multi(
+        covs,
+        as.integer(treat_idx),
+        as.integer(focal_idx),
+        s,
+        method@distance,
+        core_estimand,
+        method@improved,
+        moment_covs,
+        targets,
+        tols,
+        method@min_weight,
+        method@weight_penalty,
+        opts
+      )
+    })
   }
 
   duals <- energy_duals_frame(result$duals, nvar, n_group_levels)
@@ -499,20 +540,22 @@ fit_energy_continuous <- function(method, prepared, backend) {
 
   options <- energy_options(method, backend)
 
-  result <- solve_energy_cont(
-    covs,
-    exposure,
-    s,
-    method@distance,
-    method@dimension_adjustment,
-    method@min_weight,
-    method@weight_penalty,
-    d_covs,
-    d_treat,
-    bal_covs,
-    bal_tols,
-    options
-  )
+  result <- solve_energy_with_fallback(method, options, function(opts) {
+    solve_energy_cont(
+      covs,
+      exposure,
+      s,
+      method@distance,
+      method@dimension_adjustment,
+      method@min_weight,
+      method@weight_penalty,
+      d_covs,
+      d_treat,
+      bal_covs,
+      bal_tols,
+      opts
+    )
+  })
 
   # The continuous solve carries one total-sum row followed by the distribution
   # rows; the box rows bound each of the n units.
