@@ -304,6 +304,18 @@ entropy_solve_succeeded <- function(result) {
 # at a time, which is the faster of the two there: its long double correction is
 # carried in C, and reproducing it in R costs more than the per-column dispatch
 # saves.
+#
+# A column with no spread has nothing to convert its tolerance against, so it
+# keeps the tolerance as its box. Which columns those are is read from the values
+# through `column_is_constant()` (R/balance-table.R) rather than from an exact
+# zero in the scale computed here, for the reason recorded there: the weighted
+# center divides a sum of products by a sum of weights and need not return the
+# repeated value exactly, so a constant column under non-uniform sampling weights
+# comes back with a rounding residual for a standard deviation. Testing the scale
+# for equality with zero misses that residual and scales the column's box by
+# noise, which constrains the fit against rounding rather than against the
+# tolerance the caller asked for. Reading the values also keeps this box and the
+# balance table it is measured against agreeing on which columns have no spread.
 solver_box <- function(z, tolerances, sampling_weights = NULL) {
   weighted <- !is.null(sampling_weights) &&
     length(unique(sampling_weights)) > 1L
@@ -313,7 +325,7 @@ solver_box <- function(z, tolerances, sampling_weights = NULL) {
   } else {
     apply(z, 2, stats::sd)
   }
-  column_sd[column_sd == 0] <- 1
+  column_sd[column_is_constant(z) | column_sd == 0] <- 1
   tolerances * column_sd
 }
 

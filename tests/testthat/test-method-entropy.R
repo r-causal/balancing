@@ -968,11 +968,41 @@ test_that("solver_box() reproduces the per-column weighted scale", {
   tolerances <- seq_len(ncol(z)) / 100
 
   column_sd <- apply(z, 2, weighted_scale, w = w)
-  column_sd[column_sd == 0] <- 1
+  column_sd[column_is_constant(z) | column_sd == 0] <- 1
 
   expect_identical(
     solver_box(z, tolerances, w),
     tolerances * column_sd
+  )
+})
+
+# A column holding one value repeated has no spread to convert a
+# standardized-scale tolerance against, so its box is the tolerance itself. It
+# does not arrive that way on its own: the weighted center divides a sum of
+# products by a sum of weights and need not give the repeated value back
+# exactly, so the centered column carries a rounding residual instead of zeros
+# and the scale reports that residual as the column's spread. The constant 0.98
+# column below came out with a standard deviation of order 1e-16 under these
+# weights, which shrank its box by fourteen orders of magnitude and constrained
+# the fit against rounding. Reading the values rather than the computed scale is
+# the guard `standardize_columns()` already carries, and the two have to agree
+# on which columns have no spread or the box and the balance table disagree
+# about the same column.
+test_that("solver_box() leaves a constant column at its raw tolerance", {
+  fixture <- solver_box_fixture()
+  z <- fixture$z
+  w <- fixture$sampling_weights
+  tolerances <- seq_len(ncol(z)) / 100
+  constant <- 3L
+
+  expect_true(all(z[, constant] == 0.98))
+  expect_identical(
+    solver_box(z, tolerances, w)[[constant]],
+    tolerances[[constant]]
+  )
+  expect_identical(
+    solver_box(z, tolerances)[[constant]],
+    tolerances[[constant]]
   )
 })
 
@@ -982,7 +1012,7 @@ test_that("solver_box() reads uniform sampling weights on the unweighted scale",
   tolerances <- seq_len(ncol(z)) / 100
 
   column_sd <- apply(z, 2, stats::sd)
-  column_sd[column_sd == 0] <- 1
+  column_sd[column_is_constant(z) | column_sd == 0] <- 1
   expected <- tolerances * column_sd
 
   expect_identical(solver_box(z, tolerances), expected)
