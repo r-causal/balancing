@@ -24,6 +24,7 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use crate::dist::{Distance, distance_matrix, pairwise};
 use crate::qp::osqp::Osqp;
 use crate::qp::{Convexity, QpBackend, QpOptions, QpSpec, QpStatus, objective};
+use crate::stats::weighted_variance;
 use crate::threads::get_pool;
 
 use super::qp_balance::{
@@ -420,31 +421,6 @@ pub struct EnergyContInputs<'a> {
     pub threads: usize,
     /// Quadratic-program tuning.
     pub qp: QpOptions,
-}
-
-/// Reliability-weighted variance of a single vector, the denominator matching the
-/// per-column variance used by the distance transforms.
-fn weighted_variance(x: &[f64], w: &[f64]) -> f64 {
-    let mut sw = 0.0;
-    let mut sw2 = 0.0;
-    let mut swx = 0.0;
-    let mut swxx = 0.0;
-    for (&xi, &wi) in x.iter().zip(w) {
-        sw += wi;
-        sw2 += wi * wi;
-        swx += wi * xi;
-        swxx += wi * xi * xi;
-    }
-    if sw <= 0.0 {
-        return 0.0;
-    }
-    let mean = swx / sw;
-    let denom = 1.0 - sw2 / (sw * sw);
-    if denom > 0.0 {
-        ((swxx / sw - mean * mean) / denom).max(0.0)
-    } else {
-        0.0
-    }
 }
 
 /// Double-center a symmetric distance matrix: `A_ij + grand - row_i - row_j`.
@@ -1159,8 +1135,8 @@ mod tests {
     /// Two-pass reliability-weighted variance: the weighted mean first, then the
     /// weighted squared deviations from it. The deviations are formed at the
     /// column's own scale rather than as a difference of two large sums, so this
-    /// stays accurate at any offset and is the reference the shipped one-pass
-    /// form has to reproduce.
+    /// stays accurate at any offset and is the reference `weighted_variance` has to
+    /// reproduce.
     fn two_pass_variance(x: &[f64], w: &[f64]) -> f64 {
         let sw: f64 = w.iter().sum();
         let sw2: f64 = w.iter().map(|wi| wi * wi).sum();

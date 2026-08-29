@@ -10,6 +10,7 @@
 use faer::{Mat, Side};
 
 use super::Distance;
+use crate::stats::reliability_variance;
 use crate::threads::{deterministic_map_reduce, get_pool};
 
 /// Relative eigenvalue floor for the whitening pseudo-inverse: directions whose
@@ -18,36 +19,44 @@ use crate::threads::{deterministic_map_reduce, get_pool};
 /// generalized-inverse behavior used elsewhere for singular covariances.
 const WHITEN_RCOND: f64 = 1e-12;
 
-/// Per-column weighted mean and variance, and the summed weight statistics.
-struct Moments {
+/// Weight totals and per-column weighted sums, the first pass of the moments.
+struct ColumnSums {
     /// Total weight `sum_i w_i`.
     sw: f64,
     /// Summed squared weight `sum_i w_i^2`.
     sw2: f64,
     /// Weighted column sums `sum_i w_i x_ic`.
     sx: Vec<f64>,
-    /// Weighted column sums of squares `sum_i w_i x_ic^2`.
-    sxx: Vec<f64>,
 }
 
-impl Moments {
+impl ColumnSums {
     fn zeros(p: usize) -> Self {
         Self {
             sw: 0.0,
             sw2: 0.0,
             sx: vec![0.0; p],
-            sxx: vec![0.0; p],
         }
     }
 }
 
 /// Weighted mean and reliability-weighted variance of each column.
 ///
-/// The variance uses the frequency-weight-free (reliability) denominator
-/// `1 - sum_i wn_i^2` with normalized weights `wn = w / sum(w)`, which reduces to
-/// the usual `n - 1` sample variance when the weights are equal. A column with no
-/// variance is reported with variance zero; callers substitute one so the column
-/// is left unscaled rather than dividing by zero.
+/// The variance is accumulated in two scans of the covariates, the first
+/// producing the weight totals and the column means and the second the weighted
+/// squared deviations from those means. Forming the deviations explicitly is
+/// what keeps the result accurate on a column whose mean is large against its
+/// spread; the `stats` module records why that case is the ordinary one
+/// rather than a corner. The alternative single-scan form, Welford's weighted online
+/// update, would save the second read of the data but needs a division by the
+/// running total inside the inner loop and a guarded pairwise merge to combine
+/// the chunk accumulators, and the transform is `O(n p)` in front of the
+/// `O(n^2 p)` pairwise work it feeds, so the second scan is not a cost worth
+/// that complexity. Both scans stay column-major and both reduce through
+/// [`deterministic_map_reduce`], so the result is still independent of the
+/// thread count.
+///
+/// A column with no variance is reported with variance zero; callers substitute
+/// one so the column is left unscaled rather than dividing by zero.
 fn weighted_moments(
     covs: &[f64],
     n: usize,
@@ -59,15 +68,13 @@ fn weighted_moments(
     let acc = deterministic_map_reduce(
         &pool,
         n,
-        || Moments::zeros(p),
+        || ColumnSums::zeros(p),
         |acc, i| {
             let wi = w[i];
             acc.sw += wi;
             acc.sw2 += wi * wi;
             for j in 0..p {
-                let x = covs[j * n + i];
-                acc.sx[j] += wi * x;
-                acc.sxx[j] += wi * x * x;
+                acc.sx[j] += wi * covs[j * n + i];
             }
         },
         |acc, other| {
@@ -75,30 +82,38 @@ fn weighted_moments(
             acc.sw2 += other.sw2;
             for j in 0..p {
                 acc.sx[j] += other.sx[j];
-                acc.sxx[j] += other.sxx[j];
             }
         },
     );
 
     let sw = acc.sw;
-    let mut means = vec![0.0; p];
-    let mut vars = vec![0.0; p];
     if sw <= 0.0 {
-        return (means, vars);
+        return (vec![0.0; p], vec![0.0; p]);
     }
-    // The reliability denominator; guarded so a single dominant weight does not
-    // produce a negative or zero divisor.
-    let denom = 1.0 - acc.sw2 / (sw * sw);
-    for j in 0..p {
-        let mean = acc.sx[j] / sw;
-        means[j] = mean;
-        let second = acc.sxx[j] / sw - mean * mean;
-        vars[j] = if denom > 0.0 {
-            (second / denom).max(0.0)
-        } else {
-            0.0
-        };
-    }
+    let means: Vec<f64> = acc.sx.iter().map(|&sxj| sxj / sw).collect();
+
+    let ss = deterministic_map_reduce(
+        &pool,
+        n,
+        || vec![0.0_f64; p],
+        |acc, i| {
+            let wi = w[i];
+            for j in 0..p {
+                let d = covs[j * n + i] - means[j];
+                acc[j] += wi * d * d;
+            }
+        },
+        |acc, other| {
+            for j in 0..p {
+                acc[j] += other[j];
+            }
+        },
+    );
+
+    let vars = ss
+        .iter()
+        .map(|&ssj| reliability_variance(ssj, sw, acc.sw2))
+        .collect();
     (means, vars)
 }
 
@@ -518,8 +533,8 @@ mod tests {
     /// Two-pass reliability-weighted variance: the weighted mean first, then the
     /// weighted squared deviations from it. The deviations are formed at the
     /// column's own scale rather than as a difference of two large sums, so this
-    /// stays accurate at any offset and is the reference the shipped one-pass
-    /// form has to reproduce.
+    /// stays accurate at any offset and is the reference `weighted_moments` has to
+    /// reproduce.
     fn two_pass_variance(x: &[f64], w: &[f64]) -> f64 {
         let sw: f64 = w.iter().sum();
         let sw2: f64 = w.iter().map(|wi| wi * wi).sum();
@@ -565,7 +580,7 @@ mod tests {
         // The tolerance is 1e-10 rather than the 1e-12 the standardizing sd is
         // held to, and the difference is a property of the output rather than of
         // the statistic. The transform divides but does not center, so the offset
-        // column comes back around 8e5 while its deviations are around 0.6: one
+        // column comes back around 8e5 while its deviations are of order one: a
         // unit in the last place of the stored values is about 1e-10, so the
         // deviations the output can represent are quantized at roughly that
         // relative granularity, and any reading of the output's standard

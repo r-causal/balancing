@@ -32,6 +32,7 @@
 use crate::qp::{
     Convexity, PMat, QpError, QpOptions, QpSolution, QpSpec, QpStatus, RoutedSolution, solve_psd,
 };
+use crate::stats::weighted_variance;
 
 use super::qp_balance::{ConstraintBuilder, ZERO_SW, expand_and_floor, group_normalized};
 
@@ -416,32 +417,6 @@ pub struct SbwContInputs<'a> {
     pub tols: &'a [f64],
     /// Quadratic-program tuning.
     pub qp: QpOptions,
-}
-
-/// Reliability-weighted variance of a vector, matching the denominator the
-/// distance transforms use, so a bounded weighted product of standardized columns
-/// reads as a bounded correlation.
-fn weighted_variance(x: &[f64], w: &[f64]) -> f64 {
-    let mut sw = 0.0;
-    let mut sw2 = 0.0;
-    let mut swx = 0.0;
-    let mut swxx = 0.0;
-    for (&xi, &wi) in x.iter().zip(w) {
-        sw += wi;
-        sw2 += wi * wi;
-        swx += wi * xi;
-        swxx += wi * xi * xi;
-    }
-    if sw <= 0.0 {
-        return 0.0;
-    }
-    let mean = swx / sw;
-    let denom = 1.0 - sw2 / (sw * sw);
-    if denom > 0.0 {
-        ((swxx / sw - mean * mean) / denom).max(0.0)
-    } else {
-        0.0
-    }
 }
 
 /// Solve a continuous-exposure stable balancing problem.
@@ -1298,8 +1273,8 @@ mod tests {
     /// Two-pass reliability-weighted variance: the weighted mean first, then the
     /// weighted squared deviations from it. The deviations are formed at the
     /// column's own scale rather than as a difference of two large sums, so this
-    /// stays accurate at any offset and is the reference the shipped one-pass
-    /// form has to reproduce.
+    /// stays accurate at any offset and is the reference `weighted_variance` has to
+    /// reproduce.
     fn two_pass_variance(x: &[f64], w: &[f64]) -> f64 {
         let sw: f64 = w.iter().sum();
         let sw2: f64 = w.iter().map(|wi| wi * wi).sum();

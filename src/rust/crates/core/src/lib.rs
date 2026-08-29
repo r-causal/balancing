@@ -12,6 +12,7 @@ pub mod linalg;
 pub mod links;
 pub mod methods;
 pub mod qp;
+mod stats;
 pub mod threads;
 pub mod weights;
 
