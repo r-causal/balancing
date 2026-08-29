@@ -1010,3 +1010,43 @@ test_that("a fit with no constraint terms prints and summarizes cleanly", {
   expect_false(any(grepl("Inf", printed, fixed = TRUE)))
   expect_no_warning(utils::capture.output(summary(fit)))
 })
+
+# ---- difftime covariates ---------------------------------------------------
+
+# The expansion reads a duration column as the number it stores, in whatever unit
+# the column declares, so every record it produces matches the record the same
+# durations written as bare numbers produce. Both halves of the expansion are
+# pinned: the moment and power records, which raise the centered column to a
+# power and so used to meet base R's refusal of `^` on the class, and the
+# quantile records, which used to be skipped altogether because the column does
+# not answer `is.numeric()`. The cutpoints and the standardization constants the
+# records carry must be plain numbers, which `expect_identical()` against the
+# numeric expansion enforces along with the terms themselves.
+test_that("a difftime covariate expands as its numeric value does", {
+  data <- sim_binary(n = 200)
+  data$dt <- as.difftime(
+    3600 * data$x1 * data$x2 + 7 * 3600,
+    units = "secs"
+  )
+  numeric_data <- data
+  numeric_data$dt <- as.numeric(numeric_data$dt)
+
+  terms <- balance_terms(moments = 2L, quantiles = c(0.25, 0.75))
+  built <- build_constraint_matrix(
+    data,
+    c("x1", "x2", "dt"),
+    terms,
+    exposure_type = "binary"
+  )
+  numeric_built <- build_constraint_matrix(
+    numeric_data,
+    c("x1", "x2", "dt"),
+    terms,
+    exposure_type = "binary"
+  )
+
+  built_terms <- vapply(built$recipe, function(r) r$term, character(1))
+  expect_true(all(c("dt", "dt^2", "dt_q0.25", "dt_q0.75") %in% built_terms))
+  expect_identical(built$recipe, numeric_built$recipe)
+  expect_identical(built$matrix, numeric_built$matrix)
+})

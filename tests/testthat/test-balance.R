@@ -1352,3 +1352,44 @@ test_that("a one-row data frame is a classed error", {
     expect_match(conditionMessage(cnd), "\\b(1|one|2|two)\\b")
   }
 })
+
+# ---- difftime covariates ---------------------------------------------------
+
+# A duration column carries its number in a plain numeric vector with a `units`
+# attribute, so the arithmetic the constraint expansion performs on a numeric
+# covariate is defined for it apart from `^`, which base R refuses for the class.
+# The contract is that such a column balances exactly as the same durations
+# stored as bare numbers in the column's own unit would: the fit reads the
+# number, not the unit, so no rescaling and no reinterpretation happens on the
+# way in. The covariate is a product of the two continuous confounders so that it
+# is neither constant nor an affine function of anything else in the selection,
+# which would send it to the aliasing drop before the arithmetic is reached.
+test_that("a difftime covariate balances as its numeric value does", {
+  data <- sim_binary(n = 200)
+  data$dt <- as.difftime(
+    3600 * data$x1 * data$x2 + 7 * 3600,
+    units = "secs"
+  )
+  numeric_data <- data
+  numeric_data$dt <- as.numeric(numeric_data$dt)
+
+  fit <- balance(data, exposure, c(x1, x2, dt), method = bw_entropy())
+  numeric_fit <- balance(
+    numeric_data,
+    exposure,
+    c(x1, x2, dt),
+    method = bw_entropy()
+  )
+
+  expect_identical(fit@covariates, c("x1", "x2", "dt"))
+  expect_true("dt" %in% fit@balance_table$term)
+  expect_identical(
+    fit@balance_table[fit@balance_table$term == "dt", ],
+    numeric_fit@balance_table[numeric_fit@balance_table$term == "dt", ]
+  )
+  expect_identical(fit@balance_table, numeric_fit@balance_table)
+  expect_identical(
+    as.numeric(stats::weights(fit)),
+    as.numeric(stats::weights(numeric_fit))
+  )
+})
