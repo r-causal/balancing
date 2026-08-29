@@ -345,6 +345,52 @@ test_that("standardize_columns() leaves a column with no spread unscaled", {
   expect_equal(weighted[, "constant"], rep(0, nrow(m)), tolerance = 1e-12)
 })
 
+# A constant column whose value is not exactly representable in the weighted
+# center's arithmetic does not center to zero. `sum(w * x) / sum(w)` rounds
+# twice, so the centered column holds a rounding residual rather than a zero,
+# the weighted scale reports that residual as the column's spread, and dividing
+# by it turns a column with nothing in it into order-one values. The column has
+# no spread whatever the arithmetic says, so it standardizes to zero.
+test_that("standardize_columns() flattens a constant column under sampling weights", {
+  n <- 20L
+  w <- withr::with_seed(1, stats::runif(n, 0.5, 2))
+  m <- matrix(0.98, nrow = n, ncol = 1L, dimnames = list(NULL, "constant"))
+
+  # The fixture is only worth having while the arithmetic still misses: the
+  # weighted center of this column is a rounding step away from its value.
+  expect_false(identical(sum(w * m[, 1L]) / sum(w), 0.98))
+
+  expect_identical(
+    standardize_columns(m, sampling_weights = w),
+    matrix(0, nrow = n, ncol = 1L, dimnames = list(NULL, "constant"))
+  )
+  expect_identical(
+    standardize_columns(m),
+    matrix(0, nrow = n, ncol = 1L, dimnames = list(NULL, "constant"))
+  )
+})
+
+# The other side of the same rule. A column that barely varies still varies, and
+# a spread of 1e-6 around 0.98 is a real one rather than a rounding residual, so
+# it is standardized rather than flattened.
+test_that("standardize_columns() leaves a nearly constant column alone", {
+  n <- 20L
+  w <- withr::with_seed(1, stats::runif(n, 0.5, 2))
+  m <- matrix(
+    0.98 + 1e-6 * seq_len(n),
+    nrow = n,
+    ncol = 1L,
+    dimnames = list(NULL, "nearly")
+  )
+
+  weighted <- standardize_columns(m, sampling_weights = w)
+  unweighted <- standardize_columns(m)
+
+  expect_equal(stats::sd(unweighted[, 1L]), 1, tolerance = 1e-8)
+  expect_gt(diff(range(weighted[, 1L])), 1)
+  expect_gt(diff(range(unweighted[, 1L])), 1)
+})
+
 test_that("weighted_column_means() averages each column over the row subset", {
   fixture <- column_statistic_fixture()
   z <- standardize_columns(fixture$m, fixture$sampling_weights)

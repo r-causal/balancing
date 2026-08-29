@@ -73,8 +73,40 @@ standardize_columns <- function(m, sampling_weights = NULL) {
     }
     scales <- sqrt(pmax(variances, 0))
   }
-  scales[scales == 0] <- 1
+  constant <- column_is_constant(m)
+  centered[, constant] <- 0
+  scales[constant | scales == 0] <- 1
   sweep(centered, 2, scales, "/")
+}
+
+# Which columns hold one value repeated, read from the values rather than from
+# the scale computed above.
+#
+# A column with no spread is supposed to come out of the centering as zeros and
+# be left unscaled, and on the unweighted path with a well-behaved value it
+# does. It need not. Both centers round: the weighted one divides a sum of
+# products by a sum of weights, the unweighted one a sum by a count, and unless
+# the repeated value survives that arithmetic exactly the centered column holds a
+# rounding residual instead of a zero. The scale then reports the residual as the
+# column's spread and the column standardizes to arbitrary order-one values: a
+# constant 0.98 under non-uniform sampling weights comes out at 0.97 in every
+# row. The reported balance for such a column is then a report on the rounding.
+#
+# The reading is exact equality rather than a floor on the computed scale, and
+# that is the point. A floor has to be calibrated against a residual whose size
+# depends on the column's magnitude, on the sample size, and on whether the
+# platform's `long double` is wider than its `double`, and any floor wide enough
+# to cover the residual at five thousand rows is wide enough to flatten a column
+# offset far from its own spread, which is a column the corrected two-pass center
+# above exists to standardize correctly. Equality needs no calibration and
+# cannot reach a column that varies at all.
+#
+# The comparison is against the first row broadcast down the matrix, which reads
+# every column in one vectorized pass. The covariate columns carry no missing
+# values, which the fit validates before a constraint matrix is built.
+column_is_constant <- function(m) {
+  differences <- colSums(m != rep(m[1L, ], each = nrow(m)))
+  differences == 0L
 }
 
 # Weighted mean of every column of a matrix, as one pass of column arithmetic.
