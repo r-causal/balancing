@@ -103,8 +103,22 @@ test_that("bw_energy() carries its documented defaults", {
   expect_identical(spec@min_weight, 1e-8)
   expect_null(spec@distribution_moments)
   expect_true(spec@dimension_adjustment)
-  expect_null(spec@convergence_tolerance)
+  expect_identical(spec@convergence_tolerance, 1e-6)
   expect_null(spec@max_iterations)
+})
+
+test_that("the loosened solver tolerance is energy's alone", {
+  # Energy is the one quadratic program whose objective matrix is indefinite by
+  # construction, and the negative curvature it carries grows as the sample
+  # shrinks, so below a certain size the alternating-direction iteration stops
+  # contracting: its residuals bottom out well above 1e-8 and then grow. The
+  # method therefore names its own tolerance rather than taking the core default,
+  # and the two positive-semidefinite quadratic programs still take it. The
+  # contrast is pinned here so a later change to the shared default cannot move
+  # energy with it, and so a change to energy's cannot leak into the others.
+  expect_identical(bw_energy()@convergence_tolerance, 1e-6)
+  expect_null(bw_sbw()@convergence_tolerance)
+  expect_null(bw_cfd()@convergence_tolerance)
 })
 
 test_that("bw_energy() stores supplied tuning parameters", {
@@ -1093,6 +1107,129 @@ test_that("an infeasible constraint set raises balancing_infeasible_error", {
       constraints = balance_terms(moments = 1L)
     )
   )
+})
+
+# ---- Small-sample convergence ---------------------------------------------
+
+# A frame with the shape the discrete energy objective destabilizes on: a
+# three-level character covariate, a coarse numeric near 8e4 whose spread is small
+# beside its mean, a numeric near 80, and a binary exposure with roughly a third
+# of the sample treated, at n = 354. The energy quadratic form is the negated
+# distance matrix, conditionally positive semidefinite, so it is indefinite and
+# its negative curvature scales as 1/n. At this size the alternating-direction
+# iteration is no longer a contraction: its residuals reach a floor above 1e-8,
+# and a tolerance below that floor keeps the run going past the optimum until the
+# iterate it carries is renormalized back to uniform weights, which balance
+# nothing. The seed belongs to the fixture because whether a draw destabilizes
+# before it clears its tolerance depends on the draw.
+make_energy_frame <- function(seed, n = 354) {
+  withr::with_seed(seed, {
+    season <- sample(
+      c("peak", "regular", "value"),
+      n,
+      TRUE,
+      prob = c(0.22, 0.55, 0.23)
+    )
+    shift <- c(peak = 1.4, regular = 0, value = -1.1)[season]
+    close <- sample(
+      c(59400, 64800, 72000, 75600, 79200, 82800, 86400, 90000),
+      n,
+      TRUE,
+      prob = c(0.02, 0.03, 0.16, 0.16, 0.2, 0.2, 0.15, 0.08)
+    )
+    close <- pmin(pmax(close + 3600 * round(shift), 59400), 90000)
+    temp <- 82 + 4 * shift + stats::rnorm(n, 0, 8)
+    lp <- -0.9 +
+      0.55 * (season == "peak") -
+      0.35 * (season == "value") +
+      0.9 * scale(close)[, 1] -
+      0.5 * scale(temp)[, 1]
+    data.frame(
+      z = stats::rbinom(n, 1, stats::plogis(lp)),
+      season = season,
+      close = close,
+      temp = temp
+    )
+  })
+}
+
+test_that("the default tolerance fits a small indefinite energy problem", {
+  # The default has to be a tolerance the objective can actually reach on an
+  # ordinary sample of this size, so the fit converges without warning and moves
+  # every covariate a long way toward balance. Under a tolerance below the
+  # solver's residual floor the same fit spends its whole iteration cap instead.
+  data <- make_energy_frame(9)
+  fit <- expect_no_warning(
+    balance(data, z, c(season, close, temp), method = bw_energy()),
+    class = "balancing_convergence_warning"
+  )
+  expect_true(fit@converged)
+  table <- as.data.frame(fit@balance_table)
+  expect_gt(max(abs(table$unweighted)), 0.5)
+  expect_lt(max(abs(table$weighted)), 0.1)
+})
+
+test_that("a tolerance below the residual floor spends the iteration cap", {
+  # The counterpart of the spec above. The tolerance the default used to carry on
+  # this frame was 1e-8, which sits so close to the solver's residual floor here
+  # that scaling one covariate column by 1 + 5e-16 flips the verdict; a platform
+  # whose compiler contracts a multiply-add differently would disagree with this
+  # machine. The spec therefore asks for 1e-14, far below any residual floor the
+  # iteration reaches, so every platform spends the cap for the same reason. The
+  # cap is set well above the count a reachable tolerance converges in on this
+  # frame, so what the run fails on is the tolerance rather than the budget; the
+  # default cap of 200000 reaches the same verdict and costs two orders of
+  # magnitude more time.
+  data <- make_energy_frame(9)
+  expect_warning(
+    fit <- balance(
+      data,
+      z,
+      c(season, close, temp),
+      method = bw_energy(convergence_tolerance = 1e-14, max_iterations = 1000L)
+    ),
+    class = "balancing_convergence_warning"
+  )
+  expect_false(fit@converged)
+})
+
+test_that("a fit that cannot reach its tolerance returns usable weights", {
+  # A run whose iterate walked away from the optimum must not hand that iterate
+  # back: the stable balancing weights continuous path keeps the last iterate that
+  # met its criterion rather than the failed one, and energy owes the same. The
+  # promises are the ones a caller can check on the returned object. The weights
+  # are finite, sit at or above the documented floor, and carry each group at its
+  # estimand target total. Their effective sample size is strictly inside the
+  # range a real fit occupies, below the group size that uniform weights sit at
+  # exactly and above the collapse a few dominating weights would leave. And the
+  # balance the fit reports improves on the unweighted sample rather than
+  # reproducing it. The tolerance is the 1e-14 of the spec above, and for the
+  # same reason: at the 1e-8 the default used to carry, whether this frame
+  # reaches its tolerance turns on the last bits of the draw.
+  data <- make_energy_frame(9)
+  expect_warning(
+    fit <- balance(
+      data,
+      z,
+      c(season, close, temp),
+      method = bw_energy(convergence_tolerance = 1e-14, max_iterations = 1000L)
+    ),
+    class = "balancing_convergence_warning"
+  )
+
+  w <- as.numeric(weights(fit))
+  expect_true(all(is.finite(w)))
+  expect_true(all(w >= bw_energy()@min_weight))
+  groups <- split(seq_len(nrow(data)), as.character(data$z))
+  for (idx in groups) {
+    expect_equal(sum(w[idx]), length(idx))
+    group_ess <- kish_ess(w[idx])
+    expect_lt(group_ess, 0.95 * length(idx))
+    expect_gt(group_ess, 0.25 * length(idx))
+  }
+
+  table <- as.data.frame(fit@balance_table)
+  expect_lt(max(abs(table$weighted)), 0.5 * max(abs(table$unweighted)))
 })
 
 # ---- Live consistency against WeightIt ------------------------------------

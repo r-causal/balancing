@@ -25,6 +25,86 @@ test_that("balancing_convergence_warning: the iteration cap is reached", {
   )
 })
 
+# The two families fail the same criterion for opposite reasons, so they are
+# advised differently and the difference is asserted rather than snapshotted: a
+# snapshot would record the sentences but not that one leads with the tolerance
+# and the other with the cap. cli wraps a bullet at the console width, so each
+# message is compared with its line breaks folded into single spaces.
+flatten_message <- function(condition) {
+  gsub("[[:space:]]+", " ", conditionMessage(condition))
+}
+
+test_that("balancing_convergence_warning: a quadratic program leads with the tolerance", {
+  # The energy quadratic form is indefinite, and once the alternating-direction
+  # iteration passes its residual floor it walks away from the optimum instead of
+  # stalling at it. A run that spent its cap therefore did not stop short of the
+  # answer, and raising the cap makes the iterate worse rather than better. The
+  # advice leads with loosening the tolerance, says the weights are not to be
+  # relied on, and mentions the cap last.
+  data <- sim_binary()
+  condition <- expect_warning(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_energy(max_iterations = 5L),
+      estimand = "ate"
+    ),
+    class = "balancing_convergence_warning"
+  )
+  message <- flatten_message(condition)
+  expect_match(message, "convergence_tolerance", fixed = TRUE)
+  expect_match(message, "max_iterations", fixed = TRUE)
+  expect_lt(
+    regexpr("convergence_tolerance", message, fixed = TRUE),
+    regexpr("max_iterations", message, fixed = TRUE)
+  )
+  expect_match(message, "weights", fixed = TRUE)
+  expect_match(message, "rely on|relied on")
+})
+
+test_that("balancing_convergence_warning: a quadratic program names a reachable tolerance", {
+  # Telling a caller to loosen a tolerance is no help without a value to loosen
+  # it to, so a fit that asked for more than the solver can deliver is given one
+  # the objective reaches.
+  data <- sim_binary()
+  condition <- expect_warning(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_energy(convergence_tolerance = 1e-10, max_iterations = 5L),
+      estimand = "ate"
+    ),
+    class = "balancing_convergence_warning"
+  )
+  expect_match(flatten_message(condition), "1e-0?6")
+})
+
+test_that("balancing_convergence_warning: the estimating-equation wording is unchanged", {
+  # The entropy and tilting solvers descend monotonically, so a run that spent its
+  # cap really did stop short and more iterations really do help. Their advice
+  # keeps leading with the cap, which is what separates the two families, and this
+  # spec holds it fixed while the quadratic-program wording moves.
+  withr::local_options(balancing.entropy_solver = "newton")
+  data <- sim_binary()
+  condition <- expect_warning(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(max_iterations = 3L),
+      estimand = "ate"
+    ),
+    class = "balancing_convergence_warning"
+  )
+  expect_match(
+    flatten_message(condition),
+    "Increase `max_iterations` or loosen `convergence_tolerance`",
+    fixed = TRUE
+  )
+})
+
 test_that("balancing_balance_warning: achieved balance exceeds the tolerance", {
   # A continuous tolerance without the second distribution moment leaves the
   # exposure variance free, so the weighted correlation exceeds the requested
