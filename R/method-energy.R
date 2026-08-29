@@ -78,8 +78,8 @@
 #'   original solve.
 #' @param max_iterations The maximum solver iterations, or `NULL` for the
 #'   resolved default of 200000. The re-solve above is given the same cap, and
-#'   the reported `@iterations` sums the two solves, so an unconverged energy fit
-#'   can report more iterations than this.
+#'   the reported `@iterations` sums the two solves, so an energy fit that could
+#'   not reach its tolerance can report more iterations than this.
 #' @param ... Reserved for future extensions; must be empty. Tuning parameters
 #'   must be passed by name.
 #'
