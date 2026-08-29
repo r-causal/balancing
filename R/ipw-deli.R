@@ -774,6 +774,14 @@ constant_row_sums <- function(values, n) {
 # condition, which would otherwise surface much later as a complaint about
 # dimnames applied to a non-array. Name the real cause here instead, at the point
 # where it is still legible.
+
+# A stack that is not finite at the fitted parameters is refused by the engine
+# before it differences anything, under a class of its own. Nothing about that
+# refusal is the caller's to read: it is written about `stacked_equations`, an
+# argument they never passed, in a frame they never wrote. So it is translated
+# too, into the same class and the same shape as the bread refusal, with deli's
+# condition chained underneath. The aliased-coefficient preflight closes the one
+# route known to reach it; the translation is what covers the rest.
 #
 # `summed` is the same system reduced over the observations, which the engine
 # differentiates in place of deriving the reduction from the estimating
@@ -822,6 +830,19 @@ stacked_covariance <- function(
         error_class = "balancing_ipw_unsupported_error",
         call = call,
         .envir = environment()
+      )
+    },
+    deli_psi_return_error = function(cnd) {
+      abort(
+        c(
+          "The stacked variance could not be computed for this outcome model.",
+          x = "The stacked estimating functions are not finite at the fitted parameters.",
+          i = "The stack carries the balancing fit's estimating equations alongside the outcome model's score, so a non-finite weight, or an outcome the model cannot score at those weights, reaches it as one of these values.",
+          i = "See the inference vignette for a bootstrap workflow."
+        ),
+        error_class = "balancing_ipw_unsupported_error",
+        call = call,
+        parent = cnd
       )
     }
   )

@@ -207,6 +207,20 @@
       x The reported weights move along 1 unidentified direction, which carries the deficiency into the effect standard errors.
       i Refit the weights on covariates whose constraint columns are independent, or see the inference vignette for a bootstrap workflow.
 
+# the non-finite refusal reads as the package's own
+
+    Code
+      stacked_covariance(nonfinite_stack(n), theta, n, jacobian = diag(c(2, 1, 0.5)))
+    Condition <balancing_ipw_unsupported_error>
+      Error:
+      ! The stacked variance could not be computed for this outcome model.
+      x The stacked estimating functions are not finite at the fitted parameters.
+      i The stack carries the balancing fit's estimating equations alongside the outcome model's score, so a non-finite weight, or an outcome the model cannot score at those weights, reaches it as one of these values.
+      i See the inference vignette for a bootstrap workflow.
+      Caused by error in `deli::compute_sandwich()`:
+      ! `stacked_equations` returned non-finite values at `theta`.
+      i Both the bread and the meat are built from this return, so a non-finite value in it leaves the whole sandwich undefined.
+
 # ipw() names the rank of a deficient fit block deli refuses
 
     Code

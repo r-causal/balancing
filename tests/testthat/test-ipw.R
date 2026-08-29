@@ -330,6 +330,23 @@ singular_stack <- function(n) {
   }
 }
 
+# The same system with one non-finite contribution in it, which is what deli
+# refuses before it differences anything. The row is otherwise ordinary, so the
+# refusal is about the value rather than about the shape of the return.
+nonfinite_stack <- function(n) {
+  values <- withr::with_seed(707, matrix(stats::rnorm(3L * n), nrow = 3L))
+  values <- values - rowMeans(values)
+  function(theta) {
+    rows <- rbind(
+      values[1L, ] - theta[[1L]],
+      values[2L, ] - theta[[2L]],
+      values[3L, ] - theta[[3L]]
+    )
+    rows[3L, 1L] <- Inf
+    rows
+  }
+}
+
 # ---- Estimating-equations container contract ------------------------------
 
 # These pin the container ipw() consumes. The dimension and column-sum
@@ -5713,6 +5730,52 @@ test_that("stacked_covariance() keeps the generic bullets for a full-rank fit bl
   expect_match(message, "singular there", fixed = TRUE)
   expect_match(message, "bootstrap workflow", fixed = TRUE)
   expect_no_match(message, "rank", fixed = TRUE)
+})
+
+# ---- Translating a non-finite estimating function -------------------------
+
+# deli refuses a stack whose estimating functions are not finite at the
+# parameters, with a class of its own and a message written about
+# `stacked_equations`, an argument the caller never passed and a frame they
+# never wrote. Every other condition this route can raise is translated into the
+# package's own vocabulary before it reaches them, and this one is translated the
+# same way: the balancing class, the package's account of what went wrong, and
+# deli's condition chained underneath so the original reading is still there for
+# anyone who wants it.
+
+test_that("stacked_covariance() translates a non-finite estimating function", {
+  n <- 40L
+  theta <- c(theta_w1 = 0, theta_w2 = 0, theta_w3 = 0)
+  refuse <- function() {
+    stacked_covariance(
+      nonfinite_stack(n),
+      theta,
+      n,
+      jacobian = diag(c(2, 1, 0.5))
+    )
+  }
+
+  cnd <- rlang::catch_cnd(refuse(), classes = "error")
+  expect_s3_class(cnd, "balancing_ipw_unsupported_error")
+  expect_false(inherits(cnd, "deli_psi_return_error"))
+  expect_s3_class(cnd$parent, "deli_psi_return_error")
+
+  message <- condition_line(cnd)
+  expect_match(message, "not finite", fixed = TRUE)
+  expect_match(message, "bootstrap workflow", fixed = TRUE)
+})
+
+test_that("the non-finite refusal reads as the package's own", {
+  n <- 40L
+  theta <- c(theta_w1 = 0, theta_w2 = 0, theta_w3 = 0)
+  expect_balancing_error(
+    stacked_covariance(
+      nonfinite_stack(n),
+      theta,
+      n,
+      jacobian = diag(c(2, 1, 0.5))
+    )
+  )
 })
 
 # The same pair reached the way a caller reaches it. A container carrying one
