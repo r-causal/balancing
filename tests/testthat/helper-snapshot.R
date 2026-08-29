@@ -94,6 +94,19 @@ scrub_platform_values <- function(lines) {
     lines,
     perl = TRUE
   )
+  # The same value at the other end of the formatter. A fit that drove its
+  # largest imbalance to an exact zero prints a bare "0" there, which the
+  # exponent rule above cannot see, and whether a platform lands on that zero or
+  # on a residual of 1e-17 is the floating-point path rather than the fit. The
+  # two therefore record the same placeholder. The rewrite is confined to that
+  # line, because a zero anywhere else in a printed fit is a count, a tolerance,
+  # or a column that is zero by construction.
+  lines <- sub(
+    "^(\\s*Largest imbalance: )0(?![0-9.])",
+    "\\1<1e-7",
+    lines,
+    perl = TRUE
+  )
   round_wide_decimals(lines)
 }
 

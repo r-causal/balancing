@@ -26,6 +26,26 @@ test_that("scrub_platform_values() states the cutoff its exponent rule reaches",
   )
 })
 
+# An imbalance the fit drove to an exact zero renders as a bare "0" rather than
+# in exponent form, and it says exactly what a residual of 1e-17 says. The two
+# have to record the same placeholder, or which of them a platform reaches
+# becomes the difference between a passing and a failing snapshot.
+test_that("scrub_platform_values() replaces an exact zero on the largest-imbalance line", {
+  line <- "Largest imbalance: 0 (standardized mean difference)"
+  expect_identical(
+    scrub_platform_values(line),
+    "Largest imbalance: <1e-7 (standardized mean difference)"
+  )
+})
+
+# The rule is on that line alone. A zero anywhere else in a printed fit is a
+# count, a tolerance, or a column the fit reports as zero by construction, and
+# each of those is portable and worth keeping.
+test_that("scrub_platform_values() leaves a zero on any other line alone", {
+  line <- "Constraints: 2 terms (tolerance 0)"
+  expect_identical(scrub_platform_values(line), line)
+})
+
 # A method that balances a term only approximately reports a real distance, and
 # that number is the point of the snapshot, so it has to survive untouched.
 test_that("scrub_platform_values() leaves a measurable balance value alone", {
