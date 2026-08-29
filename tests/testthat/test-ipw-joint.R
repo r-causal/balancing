@@ -27,45 +27,8 @@
 
 # ---- Fixtures --------------------------------------------------------------
 
-# Two binary treatments, the second depending on the first and both on a
-# covariate, with an outcome carrying a real interaction between them. A binary
-# and a gaussian outcome are drawn so each reported scale has something to read,
-# and a modifier is drawn for the `.by` refusal.
-ipw_joint_fixture <- function(n = 700) {
-  withr::with_seed(4210, {
-    x1 <- stats::rnorm(n)
-    a <- stats::rbinom(n, 1L, stats::plogis(0.3 * x1))
-    e <- stats::rbinom(n, 1L, stats::plogis(-0.2 + 0.5 * x1 - 0.4 * a))
-    y <- stats::rbinom(
-      n,
-      1L,
-      stats::plogis(-0.5 + 0.7 * a + 0.5 * e + 0.6 * x1 + 0.9 * a * e)
-    )
-    y_cont <- 1 +
-      0.6 * a +
-      0.4 * e +
-      0.5 * x1 +
-      0.8 * a * e +
-      stats::rnorm(n)
-    data <- data.frame(
-      x1 = x1,
-      y = y,
-      y_cont = y_cont,
-      a = factor(a, levels = c(0L, 1L)),
-      e = factor(e, levels = c(0L, 1L)),
-      modifier = factor(
-        ifelse(x1 > 0, "hi", "lo"),
-        levels = c("lo", "hi")
-      )
-    )
-    # Assigned rather than built inside `data.frame()`, which would coerce the
-    # crossing away before anything could read it.
-    data$joint <- causalgenerics::joint_exposure(a = data$a, e = data$e)
-    data
-  })
-}
-
-# The same two treatments crossed under one name, assembled from the parts
+# The two treatments of `ipw_joint_fixture()` in helper-dgp.R crossed under one
+# name, assembled from the parts
 # rather than declared through `causalgenerics::joint_exposure()`, which now
 # refuses two components sharing a name.
 #

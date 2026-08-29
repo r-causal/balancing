@@ -14,60 +14,8 @@
 
 # ---- Fixtures --------------------------------------------------------------
 
-# A binary-exposure fixture whose effect differs across the levels of a
-# two-level modifier. The modifier confounds the exposure as well as modifying
-# its effect, so a fit that balances it has real work to do, and it rides along
-# as a numeric indicator, `modifier_hi`, because that is the parameterization
-# the weight parameters stay identified in.
-#
-# The modifier declares its levels in reverse alphabetical order on purpose. The
-# reference subgroup every contrast of subgroups is measured against is the
-# modifier's first level, which is `"lo"` here and would be `"hi"` for an
-# implementation that sorted the levels itself.
-ipw_by_fixture <- function(n = 400) {
-  withr::with_seed(808, {
-    x1 <- stats::rnorm(n)
-    x2 <- stats::rnorm(n)
-    modifier <- factor(
-      sample(c("lo", "hi"), n, replace = TRUE),
-      levels = c("lo", "hi")
-    )
-    modifier_hi <- as.numeric(modifier == "hi")
-    exposure <- stats::rbinom(
-      n,
-      1L,
-      stats::plogis(0.7 * x1 - 0.5 * x2 + 0.6 * modifier_hi)
-    )
-    y <- stats::rbinom(
-      n,
-      1L,
-      stats::plogis(
-        -0.6 +
-          0.2 * exposure +
-          0.5 * x1 +
-          0.3 * modifier_hi +
-          1.4 * exposure * modifier_hi
-      )
-    )
-    y_cont <- 1 +
-      0.2 * exposure +
-      0.5 * x1 -
-      0.3 * x2 +
-      1.2 * exposure * modifier_hi +
-      stats::rnorm(n)
-    data.frame(
-      exposure = exposure,
-      x1 = x1,
-      x2 = x2,
-      modifier = modifier,
-      modifier_hi = modifier_hi,
-      y = y,
-      y_cont = y_cont
-    )
-  })
-}
-
-# A three-level categorical exposure crossed with the same two-level modifier.
+# A three-level categorical exposure crossed with the two-level modifier of
+# `ipw_by_fixture()` in helper-dgp.R.
 # The exposure comes from the shared `sim_categorical()` process; the modifier
 # and the outcome are drawn here under their own seed, with the interaction
 # concentrated on the `"c"` level so the two subgroups disagree about one
