@@ -47,8 +47,8 @@ impl QpBackend for Osqp {
     ) -> Result<QpSolution, QpError> {
         let n = spec.n;
         // A spec with no decision variables has nothing to solve for. OSQP's C
-        // core validates the same condition, but it writes its complaint to
-        // stderr before returning an error that carries no text of its own, so a
+        // core validates the same condition, but it prints its complaint to
+        // stdout before returning an error that carries no text of its own, so a
         // relayed refusal is an empty `DataInvalid` preceded by a line no caller
         // asked for and none can suppress. The refusal therefore belongs to the
         // wrapper, where it can be named and where the C core is never reached.
@@ -424,7 +424,7 @@ mod tests {
     #[test]
     fn a_spec_with_no_decision_variables_is_refused_before_the_c_core() {
         // OSQP's C core validates that the variable count is positive, but it
-        // reports the refusal by writing to stderr before it returns, so every
+        // reports the refusal by printing to stdout before it returns, so every
         // solve of this shape prints a line no caller asked for and none can
         // suppress. The wrapper therefore refuses the spec on its own terms and
         // never reaches the C core, which is observable in the refusal message:
