@@ -222,7 +222,7 @@ expect_cfd_matches_oracle <- function(
     c(x1, x2),
     method = bw_cfd(kernel = kernel, weight_penalty = penalty),
     estimand = estimand,
-    focal_level = focal_level
+    .focal_level = focal_level
   )
   expect_true(fit@converged)
 

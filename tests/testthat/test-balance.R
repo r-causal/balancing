@@ -494,13 +494,39 @@ test_that("a focal estimand needs a level outside the focal group", {
       c(x1, x2),
       method = bw_entropy(),
       estimand = "att",
-      focal_level = 1
+      .focal_level = 1
     ),
     class = "balancing_estimand_error"
   )
 })
 
-test_that("a binary att infers the treated level without focal_level", {
+# ---- The public focal-level argument ---------------------------------------
+
+# The user-facing argument is `.focal_level`, which is the name propensity's
+# weight constructors use for the same quantity, while the property it resolves
+# to on the fit keeps the bare name. The package is unreleased, so the old
+# argument name is not accepted anywhere: `balance()` closes its dots, and a
+# name it does not have is refused there rather than absorbed in silence.
+test_that("balance() takes .focal_level rather than focal_level", {
+  arguments <- names(formals(balance))
+  expect_true(".focal_level" %in% arguments)
+  expect_false("focal_level" %in% arguments)
+
+  data <- sim_categorical(n = 200)
+  expect_error(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(),
+      estimand = "att",
+      focal_level = "b"
+    ),
+    class = "rlib_error_dots_nonempty"
+  )
+})
+
+test_that("a binary att infers the treated level without .focal_level", {
   data <- sim_binary(n = 200)
   fit <- balance(
     data,
@@ -512,7 +538,7 @@ test_that("a binary att infers the treated level without focal_level", {
   expect_identical(fit@focal_level, "1")
 })
 
-test_that("a categorical att requires focal_level", {
+test_that("a categorical att requires .focal_level", {
   data <- sim_categorical(n = 200)
   expect_error(
     balance(
@@ -526,7 +552,7 @@ test_that("a categorical att requires focal_level", {
   )
 })
 
-test_that("a categorical att honors a supplied focal_level", {
+test_that("a categorical att honors a supplied .focal_level", {
   data <- sim_categorical(n = 200)
   fit <- balance(
     data,
@@ -534,7 +560,7 @@ test_that("a categorical att honors a supplied focal_level", {
     c(x1, x2),
     method = bw_entropy(),
     estimand = "att",
-    focal_level = "b"
+    .focal_level = "b"
   )
   expect_identical(fit@focal_level, "b")
 })
@@ -546,7 +572,7 @@ test_that("a categorical att honors a supplied focal_level", {
 # reach the check that the supplied one is an exposure level at all. A level that
 # does not exist used to be accepted in silence, which reads as a fit that
 # targeted it.
-test_that("focal_level with the average treatment effect warns and is ignored", {
+test_that(".focal_level with the average treatment effect warns and is ignored", {
   data <- sim_binary(n = 200)
   expect_warning(
     fit <- balance(
@@ -555,14 +581,14 @@ test_that("focal_level with the average treatment effect warns and is ignored", 
       c(x1, x2),
       method = bw_entropy(),
       estimand = "ate",
-      focal_level = 1
+      .focal_level = 1
     ),
     class = "balancing_ignored_argument_warning"
   )
   expect_null(fit@focal_level)
 })
 
-test_that("a focal_level that is not an exposure level still warns", {
+test_that("a .focal_level that is not an exposure level still warns", {
   data <- sim_binary(n = 200)
   expect_warning(
     balance(
@@ -571,13 +597,13 @@ test_that("a focal_level that is not an exposure level still warns", {
       c(x1, x2),
       method = bw_entropy(),
       estimand = "ate",
-      focal_level = "nonesuch"
+      .focal_level = "nonesuch"
     ),
     class = "balancing_ignored_argument_warning"
   )
 })
 
-test_that("focal_level with the overlap estimand warns and is ignored", {
+test_that(".focal_level with the overlap estimand warns and is ignored", {
   data <- sim_binary(n = 200)
   expect_warning(
     fit <- balance(
@@ -586,14 +612,14 @@ test_that("focal_level with the overlap estimand warns and is ignored", {
       c(x1, x2),
       method = bw_cbps(),
       estimand = "ato",
-      focal_level = 0
+      .focal_level = 0
     ),
     class = "balancing_ignored_argument_warning"
   )
   expect_null(fit@focal_level)
 })
 
-test_that("a pooled estimand without focal_level is silent", {
+test_that("a pooled estimand without .focal_level is silent", {
   data <- sim_binary(n = 200)
   expect_no_warning(
     balance(data, exposure, c(x1, x2), method = bw_entropy(), estimand = "ate")
@@ -603,7 +629,7 @@ test_that("a pooled estimand without focal_level is silent", {
   )
 })
 
-test_that("a focal estimand with focal_level does not warn", {
+test_that("a focal estimand with .focal_level does not warn", {
   data <- sim_categorical(n = 200)
   expect_no_warning(
     balance(
@@ -612,7 +638,7 @@ test_that("a focal estimand with focal_level does not warn", {
       c(x1, x2),
       method = bw_entropy(),
       estimand = "att",
-      focal_level = "b"
+      .focal_level = "b"
     )
   )
 })
@@ -649,7 +675,7 @@ test_that("a single-level exposure is refused for every estimand", {
       c(x1, x2),
       method = bw_entropy(),
       estimand = "att",
-      focal_level = 1
+      .focal_level = 1
     ),
     class = "balancing_estimand_error"
   )

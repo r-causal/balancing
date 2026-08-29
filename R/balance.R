@@ -18,7 +18,7 @@
 #' estimand vocabulary matches propensity: `"atc"` is accepted as a synonym for
 #' the untreated target and stored as `"atu"`. `"att"` and `"atc"` reweight
 #' toward a focal exposure level, inferred for a binary exposure and required
-#' through `focal_level` for a categorical exposure. Continuous exposures permit
+#' through `.focal_level` for a categorical exposure. Continuous exposures permit
 #' only `"ate"`.
 #'
 #' Constraints default to first-moment balance. Pass a [balance_terms()]
@@ -54,7 +54,7 @@
 #'   default.
 #' @param exposure_type One of `"auto"` (the default), `"binary"`,
 #'   `"categorical"`, or `"continuous"`.
-#' @param focal_level The focal exposure level for `"att"` and `"atc"`. Inferred
+#' @param .focal_level The focal exposure level for `"att"` and `"atc"`. Inferred
 #'   for a binary exposure; required for a categorical exposure.
 #' @param sampling_weights Sampling weights, given as a bare column name or an
 #'   external numeric vector, or `NULL`.
@@ -84,7 +84,7 @@ balance <- function(
   ...,
   constraints = NULL,
   exposure_type = c("auto", "binary", "categorical", "continuous"),
-  focal_level = NULL,
+  .focal_level = NULL,
   sampling_weights = NULL
 ) {
   the_call <- match.call()
@@ -176,7 +176,7 @@ balance <- function(
     estimand,
     exposure_type,
     levels,
-    focal_level
+    .focal_level
   )
 
   constraints <- constraints %||% default_constraints(method)
@@ -703,7 +703,7 @@ constrained_covariates <- function(recipe, covariates) {
 
 # Resolve the focal exposure level for att and atc. A binary exposure infers the
 # treated level (the second level) for att and the control level (the first) for
-# atc; a categorical exposure requires an explicit focal_level. The average
+# atc; a categorical exposure requires an explicit `.focal_level`. The average
 # treatment effect and the overlap estimand reweight every group rather than hold
 # one fixed, so they carry no focal level.
 resolve_focal_level <- function(
@@ -723,7 +723,7 @@ resolve_focal_level <- function(
     if (!is.null(focal_level)) {
       warn(
         c(
-          "{.arg focal_level} applies to the {.val att} and {.val atc} estimands and is ignored.",
+          "{.arg .focal_level} applies to the {.val att} and {.val atc} estimands and is ignored.",
           i = "The {.val {estimand}} estimand reweights every exposure group rather than holding one fixed."
         ),
         warning_class = "balancing_ignored_argument_warning",
@@ -745,7 +745,7 @@ resolve_focal_level <- function(
     if (is.null(focal_level)) {
       abort(
         c(
-          "{.arg focal_level} is required for the {.val {estimand}} estimand with a categorical exposure.",
+          "{.arg .focal_level} is required for the {.val {estimand}} estimand with a categorical exposure.",
           i = "Supply the exposure level to target, one of {.val {levels}}."
         ),
         error_class = "balancing_estimand_error",
@@ -758,7 +758,7 @@ resolve_focal_level <- function(
   if (!resolved %in% levels) {
     abort(
       c(
-        "{.arg focal_level} must be an exposure level.",
+        "{.arg .focal_level} must be an exposure level.",
         x = "{.val {resolved}} is not one of {.val {levels}}."
       ),
       error_class = "balancing_estimand_error",

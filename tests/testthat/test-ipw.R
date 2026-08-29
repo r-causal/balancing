@@ -634,7 +634,7 @@ for (spec in list(
             c(x1, x2),
             method = eval(spec$method),
             estimand = spec$estimand,
-            focal_level = spec$focal,
+            .focal_level = spec$focal,
             sampling_weights = sampling
           )
           expect_weights_fn_contract(fit, data)
@@ -654,7 +654,7 @@ test_that("ipw() returns the binary-outcome effect rows for an entropy fit", {
     c(x1, x2),
     method = bw_entropy(),
     estimand = "att",
-    focal_level = "1"
+    .focal_level = "1"
   )
   w <- as.numeric(stats::weights(fit))
   outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
@@ -678,7 +678,7 @@ test_that("ipw() returns a difference row and its means for a continuous outcome
     c(x1, x2),
     method = bw_entropy(),
     estimand = "att",
-    focal_level = "1"
+    .focal_level = "1"
   )
   w <- as.numeric(stats::weights(fit))
   outcome_mod <- fit_outcome(y_cont ~ exposure, data, w, stats::gaussian())
@@ -1056,7 +1056,7 @@ for (spec in list(
           c(x1, x2),
           method = eval(spec$method),
           estimand = spec$estimand,
-          focal_level = spec$focal
+          .focal_level = spec$focal
         )
         w <- as.numeric(stats::weights(fit))
         outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
@@ -1349,7 +1349,7 @@ adjusted_boot_rd_se <- function(
               c(x1, x2),
               method = eval(method),
               estimand = estimand,
-              focal_level = focal
+              .focal_level = focal
             )
             boot_w <- as.numeric(stats::weights(boot_fit))
             boot_mod <- fit_outcome(
@@ -1419,7 +1419,7 @@ for (spec in list(
           c(x1, x2),
           method = eval(spec$method),
           estimand = spec$estimand,
-          focal_level = spec$focal
+          .focal_level = spec$focal
         )
         w <- as.numeric(stats::weights(fit))
         binary_mod <- fit_outcome(
@@ -1661,7 +1661,7 @@ for (spec in list(
           c(x1, x2),
           method = eval(spec$method),
           estimand = spec$estimand,
-          focal_level = spec$focal
+          .focal_level = spec$focal
         )
         w <- as.numeric(stats::weights(fit))
         outcome_mod <- fit_outcome(
@@ -1744,7 +1744,7 @@ test_that("ipw() adjusted-model standard errors track a bootstrap for bw_ipt att
     c(x1, x2),
     method = bw_ipt(),
     estimand = "att",
-    focal_level = "1"
+    .focal_level = "1"
   )
   w <- as.numeric(stats::weights(fit))
   outcome_mod <- fit_outcome(y ~ exposure + x1 + x2, data, w, stats::binomial())
@@ -1819,7 +1819,7 @@ test_that("supporting adjusted outcome models leaves the marginal ones alone", {
     c(x1, x2),
     method = bw_ipt(),
     estimand = "att",
-    focal_level = "1"
+    .focal_level = "1"
   )
 
   for (fit in list(pooled, focal)) {
@@ -1946,7 +1946,7 @@ test_that("ipw() supports an interaction between the exposure and a covariate", 
     c(x1, x2),
     method = bw_ipt(),
     estimand = "att",
-    focal_level = "1"
+    .focal_level = "1"
   )
 
   for (spec in list(
@@ -3426,7 +3426,7 @@ test_that("a categorical att standardizes an adjusted model over the focal group
     c(x1, x2),
     method = bw_ipt(),
     estimand = "att",
-    focal_level = "b"
+    .focal_level = "b"
   )
   w <- as.numeric(stats::weights(fit))
   outcome_mod <- fit_outcome(y ~ exposure + x1, data, w, stats::binomial())
@@ -3660,7 +3660,7 @@ for (spec in list(
         c(x1, x2),
         method = eval(spec$method),
         estimand = spec$estimand,
-        focal_level = spec$focal
+        .focal_level = spec$focal
       )
       w <- as.numeric(stats::weights(fit))
       outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
@@ -4908,7 +4908,7 @@ test_that("the categorical att cbps psi_fn reproduces the stored psi", {
     c(x1, x2),
     method = bw_cbps(),
     estimand = "att",
-    focal_level = "b"
+    .focal_level = "b"
   )
   ee <- estimating_equations(fit)
   expect_equal(ee@psi_fn(ee@parameters), ee@psi, tolerance = 1e-10)
@@ -5243,7 +5243,7 @@ for (spec in list(
           c(x1, x2),
           method = eval(spec$method),
           estimand = spec$estimand,
-          focal_level = spec$focal
+          .focal_level = spec$focal
         )
         w <- as.numeric(stats::weights(fit))
         outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())

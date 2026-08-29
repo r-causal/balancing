@@ -503,7 +503,7 @@ test_that("categorical att energy balancing produces valid weights", {
     c(x1, x2),
     method = bw_energy(),
     estimand = "att",
-    focal_level = "b"
+    .focal_level = "b"
   )
   w <- as.numeric(stats::weights(fit))
   expect_true(all(w >= 0))

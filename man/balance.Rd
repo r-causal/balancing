@@ -13,7 +13,7 @@ balance(
   ...,
   constraints = NULL,
   exposure_type = c("auto", "binary", "categorical", "continuous"),
-  focal_level = NULL,
+  .focal_level = NULL,
   sampling_weights = NULL
 )
 }
@@ -40,7 +40,7 @@ default.}
 \item{exposure_type}{One of \code{"auto"} (the default), \code{"binary"},
 \code{"categorical"}, or \code{"continuous"}.}
 
-\item{focal_level}{The focal exposure level for \code{"att"} and \code{"atc"}. Inferred
+\item{.focal_level}{The focal exposure level for \code{"att"} and \code{"atc"}. Inferred
 for a binary exposure; required for a categorical exposure.}
 
 \item{sampling_weights}{Sampling weights, given as a bare column name or an
@@ -62,7 +62,7 @@ informational message, which \code{options(balancing.quiet = TRUE)} suppresses. 
 estimand vocabulary matches propensity: \code{"atc"} is accepted as a synonym for
 the untreated target and stored as \code{"atu"}. \code{"att"} and \code{"atc"} reweight
 toward a focal exposure level, inferred for a binary exposure and required
-through \code{focal_level} for a categorical exposure. Continuous exposures permit
+through \code{.focal_level} for a categorical exposure. Continuous exposures permit
 only \code{"ate"}.
 
 Constraints default to first-moment balance. Pass a \code{\link[=balance_terms]{balance_terms()}}

@@ -338,7 +338,7 @@ test_that("entropy balancing balances a categorical att", {
     c(x1, x2),
     method = bw_entropy(),
     estimand = "att",
-    focal_level = "b"
+    .focal_level = "b"
   )
   expect_balanced(fit, data)
   expect_true(all(stats::weights(fit) >= 0))

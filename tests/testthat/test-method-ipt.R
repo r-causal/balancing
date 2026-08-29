@@ -234,7 +234,7 @@ test_that("bw_ipt balances a categorical att", {
     c(x1, x2),
     method = bw_ipt(),
     estimand = "att",
-    focal_level = "b"
+    .focal_level = "b"
   )
   expect_balanced(fit, data)
   expect_true(all(stats::weights(fit) >= 0))
@@ -350,7 +350,7 @@ test_that("bw_ipt balances a categorical att under sampling weights", {
     c(x1, x2),
     method = bw_ipt(),
     estimand = "att",
-    focal_level = "b",
+    .focal_level = "b",
     sampling_weights = sw
   )
   expect_balanced(fit, data)

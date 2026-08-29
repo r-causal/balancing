@@ -249,7 +249,7 @@ test_that("a binary att result carries the covariance of its means and effects",
     c(x1, x2),
     method = bw_entropy(),
     estimand = "att",
-    focal_level = "1"
+    .focal_level = "1"
   )
   w <- stats::weights(fit)
   outcome_mod <- fit_accessor_outcome(

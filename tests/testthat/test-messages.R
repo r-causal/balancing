@@ -334,7 +334,7 @@ test_that("balancing_ignored_argument_warning: a clarabel pin energy balancing c
   )
 })
 
-test_that("balancing_ignored_argument_warning: focal_level with a pooled estimand", {
+test_that("balancing_ignored_argument_warning: .focal_level with a pooled estimand", {
   # The average treatment effect reweights every exposure group rather than
   # holding one fixed, so it has no focal level to resolve and a supplied one is
   # never validated against the data. The fit names the estimand that ignores it.
@@ -346,7 +346,7 @@ test_that("balancing_ignored_argument_warning: focal_level with a pooled estiman
       c(x1, x2),
       method = bw_entropy(),
       estimand = "ate",
-      focal_level = 1
+      .focal_level = 1
     )
   )
 })

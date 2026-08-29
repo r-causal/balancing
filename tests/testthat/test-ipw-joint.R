@@ -101,7 +101,7 @@ fit_joint_weights <- function(data, estimand = "ate", focal_level = NULL) {
     c(x1),
     method = bw_ipt(),
     estimand = estimand,
-    focal_level = focal_level
+    .focal_level = focal_level
   )
 }
 

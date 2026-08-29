@@ -294,7 +294,7 @@ test_that("a focal estimand standardizes its mean rows over the focal group", {
     c(x1, x2),
     method = bw_entropy(),
     estimand = "att",
-    focal_level = "1"
+    .focal_level = "1"
   )
   w <- as.numeric(stats::weights(fit))
   outcome_mod <- fit_level_means_outcome(
@@ -660,7 +660,7 @@ test_that("a categorical focal estimand standardizes its mean rows over the foca
     c(x1, x2),
     method = bw_ipt(),
     estimand = "att",
-    focal_level = "b"
+    .focal_level = "b"
   )
   w <- as.numeric(stats::weights(fit))
   outcome_mod <- fit_level_means_outcome(

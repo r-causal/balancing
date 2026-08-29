@@ -475,7 +475,7 @@ test_that("categorical att stable balancing produces valid weights", {
     c(x1, x2),
     method = bw_sbw(),
     estimand = "att",
-    focal_level = "b",
+    .focal_level = "b",
     constraints = balance_terms(tolerance = 0.05)
   )
   w <- as.numeric(stats::weights(fit))

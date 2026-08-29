@@ -79,7 +79,7 @@ test_that("balancing_exposure_type_error: a method rejects an exposure type", {
   )
 })
 
-test_that("balancing_estimand_error: a categorical att without focal_level", {
+test_that("balancing_estimand_error: a categorical att without .focal_level", {
   data <- sim_categorical(n = 150)
   expect_balancing_error(
     balance(
@@ -200,7 +200,7 @@ test_that("balancing_estimand_error: a focal estimand with one exposure level", 
       c(x1, x2),
       method = bw_entropy(),
       estimand = "att",
-      focal_level = 1
+      .focal_level = 1
     )
   )
 })
