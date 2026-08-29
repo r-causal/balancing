@@ -80,7 +80,9 @@ the full set.
 A \code{difftime} covariate balances as the number it stores, in the unit its own
 column declares. Nothing rescales it and nothing reinterprets the unit, so its
 constraints, its recipe, and its balance table match those of the same
-durations supplied as bare numbers.
+durations supplied as bare numbers. A \code{Date} or \code{POSIXct} covariate balances
+the same way, as the number \code{as.numeric()} gives it: days since 1970-01-01 for
+a date, seconds since then for a date-time.
 }
 \examples{
 n <- 200

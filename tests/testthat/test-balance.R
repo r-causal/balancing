@@ -1428,3 +1428,80 @@ test_that("a difftime covariate crosses the kernel distance as its number", {
     )
   }
 })
+
+# ---- Date and POSIXct covariates -------------------------------------------
+
+# A date and a date-time reach the fit as the numbers they store, days since
+# 1970-01-01 and seconds since then, the same contract a duration carries. Both
+# the constraint route and the kernel-distance route are pinned, because the two
+# read the column through the same accessor for different reasons: the constraint
+# expansion needs a number it can raise to a power, and the distance needs a
+# number rather than one indicator per distinct instant. The offset is what makes
+# the date-time case worth its own fixture, since a stamp near 1.7e9 with hours
+# of spread is a column whose standardization constants sit nine orders of
+# magnitude above its own spread.
+test_that("a Date covariate balances as the number it stores", {
+  data <- sim_binary(n = 200)
+  data$day <- as.Date("2020-01-01") + 30 * data$x1 * data$x2
+  numeric_data <- data
+  numeric_data$day <- as.numeric(numeric_data$day)
+
+  for (method in list(bw_entropy(), bw_energy())) {
+    fit <- withr::with_seed(
+      2024,
+      balance(data, exposure, c(x1, x2, day), method = method)
+    )
+    numeric_fit <- withr::with_seed(
+      2024,
+      balance(numeric_data, exposure, c(x1, x2, day), method = method)
+    )
+
+    expect_identical(fit@covariates, c("x1", "x2", "day"))
+    expect_true("day" %in% fit@balance_table$term)
+    expect_equal(
+      fit@balance_table[fit@balance_table$term == "day", ],
+      numeric_fit@balance_table[numeric_fit@balance_table$term == "day", ],
+      tolerance = 1e-8
+    )
+    expect_equal(
+      as.numeric(stats::weights(fit)),
+      as.numeric(stats::weights(numeric_fit)),
+      tolerance = 1e-8
+    )
+  }
+})
+
+test_that("a POSIXct covariate balances as the number it stores", {
+  data <- sim_binary(n = 200)
+  data$stamp <- as.POSIXct(
+    1.7e9 + 3600 * data$x1 * data$x2,
+    origin = "1970-01-01",
+    tz = "UTC"
+  )
+  numeric_data <- data
+  numeric_data$stamp <- as.numeric(numeric_data$stamp)
+
+  for (method in list(bw_entropy(), bw_energy())) {
+    fit <- withr::with_seed(
+      2024,
+      balance(data, exposure, c(x1, x2, stamp), method = method)
+    )
+    numeric_fit <- withr::with_seed(
+      2024,
+      balance(numeric_data, exposure, c(x1, x2, stamp), method = method)
+    )
+
+    expect_identical(fit@covariates, c("x1", "x2", "stamp"))
+    expect_true("stamp" %in% fit@balance_table$term)
+    expect_equal(
+      fit@balance_table[fit@balance_table$term == "stamp", ],
+      numeric_fit@balance_table[numeric_fit@balance_table$term == "stamp", ],
+      tolerance = 1e-8
+    )
+    expect_equal(
+      as.numeric(stats::weights(fit)),
+      as.numeric(stats::weights(numeric_fit)),
+      tolerance = 1e-8
+    )
+  }
+})

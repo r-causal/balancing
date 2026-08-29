@@ -1050,3 +1050,112 @@ test_that("a difftime covariate expands as its numeric value does", {
   expect_identical(built$recipe, numeric_built$recipe)
   expect_identical(built$matrix, numeric_built$matrix)
 })
+
+# ---- Date and POSIXct covariates -------------------------------------------
+
+# A date and a date-time are the same case as a duration one step further out:
+# each stores a plain number, each refuses `^` on its own class, and neither
+# answers `is.numeric()`, so the expansion has to read the number rather than the
+# column. The number is the one `as.numeric()` gives, days since 1970-01-01 for a
+# date and seconds since then for a date-time, and the contract is that the
+# column expands exactly as those numbers written bare would. The covariate is
+# built from the two continuous confounders so it is neither constant nor an
+# affine function of anything else in the selection.
+test_that("a Date covariate expands as the number it stores", {
+  data <- sim_binary(n = 200)
+  data$day <- as.Date("2020-01-01") + 30 * data$x1 * data$x2
+  numeric_data <- data
+  numeric_data$day <- as.numeric(numeric_data$day)
+
+  terms <- balance_terms(moments = 2L, quantiles = c(0.25, 0.75))
+  built <- build_constraint_matrix(
+    data,
+    c("x1", "x2", "day"),
+    terms,
+    exposure_type = "binary"
+  )
+  numeric_built <- build_constraint_matrix(
+    numeric_data,
+    c("x1", "x2", "day"),
+    terms,
+    exposure_type = "binary"
+  )
+
+  built_terms <- vapply(built$recipe, function(r) r$term, character(1))
+  expect_true(
+    all(c("day", "day^2", "day_q0.25", "day_q0.75") %in% built_terms)
+  )
+  expect_identical(built$recipe, numeric_built$recipe)
+  expect_identical(built$matrix, numeric_built$matrix)
+})
+
+test_that("a POSIXct covariate expands as the number it stores", {
+  data <- sim_binary(n = 200)
+  data$stamp <- as.POSIXct(
+    1.7e9 + 3600 * data$x1 * data$x2,
+    origin = "1970-01-01",
+    tz = "UTC"
+  )
+  numeric_data <- data
+  numeric_data$stamp <- as.numeric(numeric_data$stamp)
+
+  terms <- balance_terms(moments = 2L, quantiles = c(0.25, 0.75))
+  built <- build_constraint_matrix(
+    data,
+    c("x1", "x2", "stamp"),
+    terms,
+    exposure_type = "binary"
+  )
+  numeric_built <- build_constraint_matrix(
+    numeric_data,
+    c("x1", "x2", "stamp"),
+    terms,
+    exposure_type = "binary"
+  )
+
+  built_terms <- vapply(built$recipe, function(r) r$term, character(1))
+  expect_true(
+    all(c("stamp", "stamp^2", "stamp_q0.25", "stamp_q0.75") %in% built_terms)
+  )
+  expect_identical(built$recipe, numeric_built$recipe)
+  expect_identical(built$matrix, numeric_built$matrix)
+})
+
+# Which branch of the expansion a covariate takes is decided from the numbers it
+# stores, which is the same rule a duration follows and the reason nothing about
+# the branching needed widening alongside the coercion. `is_binary_numeric()`
+# reads values rather than classes, so a date column holding two distinct dates
+# is a two-valued numeric column whose values are not zero and one: it takes the
+# moment branch, exactly as the numbers it stores do. A column whose two dates
+# were the first two days of 1970 would store zero and one and take the indicator
+# branch, again exactly as those numbers do. Its square is then dropped as an
+# affine function of the column, which is what a two-valued column's square is,
+# and that too happens on both sides alike.
+test_that("a two-valued Date covariate is classified by the numbers it stores", {
+  data <- sim_binary(n = 200)
+  data$day <- as.Date(ifelse(data$x1 > 0, "2020-01-01", "2020-06-01"))
+  numeric_data <- data
+  numeric_data$day <- as.numeric(numeric_data$day)
+
+  terms <- balance_terms(moments = 2L)
+  built <- build_constraint_matrix(
+    data,
+    c("x1", "x2", "day"),
+    terms,
+    exposure_type = "binary"
+  )
+  numeric_built <- build_constraint_matrix(
+    numeric_data,
+    c("x1", "x2", "day"),
+    terms,
+    exposure_type = "binary"
+  )
+
+  built_terms <- vapply(built$recipe, function(r) r$term, character(1))
+  expect_true("day" %in% built_terms)
+  # A column read as categorical would contribute one indicator per distinct
+  # date, named for the level rather than for the covariate.
+  expect_false(any(grepl("^day_", built_terms)))
+  expect_identical(built$recipe, numeric_built$recipe)
+  expect_identical(built$matrix, numeric_built$matrix)
+})

@@ -51,10 +51,19 @@ new_recipe_record <- function(
 # exactly as the same durations written as bare numbers would. Base R also
 # refuses `^` on the class and answers `is.numeric()` with FALSE for it, so the
 # power and quantile records could not be built from the column as it stands.
+#
+# A date and a date-time are the same case: each stores a number on a fixed
+# origin, each refuses `^`, and neither answers `is.numeric()`. They enter as the
+# number `as.numeric()` gives, which is days since 1970-01-01 for a date and
+# seconds since then for a date-time, and nothing rescales or reinterprets it.
+# What the coercion settles is only how the column is read; which branch of the
+# expansion it then takes is decided from the numbers, exactly as it is for a
+# duration and for a column of bare numbers.
+#
 # A column of any other class passes through unchanged.
 covariate_values <- function(data, name) {
   column <- data[[name]]
-  if (inherits(column, "difftime")) {
+  if (inherits(column, c("difftime", "Date", "POSIXct"))) {
     return(as.numeric(column))
   }
   column
