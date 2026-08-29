@@ -293,7 +293,7 @@ automatic_threads <- function() {
   if (nzchar(Sys.getenv("_R_CHECK_LIMIT_CORES_"))) {
     return(2L)
   }
-  physical <- parallel::detectCores(logical = FALSE)
+  physical <- physical_cores()
   if (is.na(physical) || physical < 1L) {
     physical <- 1L
   }
@@ -303,6 +303,32 @@ automatic_threads <- function() {
     env_thread_cap("OMP_NUM_THREADS")
   )
   max(1L, as.integer(min(caps)))
+}
+
+# Session state the package computes once and reads many times. It holds only
+# values that cannot change while the session runs, so nothing invalidates an
+# entry except a test that wants to observe the computation.
+.balancing_cache <- new.env(parent = emptyenv())
+
+# The number of physical cores, read once per session. `parallel::detectCores()`
+# asks the operating system, which on macOS means launching `sysctl`: measured at
+# 13 milliseconds, half of what a five-hundred-row entropy fit takes in total,
+# and paid again on every fit that does not name its own thread count. The answer
+# is a property of the machine rather than of the fit, so the first reading is
+# recorded and every later one is answered from the record.
+physical_cores <- function() {
+  if (is.null(.balancing_cache$physical_cores)) {
+    .balancing_cache$physical_cores <- parallel::detectCores(logical = FALSE)
+  }
+  .balancing_cache$physical_cores
+}
+
+# Discard the recorded core count so the next reading asks the operating system
+# again. Nothing in a fit calls this; it exists for the tests that mock
+# `parallel::detectCores()` and need the record not to answer in its place.
+reset_physical_cores <- function() {
+  .balancing_cache$physical_cores <- NULL
+  invisible(NULL)
 }
 
 # Resolve the solver for the exact entropy problem. The default is Newton, the
