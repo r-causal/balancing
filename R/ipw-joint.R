@@ -184,25 +184,29 @@ ipw_joint_values <- function(joint, means, continuous) {
   c(simple, ipw_joint_interaction_values(joint, simple))
 }
 
-# The joint contrast rows of one evaluation of the stacked estimating functions.
-# They are deterministic functions of the means and of each other, so each row
-# is the same value for every unit: nothing at the solution, where that value is
-# zero, and everything to the bread, which is what carries their standard errors
-# without a delta method.
+# The value each joint contrast row repeats across the sample, which is the
+# whole of what the row is. The rows are deterministic functions of the means
+# and of each other, so each is the same value for every unit: nothing to the
+# meat at the solution, where that value is zero, and everything to the bread,
+# which is what carries their standard errors without a delta method. The
+# stacked psi matrix and the summed system the bread is differentiated from both
+# read the value from here, so a row and its reduction over the sample cannot
+# describe different contrasts.
 #
 # The simple effects are read off the mean parameters and the interactions off
 # the simple-effect parameters rather than off the means again. That is what
 # makes an interaction row the difference of two parameters the system already
 # carries: its derivative is exact, and the row equals the double difference by
 # construction rather than to within the accuracy of a finite difference.
-ipw_joint_rows <- function(joint, mean_theta, contrast_theta, continuous, n) {
+ipw_joint_row_values <- function(
+  joint,
+  mean_theta,
+  contrast_theta,
+  continuous
+) {
   simple <- ipw_joint_simple_values(joint, mean_theta, continuous)
-  matrix(
-    c(simple, ipw_joint_interaction_values(joint, contrast_theta)) -
-      contrast_theta,
-    nrow = length(contrast_theta),
-    ncol = n
-  )
+  c(simple, ipw_joint_interaction_values(joint, contrast_theta)) -
+    contrast_theta
 }
 
 # The identity columns of the rows a declared crossing reports, and the stacked

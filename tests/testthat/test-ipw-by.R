@@ -2055,3 +2055,78 @@ test_that("a .by fit differences no contrast row", {
     2L * (reference$width - reference$deterministic) + 1L
   )
 })
+
+# The two cases above hold the ate surface of an entropy fit. What they cannot
+# see is whether the analytic block still agrees once the rows around it change
+# shape: a focal estimand standardizes every mean over the treated units alone,
+# and non-uniform sampling weights enter the tilt and the reported weight scale
+# both. Neither reaches the deterministic rows directly, since those rows read
+# mean and contrast parameters and nothing else, and that is exactly why the
+# case is worth pinning. An implementation that let the tilt leak into the
+# rows it fills in analytically would still agree with the reference on the ate
+# surface and disagree here.
+
+test_that("a focal .by fit under sampling weights matches the differenced system", {
+  data <- ipw_by_fixture()
+  sampling <- withr::with_seed(2718, stats::runif(nrow(data), 0.4, 2.6))
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, modifier_hi),
+    method = bw_ipt(),
+    estimand = "att",
+    sampling_weights = sampling
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_by_outcome(
+    y ~ exposure * modifier,
+    data,
+    w,
+    stats::binomial()
+  )
+
+  frame <- stats::model.frame(outcome_mod)
+  by <- ipw_resolve_by(
+    rlang::quo(modifier),
+    frame = frame,
+    exposure = frame[["exposure"]],
+    exposure_levels = fit@exposure_levels,
+    exposure_name = "exposure",
+    outcome_mod = outcome_mod
+  )
+  reference <- ipw_reference_stack(
+    container = estimating_equations(fit),
+    outcome_mod = outcome_mod,
+    frame = frame,
+    exposure_name = "exposure",
+    levels = fit@exposure_levels,
+    by = by,
+    sampling_weights = fit@sampling_weights,
+    focal_level = fit@focal_level
+  )
+
+  expect_stacked_evaluations(
+    expect_ipw_matches_reference_stack(
+      ipw(fit, outcome_mod, .by = modifier),
+      reference,
+      keys = c(
+        "mu0",
+        "mu1",
+        "rd",
+        "log(rr)",
+        "log(or)",
+        "mu0_modifier = lo",
+        "mu1_modifier = lo",
+        "mu0_modifier = hi",
+        "mu1_modifier = hi",
+        "rd_modifier = lo",
+        "log(rr)_modifier = lo",
+        "rd_modifier = hi",
+        "log(rr)_modifier = hi",
+        "rd_modifier = hi vs modifier = lo",
+        "log(rr)_modifier = hi vs modifier = lo"
+      )
+    ),
+    2L * (reference$width - reference$deterministic) + 1L
+  )
+})

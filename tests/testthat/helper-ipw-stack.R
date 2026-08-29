@@ -150,15 +150,12 @@ ipw_reference_stack <- function(
       rbind,
       lapply(seq_len(m), function(j) tilt * (fixed[[j]] - mean_theta[[j]]))
     )
-    contrast_rows <- if (is.null(joint)) {
-      matrix(
-        ipw_contrast_values(mean_theta, continuous) - contrast_theta,
-        nrow = k,
-        ncol = n
-      )
+    contrast_values <- if (is.null(joint)) {
+      ipw_contrast_values(mean_theta, continuous) - contrast_theta
     } else {
-      ipw_joint_rows(joint, mean_theta, contrast_theta, continuous, n)
+      ipw_joint_row_values(joint, mean_theta, contrast_theta, continuous)
     }
+    contrast_rows <- matrix(contrast_values, nrow = k, ncol = n)
     by_rows <- ipw_by_rows(
       by_stack = by_stack,
       fixed = fixed,
