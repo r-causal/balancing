@@ -76,6 +76,11 @@ informational alert naming the term. The dropped level is the last one, and
 balancing the levels that remain balances it too. The factor stays in
 \verb{@covariates}, and \verb{@balance_table} reports the surviving levels rather than
 the full set.
+
+A \code{difftime} covariate balances as the number it stores, in the unit its own
+column declares. Nothing rescales it and nothing reinterprets the unit, so its
+constraints, its recipe, and its balance table match those of the same
+durations supplied as bare numbers.
 }
 \examples{
 n <- 200

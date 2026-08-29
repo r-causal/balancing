@@ -253,9 +253,13 @@ has_positive_tolerance <- function(constraints) {
 # indicator column per level, since each level is a coordinate of the covariate
 # distance. The Rust core forms the pairwise distance from these columns under
 # the named distance definition.
+#
+# The column is read through the same accessor the constraint builder uses, so a
+# duration reaches the distance as the number it stores rather than falling to
+# the categorical branch and becoming one indicator per distinct duration.
 distance_covariates <- function(data, covariates) {
   columns <- lapply(covariates, function(covariate) {
-    values <- data[[covariate]]
+    values <- covariate_values(data, covariate)
     if (is.numeric(values) || is.logical(values)) {
       matrix(as.numeric(values), ncol = 1)
     } else {

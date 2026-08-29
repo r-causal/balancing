@@ -44,10 +44,26 @@ new_recipe_record <- function(
   )
 }
 
+# One covariate column, as every part of the expansion reads it. A duration is a
+# number in the unit its own column declares, and every statistic the expansion
+# computes from a column, a moment, a quantile cutpoint, a standardization
+# constant, is unit-agnostic, so such a column enters as that number and balances
+# exactly as the same durations written as bare numbers would. Base R also
+# refuses `^` on the class and answers `is.numeric()` with FALSE for it, so the
+# power and quantile records could not be built from the column as it stands.
+# A column of any other class passes through unchanged.
+covariate_values <- function(data, name) {
+  column <- data[[name]]
+  if (inherits(column, "difftime")) {
+    return(as.numeric(column))
+  }
+  column
+}
+
 # Raw representation of one base column, used to form interactions and to rebuild
 # a column from the data.
 base_values <- function(source, level, data) {
-  column <- data[[source]]
+  column <- covariate_values(data, source)
   if (is.na(level)) {
     as.numeric(column)
   } else {
@@ -60,7 +76,7 @@ rebuild_column <- function(record, data) {
   switch(
     record$type,
     numeric = {
-      x <- as.numeric(data[[record$source]])
+      x <- as.numeric(covariate_values(data, record$source))
       ((x - record$base_center)^record$power - record$center) / record$scale
     },
     indicator = base_values(record$source, record$level, data),
@@ -69,7 +85,9 @@ rebuild_column <- function(record, data) {
       right <- base_values(record$partner, record$partner_level, data)
       (left * right - record$center) / record$scale
     },
-    quantile = as.numeric(as.numeric(data[[record$source]]) <= record$cutpoint)
+    quantile = as.numeric(
+      as.numeric(covariate_values(data, record$source)) <= record$cutpoint
+    )
   )
 }
 
@@ -303,7 +321,7 @@ build_constraint_matrix <- function(
   interaction_bases <- list()
 
   for (cov in .covariates) {
-    v <- .data[[cov]]
+    v <- covariate_values(.data, cov)
     if (is.factor(v) || is.character(v)) {
       levels <- if (is.factor(v)) levels(v) else sort(unique(as.character(v)))
       for (level in levels) {
@@ -498,7 +516,7 @@ interaction_term <- function(left, right) {
 quantile_records <- function(covariates, data, quantiles, tolerances) {
   records <- list()
   for (cov in covariates) {
-    v <- data[[cov]]
+    v <- covariate_values(data, cov)
     if (!is.numeric(v) || is_binary_numeric(v)) {
       next
     }

@@ -33,6 +33,11 @@
 #' `@covariates`, and `@balance_table` reports the surviving levels rather than
 #' the full set.
 #'
+#' A `difftime` covariate balances as the number it stores, in the unit its own
+#' column declares. Nothing rescales it and nothing reinterprets the unit, so its
+#' constraints, its recipe, and its balance table match those of the same
+#' durations supplied as bare numbers.
+#'
 #' @param .data A data frame.
 #' @param .exposure The exposure column, selected with data-masking. Exactly one
 #'   column.

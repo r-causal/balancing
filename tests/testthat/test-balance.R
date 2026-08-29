@@ -1393,3 +1393,38 @@ test_that("a difftime covariate balances as its numeric value does", {
     as.numeric(stats::weights(numeric_fit))
   )
 })
+
+# The kernel-distance methods do not read their covariates through the constraint
+# builder: they cross the raw columns into a distance matrix. A duration read
+# there as a categorical column becomes one indicator per distinct value, which
+# is a different fit rather than a differently scaled one, so the contract needs
+# checking on that path too. Both fits are seeded because the conditional
+# feature-density draws are random; the quadratic program itself reproduces
+# bit for bit run to run.
+test_that("a difftime covariate crosses the kernel distance as its number", {
+  data <- sim_binary(n = 200)
+  data$dt <- as.difftime(
+    3600 * data$x1 * data$x2 + 7 * 3600,
+    units = "secs"
+  )
+  numeric_data <- data
+  numeric_data$dt <- as.numeric(numeric_data$dt)
+
+  for (method in list(bw_energy(), bw_cfd())) {
+    fit <- withr::with_seed(
+      2024,
+      balance(data, exposure, c(x1, x2, dt), method = method)
+    )
+    numeric_fit <- withr::with_seed(
+      2024,
+      balance(numeric_data, exposure, c(x1, x2, dt), method = method)
+    )
+
+    expect_identical(fit@covariates, c("x1", "x2", "dt"))
+    expect_identical(fit@balance_table, numeric_fit@balance_table)
+    expect_identical(
+      as.numeric(stats::weights(fit)),
+      as.numeric(stats::weights(numeric_fit))
+    )
+  }
+})
