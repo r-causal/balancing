@@ -477,4 +477,108 @@ mod tests {
         assert!((cov[3] - 1.0).abs() < 1e-6, "cov[1,1] = {}", cov[3]);
         assert!(cov[1].abs() < 1e-6, "off-diagonal = {}", cov[1]);
     }
+
+    /// A deterministic stream on the unit interval from a linear congruential
+    /// generator. The offset fixtures below need many values with no structure,
+    /// and generating them here keeps the numbers identical on every platform
+    /// without reaching for a random-number dependency.
+    fn lcg_unit(n: usize, seed: u64) -> Vec<f64> {
+        let mut state = seed;
+        (0..n)
+            .map(|_| {
+                state = state
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                (state >> 11) as f64 / 9_007_199_254_740_992.0
+            })
+            .collect()
+    }
+
+    /// Fifty rows of two columns and their non-uniform weights. Column zero sits
+    /// at date-time scale, `offset + spread * z` with the offset the magnitude
+    /// `as.numeric()` gives a POSIXct and the spread one hour, which is the shape
+    /// that makes a one-pass variance cancel: the mean is roughly half a million
+    /// standard deviations from zero. Column one is an ordinary unit-scale column
+    /// carried alongside so the same fixture covers the undemanding case. The
+    /// offset is returned because the tests center by it exactly.
+    fn offset_fixture() -> (Vec<f64>, Vec<f64>, usize, f64) {
+        let n = 50;
+        let offset = 1.7e9;
+        let spread = 3600.0;
+        let z = lcg_unit(n, 20_250_828);
+        let plain = lcg_unit(n, 12_345_677);
+        let weight_draws = lcg_unit(n, 987_654_321);
+        let mut covs = Vec::with_capacity(2 * n);
+        covs.extend(z.iter().map(|&zi| offset + spread * (2.0 * zi - 1.0)));
+        covs.extend(plain.iter().map(|&pi| 2.0 * pi - 1.0));
+        let w = weight_draws.iter().map(|&vi| 0.25 + 1.5 * vi).collect();
+        (covs, w, n, offset)
+    }
+
+    /// Two-pass reliability-weighted variance: the weighted mean first, then the
+    /// weighted squared deviations from it. The deviations are formed at the
+    /// column's own scale rather than as a difference of two large sums, so this
+    /// stays accurate at any offset and is the reference the shipped one-pass
+    /// form has to reproduce.
+    fn two_pass_variance(x: &[f64], w: &[f64]) -> f64 {
+        let sw: f64 = w.iter().sum();
+        let sw2: f64 = w.iter().map(|wi| wi * wi).sum();
+        let mean: f64 = x.iter().zip(w).map(|(&xi, &wi)| wi * xi).sum::<f64>() / sw;
+        let ss: f64 = x
+            .iter()
+            .zip(w)
+            .map(|(&xi, &wi)| {
+                let d = xi - mean;
+                wi * d * d
+            })
+            .sum();
+        (ss / sw) / (1.0 - sw2 / (sw * sw))
+    }
+
+    #[test]
+    fn the_standardizing_sd_survives_a_date_time_offset() {
+        // Subtracting the offset from a column built as `offset + spread * z` is
+        // exact in binary floating point, both values being within a factor of
+        // two of each other, so the centered column holds precisely the
+        // deviations the stored column has and its two-pass variance is the
+        // variance the transform is being asked for.
+        let (covs, w, n, offset) = offset_fixture();
+        let centered: Vec<f64> = covs[..n].iter().map(|&xi| xi - offset).collect();
+        let want = two_pass_variance(&centered, &w).sqrt();
+
+        let (_means, vars) = weighted_moments(&covs, n, 2, &w, 1);
+        let got = vars[0].sqrt();
+        let rel = (got - want).abs() / want;
+        assert!(
+            rel < 1e-12,
+            "standardizing sd {got} against the two-pass reference {want}, relative error {rel}"
+        );
+    }
+
+    #[test]
+    fn a_scaled_column_has_unit_weighted_sd_at_a_date_time_offset() {
+        // Scaled Euclidean divides each column by its weighted standard
+        // deviation, so every transformed column must read back a weighted
+        // standard deviation of one. The offset column is the demanding one; the
+        // plain column establishes that the check itself is satisfiable.
+        //
+        // The tolerance is 1e-10 rather than the 1e-12 the standardizing sd is
+        // held to, and the difference is a property of the output rather than of
+        // the statistic. The transform divides but does not center, so the offset
+        // column comes back around 8e5 while its deviations are around 0.6: one
+        // unit in the last place of the stored values is about 1e-10, so the
+        // deviations the output can represent are quantized at roughly that
+        // relative granularity, and any reading of the output's standard
+        // deviation inherits a few parts in 1e12 of it. That floor is five orders
+        // of magnitude below the error this test exists to catch.
+        let (covs, w, n, _offset) = offset_fixture();
+        let out = scaled_euclidean(&covs, n, 2, &w, 1);
+        for j in 0..2 {
+            let sd = two_pass_variance(&out[j * n..(j + 1) * n], &w).sqrt();
+            assert!(
+                (sd - 1.0).abs() < 1e-10,
+                "column {j} has weighted sd {sd} after scaling"
+            );
+        }
+    }
 }
