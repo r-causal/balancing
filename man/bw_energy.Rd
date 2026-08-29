@@ -21,8 +21,9 @@ bw_energy(
 must be passed by name.}
 
 \item{distance}{The covariate distance definition the energy objective is
-built on, one of \code{"scaled_euclidean"} (each covariate divided by its
-standard deviation), \code{"mahalanobis"}, or \code{"euclidean"}.}
+built on, one of \code{"scaled_euclidean"} (each covariate centered at its
+weighted mean and divided by its weighted standard deviation),
+\code{"mahalanobis"}, or \code{"euclidean"}.}
 
 \item{improved}{Whether to add the between-group energy distance of the
 improved variant for the average treatment effect with a discrete exposure.}
@@ -55,17 +56,19 @@ the solver applies as both its absolute and its relative tolerance, or
 \code{1e-6} rather than to that family default because its quadratic form is
 indefinite: on a small sample the alternating-direction residual floors
 above \code{1e-8}, and a run that keeps going past that floor walks away from
-the optimum instead of stalling at it. Under the default backend, a
-tolerance below what the problem can reach spends the full iteration cap,
-then warns and reports the iterate of a re-solve at a tolerance the problem
-does reach, provided that re-solve converges within the same
-\code{max_iterations}. When it does not, the fit reports the iterate of the
-original solve.}
+the optimum instead of stalling at it. The energy objective always solves
+through the alternating-direction backend, whatever \code{balancing.qp_backend}
+names, so there is no backend to choose here: a tolerance below what the
+problem can reach spends the full iteration cap, then warns and reports the
+iterate of a re-solve at a tolerance the problem does reach, provided that
+re-solve converges within the same \code{max_iterations}. When it does not, the
+fit reports the iterate of the original solve.}
 
 \item{max_iterations}{The maximum solver iterations, or \code{NULL} for the
 resolved default of 200000. The re-solve above is given the same cap, and
-the reported \verb{@iterations} sums the two solves, so an energy fit that could
-not reach its tolerance can report more iterations than this.}
+when it converges the reported \verb{@iterations} sums the two solves, so an
+energy fit that could not reach its tolerance can report more iterations
+than this.}
 }
 \value{
 An \code{bw_energy} specification, a \link{balance_method}.

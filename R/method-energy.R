@@ -42,8 +42,9 @@
 #' constraints has nothing to relax, so it is warned and ignored.
 #'
 #' @param distance The covariate distance definition the energy objective is
-#'   built on, one of `"scaled_euclidean"` (each covariate divided by its
-#'   standard deviation), `"mahalanobis"`, or `"euclidean"`.
+#'   built on, one of `"scaled_euclidean"` (each covariate centered at its
+#'   weighted mean and divided by its weighted standard deviation),
+#'   `"mahalanobis"`, or `"euclidean"`.
 #' @param improved Whether to add the between-group energy distance of the
 #'   improved variant for the average treatment effect with a discrete exposure.
 #' @param weight_penalty The L2 penalty on the weights, which stabilizes the
@@ -70,16 +71,18 @@
 #'   `1e-6` rather than to that family default because its quadratic form is
 #'   indefinite: on a small sample the alternating-direction residual floors
 #'   above `1e-8`, and a run that keeps going past that floor walks away from
-#'   the optimum instead of stalling at it. Under the default backend, a
-#'   tolerance below what the problem can reach spends the full iteration cap,
-#'   then warns and reports the iterate of a re-solve at a tolerance the problem
-#'   does reach, provided that re-solve converges within the same
-#'   `max_iterations`. When it does not, the fit reports the iterate of the
-#'   original solve.
+#'   the optimum instead of stalling at it. The energy objective always solves
+#'   through the alternating-direction backend, whatever `balancing.qp_backend`
+#'   names, so there is no backend to choose here: a tolerance below what the
+#'   problem can reach spends the full iteration cap, then warns and reports the
+#'   iterate of a re-solve at a tolerance the problem does reach, provided that
+#'   re-solve converges within the same `max_iterations`. When it does not, the
+#'   fit reports the iterate of the original solve.
 #' @param max_iterations The maximum solver iterations, or `NULL` for the
 #'   resolved default of 200000. The re-solve above is given the same cap, and
-#'   the reported `@iterations` sums the two solves, so an energy fit that could
-#'   not reach its tolerance can report more iterations than this.
+#'   when it converges the reported `@iterations` sums the two solves, so an
+#'   energy fit that could not reach its tolerance can report more iterations
+#'   than this.
 #' @param ... Reserved for future extensions; must be empty. Tuning parameters
 #'   must be passed by name.
 #'
