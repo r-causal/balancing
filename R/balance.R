@@ -374,24 +374,40 @@ resolved_qp_tolerance <- function(method) {
 }
 
 # The non-convergence advice for the quadratic-program family, which fails its
-# criterion for the opposite reason to the estimating-equation family. A descent
+# criterion for a reason the estimating-equation family does not share. A descent
 # method that spends its iteration cap stopped short of the answer and is helped
-# by a larger cap; an alternating-direction iteration that spends its cap has
-# usually passed the residual floor of its problem, past which each further
-# iteration moves away from the optimum rather than toward it. So the advice
-# leads with the tolerance, names a value the problem can usually reach when the
-# fit asked for something tighter, and keeps the cap for last.
+# by a larger cap; an alternating-direction iteration on an indefinite form that
+# spends its cap has usually passed the residual floor of its problem, past which
+# each further iteration moves away from the optimum rather than toward it. So
+# the advice leads with the tolerance, names a value the problem can usually
+# reach when the fit asked for something tighter, and keeps the cap for last.
+#
+# Only the indefinite forms carry that floor, so only they call the cap a last
+# resort. A positive-semidefinite form keeps descending toward its tolerance for
+# as long as the cap allows, and a run that spent the cap there really did stop
+# short, so the cap is named as an ordinary lever.
+#
+# The weights caveat is about a solve that met no tolerance at all rather than
+# about one that missed the tolerance asked for. An energy fit that could not
+# reach its tolerance reports the iterate of a re-solve at a reachable one and
+# still calls itself unconverged, and telling that caller the weights are
+# worthless would contradict the advice above it.
 quadratic_program_convergence_bullets <- function(method) {
   loosen <- if (resolved_qp_tolerance(method) < qp_reachable_tolerance) {
     "Loosen {.arg convergence_tolerance} in {.fn {class(method)[1]}}, which the problem can usually reach at {.val {qp_reachable_tolerance}}."
   } else {
     "Loosen {.arg convergence_tolerance} in {.fn {class(method)[1]}}."
   }
+  cap <- if (has_indefinite_objective(method)) {
+    "Raising {.arg max_iterations} is the last resort, and helps only a solve that stopped short of the residual floor rather than past it."
+  } else {
+    "Raising {.arg max_iterations} is the other lever, since this objective descends toward its tolerance for as long as the cap allows."
+  }
   c(
     "The solver did not reach its convergence tolerance.",
     i = loosen,
-    x = "The weights of a solve that did not meet its tolerance should not be relied on.",
-    i = "Raising {.arg max_iterations} is the last resort, and helps only a solve that stopped short of the residual floor rather than past it."
+    x = "The weights of a solve that met no tolerance at all should not be relied on.",
+    i = cap
   )
 }
 
@@ -557,6 +573,20 @@ method(requires_constraints, quadratic_program_method) <- function(method) {
 tunes_weight_penalty <- new_generic("tunes_weight_penalty", "method")
 
 method(tunes_weight_penalty, balance_method) <- function(method) {
+  FALSE
+}
+
+# Whether a method assembles an indefinite quadratic form, which decides whether
+# the non-convergence advice may speak of a residual floor. Energy balancing and
+# the characteristic function distance energy kernel build their objective from
+# the negative pairwise distance, which is conditionally positive semidefinite
+# alone and indefinite as a quadratic form; every other objective the package
+# assembles is positive semidefinite. The distinction is a property of the
+# objective rather than of the family, so it is dispatched on the method and the
+# kernel rather than read off the quadratic-program parent.
+has_indefinite_objective <- new_generic("has_indefinite_objective", "method")
+
+method(has_indefinite_objective, balance_method) <- function(method) {
   FALSE
 }
 

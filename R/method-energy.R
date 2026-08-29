@@ -73,9 +73,13 @@
 #'   the optimum instead of stalling at it. Under the default backend, a
 #'   tolerance below what the problem can reach spends the full iteration cap,
 #'   then warns and reports the iterate of a re-solve at a tolerance the problem
-#'   does reach.
+#'   does reach, provided that re-solve converges within the same
+#'   `max_iterations`. When it does not, the fit reports the iterate of the
+#'   original solve.
 #' @param max_iterations The maximum solver iterations, or `NULL` for the
-#'   resolved default of 200000.
+#'   resolved default of 200000. The re-solve above is given the same cap, and
+#'   the reported `@iterations` sums the two solves, so an unconverged energy fit
+#'   can report more iterations than this.
 #' @param ... Reserved for future extensions; must be empty. Tuning parameters
 #'   must be passed by name.
 #'
@@ -218,6 +222,12 @@ method(supports_estimating_equations, bw_energy) <- function(
 # The weight penalty is a tuning argument here, so a solver breakdown may advise
 # raising it.
 method(tunes_weight_penalty, bw_energy) <- function(method) {
+  TRUE
+}
+
+# The energy objective is built from the negative pairwise distance, so its
+# quadratic form is indefinite.
+method(has_indefinite_objective, bw_energy) <- function(method) {
   TRUE
 }
 

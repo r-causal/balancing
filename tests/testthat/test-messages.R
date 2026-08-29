@@ -81,6 +81,70 @@ test_that("balancing_convergence_warning: a quadratic program names a reachable 
   expect_match(flatten_message(condition), "1e-0?6")
 })
 
+test_that("balancing_convergence_warning: an indefinite objective keeps the residual-floor caveat", {
+  # Energy balancing and the characteristic function distance energy kernel are
+  # the two indefinite quadratic forms, and the caveat about the residual floor
+  # is theirs: past that floor the iteration walks away from the optimum, so a
+  # larger cap makes the iterate worse.
+  data <- sim_binary()
+  for (method in list(
+    bw_energy(max_iterations = 5L),
+    bw_cfd(kernel = "energy", max_iterations = 5L)
+  )) {
+    condition <- expect_warning(
+      balance(data, exposure, c(x1, x2), method = method, estimand = "ate"),
+      class = "balancing_convergence_warning"
+    )
+    expect_match(flatten_message(condition), "residual floor", fixed = TRUE)
+  }
+})
+
+test_that("balancing_convergence_warning: a positive-semidefinite objective is not given the residual-floor caveat", {
+  # Every kernel but energy assembles a positive-semidefinite quadratic form,
+  # whose alternating-direction iteration descends toward the tolerance for as
+  # long as the cap allows. A run that spent its cap there really did stop short,
+  # so the cap is an ordinary lever rather than a last resort past a floor.
+  data <- sim_binary()
+  condition <- expect_warning(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_cfd(max_iterations = 5L),
+      estimand = "ate"
+    ),
+    class = "balancing_convergence_warning"
+  )
+  message <- flatten_message(condition)
+  expect_match(message, "max_iterations", fixed = TRUE)
+  expect_no_match(message, "residual floor", fixed = TRUE)
+  expect_no_match(message, "last resort", fixed = TRUE)
+})
+
+test_that("balancing_convergence_warning: the weights caveat names a solve that met no tolerance", {
+  # The energy fallback re-solves at a tolerance the problem does reach, and the
+  # fit still reports itself unconverged because the requested tolerance was not
+  # met. The caveat therefore has to be about a solve that met no tolerance at
+  # all rather than about one that missed the tolerance asked for, which would
+  # contradict the advice above it.
+  data <- sim_binary()
+  condition <- expect_warning(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_energy(max_iterations = 5L),
+      estimand = "ate"
+    ),
+    class = "balancing_convergence_warning"
+  )
+  expect_match(
+    flatten_message(condition),
+    "met no tolerance",
+    fixed = TRUE
+  )
+})
+
 test_that("balancing_convergence_warning: the estimating-equation wording is unchanged", {
   # The entropy and tilting solvers descend monotonically, so a run that spent its
   # cap really did stop short and more iterations really do help. Their advice

@@ -48,7 +48,9 @@ covariates even though its objective reads every selected one.}
 
 \item{converged}{Whether the solver met its convergence criterion.}
 
-\item{iterations}{The solver iteration count.}
+\item{iterations}{The solver iteration count. An energy fit that could not
+reach its tolerance re-solves at a reachable one, and this sums the original
+and the fallback solve, so it can exceed the requested \code{max_iterations}.}
 
 \item{objective}{The solved objective value.}
 

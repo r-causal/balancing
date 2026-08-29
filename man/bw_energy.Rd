@@ -58,10 +58,14 @@ above \code{1e-8}, and a run that keeps going past that floor walks away from
 the optimum instead of stalling at it. Under the default backend, a
 tolerance below what the problem can reach spends the full iteration cap,
 then warns and reports the iterate of a re-solve at a tolerance the problem
-does reach.}
+does reach, provided that re-solve converges within the same
+\code{max_iterations}. When it does not, the fit reports the iterate of the
+original solve.}
 
 \item{max_iterations}{The maximum solver iterations, or \code{NULL} for the
-resolved default of 200000.}
+resolved default of 200000. The re-solve above is given the same cap, and
+the reported \verb{@iterations} sums the two solves, so an unconverged energy fit
+can report more iterations than this.}
 }
 \value{
 An \code{bw_energy} specification, a \link{balance_method}.

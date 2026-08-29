@@ -429,7 +429,9 @@ balancing_estimating_equations <- new_class(
 #' @param duals Solver dual variables for diagnostics, or `NULL`.
 #' @param coefficients The fitted coefficients or dual variables, or `NULL`.
 #' @param converged Whether the solver met its convergence criterion.
-#' @param iterations The solver iteration count.
+#' @param iterations The solver iteration count. An energy fit that could not
+#'   reach its tolerance re-solves at a reachable one, and this sums the original
+#'   and the fallback solve, so it can exceed the requested `max_iterations`.
 #' @param objective The solved objective value.
 #' @param solver_status The solver that produced the result.
 #' @param estimating_equations The [balancing_estimating_equations] container,

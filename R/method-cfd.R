@@ -291,6 +291,12 @@ method(tunes_weight_penalty, bw_cfd) <- function(method) {
   TRUE
 }
 
+# Only the energy kernel assembles an indefinite quadratic form here; the
+# distance-based and spectral kernels are positive semidefinite.
+method(has_indefinite_objective, bw_cfd) <- function(method) {
+  identical(method@kernel, "energy")
+}
+
 # Assemble the Rust option list. The worker-thread count and the quadratic-program
 # backend are resolved on the R side and passed on every call; tuning parameters
 # left at the core default are dropped so the solver applies its own.
