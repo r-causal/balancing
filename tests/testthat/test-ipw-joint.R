@@ -1048,3 +1048,89 @@ test_that("a continuous component cannot be declared at all", {
     causalgenerics::joint_exposure(a = data$a, dose = coarse)
   ))
 })
+
+# ---- The analytic contrast block ------------------------------------------
+
+# A declared crossing replaces the vs-reference contrast block with the simple
+# effects and the interaction, and those rows are deterministic on the same
+# terms: a simple effect is a contrast of two mean parameters and an interaction
+# row is the difference of two simple-effect parameters, so both are constant
+# across units and both have bread rows that are known without differencing
+# anything. This is the widest contrast block any surface reports, so it is the
+# one an analytic bread block saves the most on.
+#
+# The reference system differences every one of those rows, which is what the
+# package does today, and the reported system has to stay identical to it to the
+# bit. The evaluation count beside it is red until they leave the differenced
+# system.
+
+test_that("a declared crossing reports the fully differenced stacked system", {
+  data <- ipw_joint_fixture()
+  fit <- fit_joint_weights(data)
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_joint_outcome(y ~ joint + x1, data, w, stats::binomial())
+
+  frame <- stats::model.frame(outcome_mod)
+  joint <- ipw_joint_plan(
+    frame[["joint"]],
+    fit@exposure_levels,
+    is_gaussian_outcome(outcome_mod)
+  )
+  frame[["joint"]] <- ipw_joint_bare(frame[["joint"]])
+  reference <- ipw_reference_stack(
+    container = estimating_equations(fit),
+    outcome_mod = outcome_mod,
+    frame = frame,
+    exposure_name = "joint",
+    levels = fit@exposure_levels,
+    categorical = TRUE,
+    joint = joint
+  )
+
+  expect_ipw_matches_reference_stack(
+    expect_joint_quiet(ipw(fit, outcome_mod)),
+    reference,
+    keys = c(
+      paste0("mu_", joint_cells),
+      "rd_a: 1 vs 0 e = 0",
+      "log(rr)_a: 1 vs 0 e = 0",
+      "rd_a: 1 vs 0 e = 1",
+      "log(rr)_a: 1 vs 0 e = 1",
+      "rd_e: 1 vs 0 a = 0",
+      "log(rr)_e: 1 vs 0 a = 0",
+      "rd_e: 1 vs 0 a = 1",
+      "log(rr)_e: 1 vs 0 a = 1",
+      "rd_a: 1 vs 0 e = 1 vs e = 0",
+      "log(rr)_a: 1 vs 0 e = 1 vs e = 0"
+    )
+  )
+})
+
+test_that("a declared crossing differences no contrast row", {
+  data <- ipw_joint_fixture()
+  fit <- fit_joint_weights(data)
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_joint_outcome(y ~ joint + x1, data, w, stats::binomial())
+
+  frame <- stats::model.frame(outcome_mod)
+  joint <- ipw_joint_plan(
+    frame[["joint"]],
+    fit@exposure_levels,
+    is_gaussian_outcome(outcome_mod)
+  )
+  frame[["joint"]] <- ipw_joint_bare(frame[["joint"]])
+  reference <- ipw_reference_stack(
+    container = estimating_equations(fit),
+    outcome_mod = outcome_mod,
+    frame = frame,
+    exposure_name = "joint",
+    levels = fit@exposure_levels,
+    categorical = TRUE,
+    joint = joint
+  )
+
+  expect_stacked_evaluations(
+    expect_joint_quiet(ipw(fit, outcome_mod)),
+    2L * (reference$width - reference$deterministic) + 1L
+  )
+})

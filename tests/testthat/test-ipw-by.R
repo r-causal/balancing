@@ -1942,3 +1942,116 @@ test_that("balancing_ipw_by_interaction_warning: no term reads both columns", {
     invisible(ipw(fit, outcome_mod, .by = modifier))
   )
 })
+
+# ---- The analytic contrast block ------------------------------------------
+
+# A request appends two more deterministic blocks to the stack: each stratum's
+# contrasts, written from that stratum's means, and each non-reference stratum's
+# contrasts against the reference stratum's, written from the stratum contrast
+# parameters. Both are constant across units, so both are candidates for an
+# analytic bread row alongside the whole-sample contrasts, and a grouped fit is
+# where the saving is largest.
+#
+# The reference system differences every one of those rows, which is what the
+# package does today, and the reported system has to stay identical to it to the
+# bit. The evaluation count beside it is red until they leave the differenced
+# system.
+
+test_that("a .by fit reports the fully differenced stacked system", {
+  data <- ipw_by_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, modifier_hi),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_by_outcome(
+    y ~ exposure * modifier,
+    data,
+    w,
+    stats::binomial()
+  )
+
+  frame <- stats::model.frame(outcome_mod)
+  by <- ipw_resolve_by(
+    rlang::quo(modifier),
+    frame = frame,
+    exposure = frame[["exposure"]],
+    exposure_levels = fit@exposure_levels,
+    exposure_name = "exposure",
+    outcome_mod = outcome_mod
+  )
+  reference <- ipw_reference_stack(
+    container = estimating_equations(fit),
+    outcome_mod = outcome_mod,
+    frame = frame,
+    exposure_name = "exposure",
+    levels = fit@exposure_levels,
+    by = by
+  )
+
+  expect_ipw_matches_reference_stack(
+    ipw(fit, outcome_mod, .by = modifier),
+    reference,
+    keys = c(
+      "mu0",
+      "mu1",
+      "rd",
+      "log(rr)",
+      "log(or)",
+      "mu0_modifier = lo",
+      "mu1_modifier = lo",
+      "mu0_modifier = hi",
+      "mu1_modifier = hi",
+      "rd_modifier = lo",
+      "log(rr)_modifier = lo",
+      "rd_modifier = hi",
+      "log(rr)_modifier = hi",
+      "rd_modifier = hi vs modifier = lo",
+      "log(rr)_modifier = hi vs modifier = lo"
+    )
+  )
+})
+
+test_that("a .by fit differences no contrast row", {
+  data <- ipw_by_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, modifier_hi),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_by_outcome(
+    y ~ exposure * modifier,
+    data,
+    w,
+    stats::binomial()
+  )
+
+  frame <- stats::model.frame(outcome_mod)
+  by <- ipw_resolve_by(
+    rlang::quo(modifier),
+    frame = frame,
+    exposure = frame[["exposure"]],
+    exposure_levels = fit@exposure_levels,
+    exposure_name = "exposure",
+    outcome_mod = outcome_mod
+  )
+  reference <- ipw_reference_stack(
+    container = estimating_equations(fit),
+    outcome_mod = outcome_mod,
+    frame = frame,
+    exposure_name = "exposure",
+    levels = fit@exposure_levels,
+    by = by
+  )
+
+  expect_stacked_evaluations(
+    ipw(fit, outcome_mod, .by = modifier),
+    2L * (reference$width - reference$deterministic) + 1L
+  )
+})

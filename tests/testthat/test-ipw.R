@@ -6324,3 +6324,138 @@ test_that("the deli sandwich carries a unit-varying offset into the means", {
   expect_true(all(is.finite(continuous_se)))
   expect_true(all(continuous_se > 0))
 })
+
+# ---- The analytic contrast block ------------------------------------------
+
+# The contrast rows of the stacked system are deterministic functions of the
+# marginal means, so nothing about them has to be discovered by differencing:
+# their meat is zero at the solution and their bread rows are minus one on their
+# own diagonal, the derivative of the contrast with respect to each mean beside
+# it, and zero everywhere else. Filling them in analytically saves two closure
+# evaluations per contrast, and each of those evaluations crosses into the
+# method's own weight hook over the whole sample.
+#
+# What must not move is the answer. These specs pin the answer independently of
+# the code that produces it: `ipw_reference_stack()` writes the whole system out
+# in this suite and differences every row of it, which is what the package does
+# today, and the reported system has to stay identical to it to the bit.
+# Alongside each of them sits the evaluation count an analytic block reaches,
+# which is red until the contrast rows leave the differenced system.
+
+test_that("a binary fit reports the fully differenced stacked system", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  reference <- ipw_reference_stack(
+    container = estimating_equations(fit),
+    outcome_mod = outcome_mod,
+    frame = stats::model.frame(outcome_mod),
+    exposure_name = "exposure",
+    levels = fit@exposure_levels
+  )
+
+  expect_ipw_matches_reference_stack(
+    ipw(fit, outcome_mod),
+    reference,
+    keys = c("mu0", "mu1", "rd", "log(rr)", "log(or)")
+  )
+})
+
+test_that("a binary fit differences no contrast row", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  reference <- ipw_reference_stack(
+    container = estimating_equations(fit),
+    outcome_mod = outcome_mod,
+    frame = stats::model.frame(outcome_mod),
+    exposure_name = "exposure",
+    levels = fit@exposure_levels
+  )
+
+  expect_stacked_evaluations(
+    ipw(fit, outcome_mod),
+    2L * (reference$width - reference$deterministic) + 1L
+  )
+})
+
+test_that("a categorical fit reports the fully differenced stacked system", {
+  data <- ipw_categorical_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  reference <- ipw_reference_stack(
+    container = estimating_equations(fit),
+    outcome_mod = outcome_mod,
+    frame = stats::model.frame(outcome_mod),
+    exposure_name = "exposure",
+    levels = fit@exposure_levels,
+    categorical = TRUE
+  )
+
+  expect_ipw_matches_reference_stack(
+    ipw(fit, outcome_mod),
+    reference,
+    keys = c(
+      "mu_a",
+      "mu_b",
+      "mu_c",
+      "rd_b",
+      "log(rr)_b",
+      "log(or)_b",
+      "rd_c",
+      "log(rr)_c",
+      "log(or)_c"
+    )
+  )
+})
+
+test_that("a categorical fit differences no contrast row", {
+  data <- ipw_categorical_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  reference <- ipw_reference_stack(
+    container = estimating_equations(fit),
+    outcome_mod = outcome_mod,
+    frame = stats::model.frame(outcome_mod),
+    exposure_name = "exposure",
+    levels = fit@exposure_levels,
+    categorical = TRUE
+  )
+
+  expect_stacked_evaluations(
+    ipw(fit, outcome_mod),
+    2L * (reference$width - reference$deterministic) + 1L
+  )
+})
