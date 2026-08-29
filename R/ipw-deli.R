@@ -537,8 +537,12 @@ make_hooks_cache <- function(container, rescale, parameters) {
 # argument; a caller that already knows the shape can allocate once and copy
 # each block straight into its own rows. Measured on the block shapes the widest
 # surfaces produce, that assembly was 30 percent of the call's self time, and
-# the fill runs it 1.1 to 1.6 times faster. It saves no allocation: the result
-# is allocated once either way.
+# the fill runs it 1.1 to 1.6 times faster. What it buys is time, not memory.
+# Each block assignment materializes a column index the length of the sample to
+# stand in for the subscript it was not given, so the fill allocates slightly
+# more than `rbind()` does. Writing that subscript out as `seq_len(n)` does not
+# remove the index, and assigning through a single linear index computed by hand
+# is far worse on both counts.
 #
 # The buffer is filled with `NA_real_` rather than zero. The two measure the
 # same, since either way the allocation writes a value into every cell, so the
