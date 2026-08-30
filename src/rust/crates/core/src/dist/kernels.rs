@@ -511,6 +511,55 @@ mod tests {
         }
     }
 
+    /// A date-time covariate enters the kernel as seconds since the epoch, so
+    /// its values sit near 1.7e9 while its spread is an hour. The
+    /// scaled-Euclidean transform centers at the weighted column mean before it
+    /// scales, so the standardized column is the same whether the epoch offset
+    /// rides along or is removed beforehand, and the t kernel built on it is the
+    /// same matrix.
+    ///
+    /// The t kernel is where the centering is worth the most. It reads a cosine
+    /// and a sine at each unit's projection angle, and without the centering the
+    /// standardized values would carry the offset divided by the spread, here
+    /// about 1.3e6. The features would then be evaluated a few million radians
+    /// from zero, where a unit in the last place is already 1e-9 wide, and the
+    /// separation between two units would be quantized against that. Measured on
+    /// this fixture with the uncentered transform the two matrices differ by
+    /// 4.9e-10, against 2.8e-16 with it.
+    #[test]
+    fn the_t_kernel_is_accurate_at_a_date_time_offset() {
+        // Seconds since the epoch near 2023-11-14, at irregular times within one
+        // hour, and the same instants shifted to a mean of zero.
+        let offset = 1.7e9;
+        let within: [f64; 10] = [
+            0.0, 137.0, 412.0, 900.0, 1355.0, 1801.0, 2260.0, 2712.0, 3140.0, 3599.0,
+        ];
+        let n = within.len();
+        let p = 1;
+        let mean = within.iter().sum::<f64>() / n as f64;
+        let stamped: Vec<f64> = within.iter().map(|v| offset + v).collect();
+        let centered: Vec<f64> = within.iter().map(|v| v - mean).collect();
+
+        let s = vec![1.0; n];
+        let proj = [2.9, -4.3, 1.7, -3.5, 5.1, -2.2]; // p by d column-major
+        let tp = KernelParams {
+            kernel: Kernel::T,
+            bw_scale: 1.0,
+            matern_nu: MaternNu::ThreeHalves,
+            t_proj: &proj,
+            n_draws: proj.len(),
+        };
+
+        let stamped_kernel = build_kernel(&stamped, n, p, &s, &tp, &[], 1);
+        let centered_kernel = build_kernel(&centered, n, p, &s, &tp, &[], 1);
+        for (a, b) in stamped_kernel.iter().zip(&centered_kernel) {
+            assert!(
+                (a - b).abs() < 1e-10,
+                "t kernel differs under a date-time offset: {a} against {b}"
+            );
+        }
+    }
+
     #[test]
     fn the_kernel_is_invariant_to_a_uniform_covariate_rescaling() {
         // Standardizing first makes the gaussian kernel identical after scaling
