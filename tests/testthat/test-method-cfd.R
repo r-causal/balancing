@@ -753,6 +753,11 @@ test_that("moment constraints are satisfied within tolerance", {
 })
 
 test_that("a positive tolerance relaxes the moment constraints", {
+  # A fit that did place rows in the requested band holds them there and reports
+  # that band as the tolerance it enforced, leaving the enforced tolerance unset
+  # so the table reads the per-column values the specification named. That is the
+  # other side of the zero the ignored-tolerance spec below pins, and it is
+  # reached on kernel balancing's own path rather than only on energy's.
   data <- sim_binary()
   fit <- balance(
     data,
@@ -763,6 +768,11 @@ test_that("a positive tolerance relaxes the moment constraints", {
     constraints = balance_terms(moments = 1L, tolerance = 0.1)
   )
   expect_balanced(fit, data, tolerance = 0.1)
+  expect_column_all(
+    as.data.frame(fit@balance_table),
+    "tolerance",
+    function(value) value == 0.1
+  )
 })
 
 test_that("a tolerance without moment constraints warns and is ignored", {

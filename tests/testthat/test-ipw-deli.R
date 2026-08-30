@@ -134,10 +134,9 @@ test_that("stack_psi_blocks() pads unnamed rows the way rbind does", {
 # not that wide is a mistake in the block rather than something to fit in. R
 # would recycle it into the rows instead, and the stack would carry a psi matrix
 # whose values belong to no unit, so the width is checked rather than trusted.
-#
 # The refusal is worded from what the entry is and reported at the assembly the
-# entries were handed to. A matrix entry is the only kind with columns to count;
-# a bare vector is one row, so what is wrong with it is how many values it
+# entries were handed to: a matrix entry is the only kind with columns to count,
+# while a bare vector is one row, so what is wrong with it is how many values it
 # holds. Neither is refused from the `vapply()` closure the count is taken in,
 # which is a frame no caller wrote and which names no block.
 
