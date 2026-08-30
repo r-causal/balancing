@@ -32,7 +32,8 @@ energy or kernel balancing with no moment constraints, therefore records no
 covariates even though its objective reads every selected one.}
 
 \item{focal_level}{The focal exposure level for \code{"att"} and \code{"atc"}, or
-\code{NULL}.}
+\code{NULL}. This is the fitted object's property, set from the \code{.focal_level}
+argument of \code{\link[=balance]{balance()}}.}
 
 \item{n}{The number of observations.}
 

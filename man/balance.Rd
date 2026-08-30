@@ -77,6 +77,12 @@ balancing the levels that remain balances it too. The factor stays in
 \verb{@covariates}, and \verb{@balance_table} reports the surviving levels rather than
 the full set.
 
+A fit can be interrupted between solver iterations, so a long solve stops at
+the next iteration rather than at the end of the fit. On Unix the poll reads
+R's interrupt flag directly and does not service R's event loop, so a
+\code{\link[=setTimeLimit]{setTimeLimit()}} set around the call fires when the call returns rather than
+partway through the solve.
+
 A \code{difftime} covariate balances as the number it stores, in the unit its own
 column declares. Nothing rescales it and nothing reinterprets the unit, so its
 constraints, its recipe, and its balance table match those of the same

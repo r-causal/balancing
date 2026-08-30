@@ -421,7 +421,8 @@ balancing_estimating_equations <- new_class(
 #'   energy or kernel balancing with no moment constraints, therefore records no
 #'   covariates even though its objective reads every selected one.
 #' @param focal_level The focal exposure level for `"att"` and `"atc"`, or
-#'   `NULL`.
+#'   `NULL`. This is the fitted object's property, set from the `.focal_level`
+#'   argument of [balance()].
 #' @param n The number of observations.
 #' @param constraints The resolved [balance_terms] specification, or `NULL`.
 #' @param recipe The covariate expansion recipe, a list of per-column records.
