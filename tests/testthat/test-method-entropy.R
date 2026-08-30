@@ -954,6 +954,49 @@ test_that("a covariate left out of the constraint set keeps its marginal rows", 
   }
 })
 
+test_that("an interaction column carries a correlation row and no marginal row", {
+  # The marginal rows are built from the covariates alone, so an interaction
+  # contributes the association the constraint set named and nothing more: the
+  # fit drives the weighted exposure-product correlation to zero while the
+  # product's own weighted mean is free to move off the sample value. Pinning it
+  # as well would hold a joint distribution the constraint set never named, and
+  # would depart from the energy design this follows. The covariate marginals
+  # are the control: they are pinned in the same fit.
+  data <- sim_continuous(n = 350)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate",
+    constraints = balance_terms(moments = 1L, interactions = TRUE)
+  )
+  w <- as.numeric(stats::weights(fit))
+
+  for (column in c("exposure", "x1", "x2")) {
+    values <- data[[column]]
+    expect_equal(
+      stats::weighted.mean(values, w),
+      mean(values),
+      tolerance = 1e-8
+    )
+  }
+
+  product <- data$x1 * data$x2
+  expect_lt(
+    abs(stats::cov.wt(
+      cbind(data$exposure, product),
+      wt = w,
+      cor = TRUE
+    )$cor[1, 2]),
+    1e-8
+  )
+  # Measured at 0.31 sample standard deviations, so the threshold states "moved
+  # materially" rather than pinning a value the solver path decides.
+  shift <- abs(stats::weighted.mean(product, w) - mean(product))
+  expect_gt(shift / stats::sd(product), 0.05)
+})
+
 # ---- Continuous with tolerance --------------------------------------------
 
 test_that("a continuous tolerance relaxes correlations but holds the marginals", {
