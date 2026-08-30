@@ -396,7 +396,7 @@ test_that("every binary mean row carries usable inference", {
 
   means <- level_mean_rows(ipw(fit, outcome_mod)$estimates)
 
-  expect_true(all(is.finite(means$std.err)))
+  expect_finite_column(means, "std.err")
   expect_true(all(means$std.err > 0))
   expect_true(all(means$ci.lower < means$estimate))
   expect_true(all(means$estimate < means$ci.upper))
@@ -898,7 +898,7 @@ test_that("a .by fit gives every mean row a usable standard error", {
   result <- ipw(fit, outcome_mod, .by = modifier)
   means <- level_mean_rows(result$estimates)
 
-  expect_true(all(is.finite(means$std.err)))
+  expect_finite_column(means, "std.err")
   expect_true(all(means$std.err > 0))
 
   # The stratum means are parameters of the same stacked system, so their

@@ -217,7 +217,7 @@ test_that("a .by fit reports the whole sample, each stratum, then their contrast
     )
   )
   expect_identical(nrow(estimates), 15L)
-  expect_true(all(is.finite(estimates$estimate)))
+  expect_finite_column(estimates, "estimate")
 
   # A block of means is never split by the contrasts built from it: the
   # whole-sample pair leads the table and the stratum pairs sit together after
@@ -717,7 +717,7 @@ test_that("a .by fit reports a usable standard error for every row", {
   estimates <- result$estimates
 
   expect_identical(nrow(estimates), 15L)
-  expect_true(all(is.finite(estimates$std.err)))
+  expect_finite_column(estimates, "std.err")
   expect_true(all(estimates$std.err > 0))
   expect_true(all(estimates$ci.lower < estimates$estimate))
   expect_true(all(estimates$ci.upper > estimates$estimate))

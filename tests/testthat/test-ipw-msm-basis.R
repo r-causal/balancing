@@ -148,7 +148,7 @@ expect_basis_msm_accessors <- function(result, effect, outcome_mod) {
 
   testthat::expect_identical(estimates$effect, rep(effect, nrow(estimates)))
   testthat::expect_identical(anyDuplicated(labels), 0L)
-  testthat::expect_true(all(is.finite(estimates$std.err)))
+  expect_finite_column(estimates, "std.err")
   testthat::expect_true(all(estimates$std.err > 0))
   testthat::expect_true(all(estimates$ci.lower < estimates$ci.upper))
 

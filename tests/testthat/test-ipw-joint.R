@@ -305,7 +305,7 @@ test_that("a declared crossing reports cell means, simple effects, and their int
     )
   )
   expect_identical(nrow(estimates), 14L)
-  expect_true(all(is.finite(estimates$estimate)))
+  expect_finite_column(estimates, "estimate")
 })
 
 # The whole point of the declaration is that the cells stop being the vocabulary
@@ -620,7 +620,7 @@ test_that("a declared crossing reports a usable standard error for every row", {
   estimates <- result$estimates
 
   expect_identical(nrow(estimates), 14L)
-  expect_true(all(is.finite(estimates$std.err)))
+  expect_finite_column(estimates, "std.err")
   expect_true(all(estimates$std.err > 0))
   expect_true(all(estimates$ci.lower < estimates$estimate))
   expect_true(all(estimates$ci.upper > estimates$estimate))

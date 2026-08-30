@@ -144,3 +144,26 @@ expect_stacked_psi_matches_rbind <- function(expr) {
 
   invisible(value)
 }
+
+# expect_finite_column() asserts that a data frame carries the named column and
+# that every value in it is finite.
+#
+# Both halves are load-bearing, and the first is the reason the helper exists.
+# `is.finite()` on a column a data frame does not have returns `logical(0)`,
+# `all(logical(0))` is TRUE, and so a bare `all(is.finite(df$column))` passes
+# without reading anything whenever the column it names is absent. The suite
+# asserts finiteness on reported columns dozens of times, and every one of those
+# assertions would go quiet under a rename of the reported schema rather than
+# reporting it. Testing membership first turns that case into a failure that
+# names the missing column.
+expect_finite_column <- function(object, column) {
+  testthat::expect_true(
+    column %in% names(object),
+    info = paste0("expected a column named ", column)
+  )
+  testthat::expect_true(
+    all(is.finite(object[[column]])),
+    info = paste0("expected every value of ", column, " to be finite")
+  )
+  invisible(object)
+}

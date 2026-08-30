@@ -80,12 +80,12 @@ test_that("pool_ipw() pools balancing results across imputations", {
     pooled$estimates$contrast,
     c("0", "1", rep("1 vs 0", 3L))
   )
-  expect_true(all(is.finite(pooled$estimates$estimate)))
-  expect_true(all(is.finite(pooled$estimates$std.err)))
+  expect_finite_column(pooled$estimates, "estimate")
+  expect_finite_column(pooled$estimates, "std.err")
 
   # A finite pooled degrees of freedom is what says the Barnard-Rubin
   # adjustment ran rather than falling back to a normal reference.
-  expect_true(all(is.finite(pooled$estimates$df)))
+  expect_finite_column(pooled$estimates, "df")
 })
 
 # The complete-data degrees of freedom are looked for on the results first and
@@ -326,7 +326,7 @@ test_that("pool_ipw() over basis fits pools the conditional reading", {
   expect_identical(pooled$effects, "conditional")
   expect_identical(pooled$estimates$effect, coefficients)
   expect_identical(pooled$m, 3L)
-  expect_true(all(is.finite(pooled$estimates$std.err)))
+  expect_finite_column(pooled$estimates, "std.err")
 
   # Rubin's rule pools point estimates by averaging them, so each pooled row is
   # the mean of that coefficient across the analyses. Reading the analyses
@@ -462,9 +462,9 @@ test_that("pool_ipw() keys grouped balancing results by effect and subgroup", {
     expect_identical(fit$estimates$group, pooled$estimates$group)
   }
 
-  expect_true(all(is.finite(pooled$estimates$estimate)))
-  expect_true(all(is.finite(pooled$estimates$std.err)))
-  expect_true(all(is.finite(pooled$estimates$df)))
+  expect_finite_column(pooled$estimates, "estimate")
+  expect_finite_column(pooled$estimates, "std.err")
+  expect_finite_column(pooled$estimates, "df")
 
   # The pooled accessors label their rows by measure, contrast, and subgroup
   # together, the way each analysis labels its own.

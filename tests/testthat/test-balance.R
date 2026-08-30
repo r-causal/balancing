@@ -946,7 +946,7 @@ test_that("partly zero sampling weights that leave every group mass still fit", 
     sampling_weights = sampling
   )
   expect_true(all(is.finite(as.numeric(stats::weights(fit)))))
-  expect_true(all(is.finite(fit@balance_table$weighted)))
+  expect_finite_column(fit@balance_table, "weighted")
 })
 
 # The base-weight length mismatch belongs to the entropy fit, which names the
@@ -1058,7 +1058,7 @@ test_that("a constant covariate leaves a continuous-exposure fit intact", {
   # The constant column is dropped before the fit, so the balance table reports
   # only the covariates that carry information and every verdict resolves.
   expect_false("fixed" %in% fit@balance_table$term)
-  expect_true(all(is.finite(fit@balance_table$weighted)))
+  expect_finite_column(fit@balance_table, "weighted")
   expect_true(all(fit@balance_table$within_tolerance))
 })
 
@@ -1068,7 +1068,7 @@ test_that("a single-level factor leaves a continuous-exposure fit intact", {
   fit <- balance(data, exposure, c(x1, x2, f), method = bw_entropy())
 
   expect_false("f_a" %in% fit@balance_table$term)
-  expect_true(all(is.finite(fit@balance_table$weighted)))
+  expect_finite_column(fit@balance_table, "weighted")
   expect_true(all(fit@balance_table$within_tolerance))
 })
 
@@ -1097,8 +1097,8 @@ test_that("a constant covariate leaves a binary-exposure fit and ipw() intact", 
     weights = .wts
   ))
   result <- ipw(fit, outcome_model)
-  expect_true(all(is.finite(result$estimates$estimate)))
-  expect_true(all(is.finite(result$estimates$std.err)))
+  expect_finite_column(result$estimates, "estimate")
+  expect_finite_column(result$estimates, "std.err")
 })
 
 # ---- What @covariates records ----------------------------------------------
