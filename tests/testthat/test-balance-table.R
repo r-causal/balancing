@@ -391,6 +391,69 @@ test_that("standardize_columns() leaves a nearly constant column alone", {
   expect_gt(diff(range(unweighted[, 1L])), 1)
 })
 
+# `column_is_constant()` reads the values rather than the computed scale, and it
+# reads them with a comparison that a missing value answers with a missing
+# value. A column carrying one would therefore make the reading itself missing,
+# and the two places that consume it index with it: `centered[, constant] <- 0`
+# and `scales[constant | scales == 0] <- 1` both refuse a missing subscript in an
+# assignment, so a single missing value would stop the standardization with a
+# base error rather than a classed one.
+#
+# A column with a missing value is read as not constant. That is the reading
+# that leaves the rest of the standardization behaving exactly as it did: the
+# column keeps its computed center and scale, and the missing value propagates
+# through them into the standardized column, where it is visible for what it is.
+# The constraint columns a fit builds carry no missing values, which the fit
+# validates before a constraint matrix exists, so this governs only the direct
+# callers.
+test_that("column_is_constant() reads a column with a missing value as varying", {
+  m <- cbind(
+    constant = rep(0.98, 4),
+    missing_constant = c(0.98, NA, 0.98, 0.98),
+    all_missing = rep(NA_real_, 4),
+    varying = c(1, 2, 3, 4)
+  )
+
+  expect_identical(
+    column_is_constant(m),
+    c(
+      constant = TRUE,
+      missing_constant = FALSE,
+      all_missing = FALSE,
+      varying = FALSE
+    )
+  )
+})
+
+test_that("column_is_constant() reads every column of a single row as constant", {
+  m <- matrix(
+    c(0.98, NA, 3),
+    nrow = 1L,
+    dimnames = list(NULL, c("value", "missing", "other"))
+  )
+
+  expect_identical(
+    column_is_constant(m),
+    c(value = TRUE, missing = FALSE, other = TRUE)
+  )
+})
+
+test_that("standardize_columns() carries a missing value through the column", {
+  n <- 20L
+  w <- withr::with_seed(1, stats::runif(n, 0.5, 2))
+  values <- rep(0.98, n)
+  values[[3L]] <- NA_real_
+  m <- matrix(values, nrow = n, ncol = 1L, dimnames = list(NULL, "constant"))
+
+  weighted <- standardize_columns(m, sampling_weights = w)
+  unweighted <- standardize_columns(m)
+
+  expect_identical(dim(weighted), c(n, 1L))
+  expect_identical(dim(unweighted), c(n, 1L))
+  expect_true(is.na(weighted[3L, 1L]))
+  expect_true(is.na(unweighted[3L, 1L]))
+})
+
 # The column arithmetic the weighted standardization and the solver's tolerance
 # box both read their scales from. It takes an already-centered matrix because
 # both callers have one in hand, and it reproduces the per-column

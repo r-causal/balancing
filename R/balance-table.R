@@ -96,10 +96,21 @@ standardize_columns <- function(m, sampling_weights = NULL) {
 #
 # The comparison is against the first row broadcast down the matrix, which reads
 # every column in one vectorized pass. The covariate columns carry no missing
-# values, which the fit validates before a constraint matrix is built.
+# values, which the fit validates before a constraint matrix is built, so the
+# missing-value branch below governs only the direct callers.
+#
+# A column carrying one is read as not constant. The comparison answers a
+# missing value with a missing value, and both consumers of this reading index
+# with it: `standardize_columns()` writes `centered[, constant] <- 0` and
+# `solver_box()` (R/method-entropy.R) writes `column_sd[...] <- 1`. A missing
+# subscript makes each of those a silent no-op, so which columns the guards
+# reached would depend on a value the guards say nothing about. Reading such a
+# column as varying makes that explicit and leaves the standardization behaving
+# as it did: the column keeps its computed center and scale, and the missing
+# value carries through them into the standardized column.
 column_is_constant <- function(m) {
   differences <- colSums(m != rep(m[1L, ], each = nrow(m)))
-  differences == 0L
+  !is.na(differences) & differences == 0L
 }
 
 # Weighted mean of every column of a matrix, as one pass of column arithmetic.
