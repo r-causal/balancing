@@ -77,7 +77,10 @@ arguments add to its own continuous energy method, and there the correlation
 is held exactly whatever \code{tolerance} says, for the reason \code{\link[=bw_energy]{bw_energy()}}
 records. The marginal distribution of the exposure and of the covariates is a
 separate matter, held by \code{distribution_moments} in \code{\link[=bw_energy]{bw_energy()}} and
-\code{\link[=bw_entropy]{bw_entropy()}}, which is WeightIt's \code{d.moments}.
+\code{\link[=bw_entropy]{bw_entropy()}}, which is WeightIt's \code{d.moments}. WeightIt raises its own
+\code{d.moments} to its \code{moments}, so matching a WeightIt call with \code{moments = k}
+for \code{k} above one takes \code{distribution_moments = k} in \code{\link[=bw_energy]{bw_energy()}} alongside
+\code{moments = k} here.
 
 A factor covariate contributes one indicator per level rather than the
 reference coding a model formula would use. Those indicators sum to the

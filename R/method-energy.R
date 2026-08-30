@@ -40,7 +40,11 @@
 #' `moments`, adding a constraint that holds the weighted correlation of the
 #' exposure with each covariate power at zero, and `distribution_moments` here is
 #' WeightIt's `d.moments`, pinning the marginal moments of the exposure and of
-#' the covariates. Neither sets the other. The correlation rows are held exactly,
+#' the covariates. Neither sets the other here. WeightIt does couple them in one
+#' direction: `weightit()` raises its own `d.moments` to its `moments`, so a fit
+#' matching a WeightIt call with `moments = k` for `k` above one sets
+#' `distribution_moments = k` here as well as `moments = k` in
+#' [balance_terms()]. The correlation rows are held exactly,
 #' so a tolerance is ignored on this path: the quadratic program bounds a
 #' linearized correlation whose exposure and covariate scales are fixed at the
 #' sample, and the spread of energy weights shrinks both weighted standard
@@ -55,7 +59,7 @@
 #' same residual. What holds it up is `weight_penalty`, which trades that
 #' residual against effective sample size: at its default of `1e-4` the penalty
 #' term is about three quarters of the objective at 1000 observations, leaving a
-#' largest correlation near 0.13 to 0.25 at an effective sample size near 71
+#' largest correlation near 0.22 to 0.25 at an effective sample size near 71
 #' percent, while a penalty of zero brings the correlation down to 0.05 to 0.07
 #' and the effective sample size down to about 20 percent. Ask for
 #' `balance_terms(moments = 1)` to remove the correlation outright, at a cost in
@@ -355,21 +359,38 @@ distance_covariates <- function(data, covariates) {
   do.call(cbind, columns)
 }
 
-# The tolerance in a balance_terms() specification relaxes added moment
-# constraints; with none present it has nothing to act on, so warn and proceed
-# with the pure energy objective. A continuous fit holds its distribution moments
-# and its correlation rows exactly, so any positive tolerance is ignored there as
-# well. The reason the continuous rows are not relaxable is measured rather than
+# The tolerance in a balance_terms() specification relaxes added constraints;
+# with none present it has nothing to act on, so warn and proceed with the pure
+# objective. Both `moments` and `interactions` add constraints for either
+# exposure type: moment rows for a discrete exposure, exposure-covariate
+# correlation rows on the continuous energy path. Only `quantiles` is confined to
+# a discrete exposure, so it is the only one the advice qualifies.
+warn_ignored_tolerance <- function(call = rlang::caller_env()) {
+  warn(
+    c(
+      "{.arg tolerance} relaxes added constraints, but this fit has none to relax.",
+      i = "Drop {.arg tolerance} from {.fn balance_terms}, or add constraints with {.arg moments} or {.arg interactions}, or with {.arg quantiles} for a discrete exposure."
+    ),
+    warning_class = "balancing_ignored_argument_warning",
+    call = call
+  )
+}
+
+# A continuous energy fit that does carry constraint rows still ignores the
+# tolerance, for the opposite reason: the rows are held exactly rather than
+# absent, so the message says that rather than asking for constraints the caller
+# already supplied. That the rows are not relaxable is measured rather than
 # assumed: the quadratic program bounds a linearized correlation whose exposure
 # and covariate scales are fixed at the sampling-weight sample, and the spread of
 # energy weights shrinks both weighted standard deviations enough that the
 # reported Pearson correlation lands about half again above the band. A relaxed
 # band would therefore not mean what it reads as.
-warn_ignored_tolerance <- function(call = rlang::caller_env()) {
+warn_exact_correlation_rows <- function(call = rlang::caller_env()) {
   warn(
     c(
-      "{.arg tolerance} relaxes added moment constraints, but this fit has none to relax.",
-      i = "Drop {.arg tolerance} from {.fn balance_terms}, or add moment constraints with {.arg moments}, {.arg quantiles}, or {.arg interactions} for a discrete exposure."
+      "{.arg tolerance} is ignored for a continuous exposure, whose correlation rows this fit holds exactly.",
+      x = "The rows bound a linearized correlation whose scales are fixed at the sample, so the reported correlation would land about half again above whatever band was asked for.",
+      i = "Drop {.arg tolerance} from {.fn balance_terms}."
     ),
     warning_class = "balancing_ignored_argument_warning",
     call = call
@@ -411,7 +432,11 @@ method(fit_method, bw_energy) <- function(method, prepared) {
 
   if (identical(prepared$exposure_type, "continuous")) {
     if (has_positive_tolerance(prepared$constraints)) {
-      warn_ignored_tolerance()
+      if (enforce) {
+        warn_exact_correlation_rows()
+      } else {
+        warn_ignored_tolerance()
+      }
     }
     return(fit_energy_continuous(method, prepared, enforce, backend))
   }
@@ -632,7 +657,14 @@ fit_energy_continuous <- function(method, prepared, enforce, backend) {
   # rows; the box rows bound each of the n units.
   n_structural_leading <- 1L
   duals <- energy_duals_frame(result$duals, n, n_structural_leading)
-  assemble_energy(result, method, prepared, duals, approximate = !enforce)
+  assemble_energy(
+    result,
+    method,
+    prepared,
+    duals,
+    approximate = !enforce,
+    enforced_tolerance = if (enforce) 0 else NULL
+  )
 }
 
 # The solver's dual variables for the structural constraint rows, dropping the
@@ -669,7 +701,14 @@ energy_duals_frame <- function(duals, nvar, n_group_rows) {
 # scaled to the focal total, which leaves the focal group at its base weight. A
 # continuous fit is a single group scaled to the sampling-weight total. The
 # quadratic-program family carries no estimating equations.
-assemble_energy <- function(result, method, prepared, duals, approximate) {
+assemble_energy <- function(
+  result,
+  method,
+  prepared,
+  duals,
+  approximate,
+  enforced_tolerance = NULL
+) {
   s <- prepared$sampling_weights
   estimand <- prepared$estimand
   focal <- prepared$focal_level
@@ -717,6 +756,10 @@ assemble_energy <- function(result, method, prepared, duals, approximate) {
     # are enforced, so the balance warning must not fire against a tolerance the
     # fit does not target.
     approximate = approximate,
+    # The tolerance the fit held its rows at, where that is the method's own
+    # value rather than the one the specification asked for, so the balance
+    # table reports what the program enforced.
+    enforced_tolerance = enforced_tolerance,
     groups = groups
   )
 }

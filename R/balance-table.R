@@ -166,7 +166,8 @@ compute_balance_table <- function(
   reference = NULL,
   constraint_target = c("pooled", "arms"),
   sampling_weights = NULL,
-  matrix = NULL
+  matrix = NULL,
+  enforced_tolerance = NULL
 ) {
   if (is.null(reference)) {
     reference <- rep(1, length(weights))
@@ -185,11 +186,20 @@ compute_balance_table <- function(
   p <- ncol(z)
   terms <- vapply(recipe, function(term) term$term, character(1))
   kinds <- vapply(recipe, function(term) term$kind, character(1))
-  tolerances <- vapply(
-    recipe,
-    function(term) term$tolerance %||% tolerance,
-    numeric(1)
-  )
+  # A method that holds its rows at a value of its own reports that value rather
+  # than the one requested. The continuous energy path is the case: it holds
+  # every correlation row exactly whatever the specification asked for, so a
+  # table reading the requested band would judge the fit against a box no row of
+  # the program was ever given, and would print that band as the fit's tolerance.
+  tolerances <- if (is.null(enforced_tolerance)) {
+    vapply(
+      recipe,
+      function(term) term$tolerance %||% tolerance,
+      numeric(1)
+    )
+  } else {
+    rep(enforced_tolerance, p)
+  }
 
   if (identical(exposure_type, "continuous")) {
     unweighted <- vapply(

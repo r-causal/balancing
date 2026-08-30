@@ -234,7 +234,10 @@ fit_method <- new_generic("fit_method", "method", function(method, prepared) {
 #' is held exactly whatever `tolerance` says, for the reason [bw_energy()]
 #' records. The marginal distribution of the exposure and of the covariates is a
 #' separate matter, held by `distribution_moments` in [bw_energy()] and
-#' [bw_entropy()], which is WeightIt's `d.moments`.
+#' [bw_entropy()], which is WeightIt's `d.moments`. WeightIt raises its own
+#' `d.moments` to its `moments`, so matching a WeightIt call with `moments = k`
+#' for `k` above one takes `distribution_moments = k` in [bw_energy()] alongside
+#' `moments = k` here.
 #'
 #' A factor covariate contributes one indicator per level rather than the
 #' reference coding a model formula would use. Those indicators sum to the

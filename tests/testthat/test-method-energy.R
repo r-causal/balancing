@@ -1271,6 +1271,46 @@ test_that("a continuous tolerance warns and is ignored", {
   )
 })
 
+test_that("a continuous tolerance with constraint rows warns that they are exact", {
+  # With the rows present the tolerance is still ignored, but for the opposite
+  # reason: they are held exactly rather than absent. The message has to say so
+  # rather than tell the caller to add the constraints already passed.
+  data <- sim_continuous()
+  expect_balancing_warning(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_energy(),
+      estimand = "ate",
+      constraints = balance_terms(moments = 1L, tolerance = 0.1)
+    )
+  )
+})
+
+test_that("the balance table reports the tolerance a continuous fit enforced", {
+  # The correlation rows are held at zero whatever the tolerance asked for, so
+  # the table reports the value the fit enforced rather than the band it was
+  # given, which reached no row of the program.
+  data <- sim_continuous(n = 350)
+  expect_warning(
+    fit <- balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_energy(),
+      estimand = "ate",
+      constraints = balance_terms(moments = 1L, tolerance = 0.05)
+    ),
+    class = "balancing_ignored_argument_warning"
+  )
+  expect_column_all(
+    as.data.frame(fit@balance_table),
+    "tolerance",
+    function(value) value == 0
+  )
+})
+
 # ---- Infeasible constraint set --------------------------------------------
 
 test_that("an infeasible constraint set raises balancing_infeasible_error", {

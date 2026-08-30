@@ -105,7 +105,11 @@ names them the same way: \code{moments} in \code{\link[=balance_terms]{balance_t
 \code{moments}, adding a constraint that holds the weighted correlation of the
 exposure with each covariate power at zero, and \code{distribution_moments} here is
 WeightIt's \code{d.moments}, pinning the marginal moments of the exposure and of
-the covariates. Neither sets the other. The correlation rows are held exactly,
+the covariates. Neither sets the other here. WeightIt does couple them in one
+direction: \code{weightit()} raises its own \code{d.moments} to its \code{moments}, so a fit
+matching a WeightIt call with \code{moments = k} for \code{k} above one sets
+\code{distribution_moments = k} here as well as \code{moments = k} in
+\code{\link[=balance_terms]{balance_terms()}}. The correlation rows are held exactly,
 so a tolerance is ignored on this path: the quadratic program bounds a
 linearized correlation whose exposure and covariate scales are fixed at the
 sample, and the spread of energy weights shrinks both weighted standard
@@ -120,7 +124,7 @@ few thousand observations, and WeightIt's continuous energy method leaves the
 same residual. What holds it up is \code{weight_penalty}, which trades that
 residual against effective sample size: at its default of \code{1e-4} the penalty
 term is about three quarters of the objective at 1000 observations, leaving a
-largest correlation near 0.13 to 0.25 at an effective sample size near 71
+largest correlation near 0.22 to 0.25 at an effective sample size near 71
 percent, while a penalty of zero brings the correlation down to 0.05 to 0.07
 and the effective sample size down to about 20 percent. Ask for
 \code{balance_terms(moments = 1)} to remove the correlation outright, at a cost in
