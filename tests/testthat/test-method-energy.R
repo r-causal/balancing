@@ -1420,6 +1420,73 @@ test_that("a fit that cannot reach its tolerance returns usable weights", {
   expect_lt(max(abs(table$weighted)), 0.5 * max(abs(table$unweighted)))
 })
 
+test_that("a continuous fit that spends its cap reports the re-solve", {
+  # The re-solve at a reachable tolerance is not a discrete-path device: the
+  # continuous solve routes through the same fallback, and a run that ends at
+  # the iteration cap with a tolerance below the reachable 1e-6 is retried
+  # there. The fit still calls itself unconverged, because the tolerance asked
+  # for was not met, and its reported iterations are the two solves added
+  # together, so they exceed the cap the caller set.
+  #
+  # A small cap is what reaches this. The benchmark sweep that measured the
+  # continuous path against WeightIt never reached it at realistic settings:
+  # not one of eighty cells, up to a thousand observations at tolerances from
+  # 1e-5 to 1e-8, spent its cap. Driving it with the cap is legitimate all the
+  # same, since the fallback keys on the terminal status and the tolerance
+  # rather than on how the cap was reached.
+  data <- sim_continuous(n = 200)
+  cap <- 100L
+  expect_warning(
+    fit <- balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_energy(
+        convergence_tolerance = 1e-14,
+        max_iterations = cap
+      ),
+      estimand = "ate"
+    ),
+    class = "balancing_convergence_warning"
+  )
+  expect_false(fit@converged)
+  expect_gt(fit@iterations, cap)
+
+  # The iterate the fit reports is the re-solve's, which is a real answer: the
+  # weights are finite, sit at or above the documented floor, carry the sample
+  # at its target total, and improve on the unweighted correlation.
+  w <- as.numeric(stats::weights(fit))
+  expect_true(all(is.finite(w)))
+  expect_true(all(w >= bw_energy()@min_weight))
+  expect_equal(mean(w), 1, tolerance = 1e-6)
+  table <- as.data.frame(fit@balance_table)
+  expect_lt(max(abs(table$weighted)), 0.5 * max(abs(table$unweighted)))
+})
+
+test_that("a continuous cap too small for the re-solve keeps the first iterate", {
+  # The retry is given the same cap, so a cap below what the reachable
+  # tolerance needs leaves it unconverged too, and the fit reports the original
+  # solve rather than a second failed one. The iteration count is then the cap
+  # itself rather than the sum.
+  data <- sim_continuous(n = 200)
+  cap <- 25L
+  expect_warning(
+    fit <- balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_energy(
+        convergence_tolerance = 1e-14,
+        max_iterations = cap
+      ),
+      estimand = "ate"
+    ),
+    class = "balancing_convergence_warning"
+  )
+  expect_false(fit@converged)
+  expect_identical(fit@iterations, cap)
+})
+
 # ---- Live consistency against WeightIt ------------------------------------
 
 test_that("energy weights meet the objective tolerance against WeightIt for a binary ate", {
