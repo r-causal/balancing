@@ -1078,7 +1078,7 @@ test_that("a single-level factor leaves a binary-exposure fit intact", {
   fit <- balance(data, exposure, c(x1, x2, f), method = bw_entropy())
 
   expect_false("f_a" %in% fit@balance_table$term)
-  expect_true(all(fit@balance_table$within_tolerance))
+  expect_column_all(fit@balance_table, "within_tolerance", function(x) x)
 })
 
 test_that("a constant covariate leaves a binary-exposure fit and ipw() intact", {
@@ -1088,7 +1088,7 @@ test_that("a constant covariate leaves a binary-exposure fit and ipw() intact", 
   fit <- balance(data, exposure, c(x1, x2, fixed), method = bw_entropy())
 
   expect_false("fixed" %in% fit@balance_table$term)
-  expect_true(all(fit@balance_table$within_tolerance))
+  expect_column_all(fit@balance_table, "within_tolerance", function(x) x)
 
   data$.wts <- as.numeric(stats::weights(fit))
   outcome_model <- suppressWarnings(stats::glm(
