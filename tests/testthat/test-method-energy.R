@@ -1122,28 +1122,100 @@ test_that("the balance table reports the correlation rows the fit constrained", 
   expect_true(all(table$within_tolerance))
 })
 
-test_that("a continuous correlation row is held exactly whatever the tolerance", {
-  # The correlation rows are not relaxable, so a positive tolerance is ignored
-  # here as it was before and the achieved correlation sits at zero rather than
-  # on the edge of the requested band. Relaxing them would mislead: the row the
-  # quadratic program bounds is a linearized correlation whose scales are fixed
-  # at the sample, and the spread of energy weights shrinks both weighted
-  # standard deviations enough that the reported Pearson correlation would land
-  # about half again above the band it was given.
-  data <- sim_continuous(n = 350)
-  expect_warning(
-    fit <- balance(
-      data,
-      exposure,
-      c(x1, x2),
-      method = bw_energy(),
-      estimand = "ate",
-      constraints = balance_terms(moments = 1L, tolerance = 0.05)
-    ),
-    class = "balancing_ignored_argument_warning"
-  )
+# A continuous fit's achieved weighted exposure-covariate correlations, the
+# statistic the correlation rows are judged on and the one the balance table
+# reports.
+achieved_correlations <- function(fit, data, covariates) {
   w <- as.numeric(stats::weights(fit))
-  expect_lt(weighted_correlation(data$exposure, data$x1, w), 1e-6)
+  vapply(
+    covariates,
+    function(covariate) {
+      weighted_correlation(data$exposure, data[[covariate]], w)
+    },
+    numeric(1)
+  )
+}
+
+test_that("a continuous tolerance is honored as a band rather than held exactly", {
+  # The correlation rows are relaxable. The quadratic program bounds a
+  # linearized correlation whose exposure and covariate scales are fixed at the
+  # sample, so a single solve at the requested band overshoots it; the fit
+  # tightens the bound it hands the program over a few passes until the reported
+  # correlation sits inside the band. What that has to show is both halves: no
+  # correlation above the band, and at least one well inside it rather than at
+  # the zero exact rows would produce, so the band is used rather than ignored.
+  data <- sim_continuous(n = 350)
+  fit <- expect_no_warning(balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(),
+    estimand = "ate",
+    constraints = balance_terms(moments = 1L, tolerance = 0.05)
+  ))
+  achieved <- achieved_correlations(fit, data, c("x1", "x2"))
+
+  expect_all(achieved, function(r) r <= 0.05 + balance_margin(0.05))
+  expect_gt(max(achieved), 0.5 * 0.05)
+})
+
+test_that("a continuous tolerance of zero still holds the rows exactly", {
+  # Exact balance is the tolerance the refinement has nothing to tighten, so it
+  # reaches the same solution it always did, in a single solve.
+  data <- sim_continuous(n = 350)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(),
+    estimand = "ate",
+    constraints = balance_terms(moments = 1L)
+  )
+  achieved <- achieved_correlations(fit, data, c("x1", "x2"))
+
+  expect_all(achieved, function(r) r < 1e-6)
+})
+
+test_that("the refinement takes several passes and sums their iterations", {
+  # The pass count is what separates an honored band from a single overshooting
+  # solve, so it is counted at the solver rather than inferred from the weights,
+  # and the reported iterations have to account for every pass rather than for
+  # the last one alone. Exact balance is the control: it has nothing to tighten
+  # and takes one solve.
+  data <- sim_continuous(n = 350)
+  solves <- 0L
+  per_solve <- integer()
+  original <- solve_energy_cont
+  testthat::local_mocked_bindings(
+    solve_energy_cont = function(...) {
+      result <- original(...)
+      solves <<- solves + 1L
+      per_solve <<- c(per_solve, as.integer(result$iterations))
+      result
+    }
+  )
+
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(),
+    estimand = "ate",
+    constraints = balance_terms(moments = 1L, tolerance = 0.05)
+  )
+  expect_gt(solves, 1L)
+  expect_identical(fit@iterations, sum(per_solve))
+
+  solves <- 0L
+  balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(),
+    estimand = "ate",
+    constraints = balance_terms(moments = 1L)
+  )
+  expect_identical(solves, 1L)
 })
 
 test_that("moments no longer sets the marginal distribution moments", {
@@ -1323,44 +1395,47 @@ test_that("a continuous tolerance warns and is ignored", {
   )
 })
 
-test_that("a continuous tolerance with constraint rows warns that they are exact", {
-  # With the rows present the tolerance is still ignored, but for the opposite
-  # reason: they are held exactly rather than absent. The message has to say so
-  # rather than tell the caller to add the constraints already passed.
-  data <- sim_continuous()
-  expect_balancing_warning(
-    balance(
-      data,
-      exposure,
-      c(x1, x2),
-      method = bw_energy(),
-      estimand = "ate",
-      constraints = balance_terms(moments = 1L, tolerance = 0.1)
-    )
+test_that("the balance table reports the tolerance a continuous fit enforced", {
+  # The correlation rows are held inside the band the specification asked for,
+  # so that band is what the table reports and what its verdict is judged
+  # against.
+  data <- sim_continuous(n = 350)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(),
+    estimand = "ate",
+    constraints = balance_terms(moments = 1L, tolerance = 0.05)
   )
+  table <- as.data.frame(fit@balance_table)
+  expect_column_all(table, "tolerance", function(value) value == 0.05)
+  expect_column_all(table, "within_tolerance", function(value) value)
 })
 
-test_that("the balance table reports the tolerance a continuous fit enforced", {
-  # The correlation rows are held at zero whatever the tolerance asked for, so
-  # the table reports the value the fit enforced rather than the band it was
-  # given, which reached no row of the program.
-  data <- sim_continuous(n = 350)
-  expect_warning(
-    fit <- balance(
-      data,
-      exposure,
-      c(x1, x2),
-      method = bw_energy(),
-      estimand = "ate",
-      constraints = balance_terms(moments = 1L, tolerance = 0.05)
-    ),
-    class = "balancing_ignored_argument_warning"
-  )
-  expect_column_all(
-    as.data.frame(fit@balance_table),
-    "tolerance",
-    function(value) value == 0
-  )
+test_that("a fit that added no constraint rows reports the tolerance it enforced", {
+  # A tolerance with no constraint rows to relax reaches no row of the program,
+  # so the table must not report it as the fit's tolerance: the fit enforced
+  # nothing, which is a tolerance of zero. Both exposure types answer the same
+  # way, the rows being absent for the same reason in each.
+  for (data in list(sim_binary(n = 200), sim_continuous(n = 200))) {
+    expect_warning(
+      fit <- balance(
+        data,
+        exposure,
+        c(x1, x2),
+        method = bw_energy(),
+        estimand = "ate",
+        constraints = balance_terms(tolerance = 0.1)
+      ),
+      class = "balancing_ignored_argument_warning"
+    )
+    expect_column_all(
+      as.data.frame(fit@balance_table),
+      "tolerance",
+      function(value) value == 0
+    )
+  }
 })
 
 # ---- Infeasible constraint set --------------------------------------------

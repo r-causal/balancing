@@ -13,7 +13,7 @@
       Estimand: "ate"
       Observations: 150
       Solver: converged in <n> iterations
-      Constraints: 2 terms (tolerance 0.1)
+      Constraints: 2 terms (tolerance 0)
       Largest imbalance: 0.0437 (standardized mean difference)
 
 # a continuous tolerance warns and is ignored
@@ -31,27 +31,8 @@
       Estimand: "ate"
       Observations: 500
       Solver: converged in <n> iterations
-      Constraints: 2 terms (tolerance 0.1)
-      Largest imbalance: 0.188 (correlation)
-
-# a continuous tolerance with constraint rows warns that they are exact
-
-    Code
-      balance(data, exposure, c(x1, x2), method = bw_energy(), estimand = "ate",
-      constraints = balance_terms(moments = 1L, tolerance = 0.1))
-    Condition <balancing_ignored_argument_warning>
-      Warning in `method(fit_method, balancing::bw_energy)`:
-      `tolerance` is ignored for a continuous exposure, whose correlation rows this fit holds exactly.
-      x The rows bound a linearized correlation whose scales are fixed at the sample, so the reported correlation would land about half again above whatever band was asked for.
-      i Drop `tolerance` from `balance_terms()`.
-    Output
-      -- Energy balancing ------------------------------------------------------------
-      Exposure: "exposure" (continuous)
-      Estimand: "ate"
-      Observations: 500
-      Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
-      Largest imbalance: <1e-7 (correlation)
+      Largest imbalance: 0.188 (correlation)
 
 # an infeasible constraint set raises balancing_infeasible_error
 

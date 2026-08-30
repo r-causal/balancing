@@ -378,33 +378,6 @@ fit_sbw_discrete <- function(method, prepared) {
   assemble_sbw(result, method, prepared, duals = duals)
 }
 
-# The largest number of correlation-refinement passes and the fraction of the
-# room to the target the effective tolerance is tightened to on each pass, held
-# just under one so a converged fit sits inside the band rather than on its edge.
-sbw_cont_max_passes <- 8L
-sbw_cont_safety <- 0.98
-
-# Absolute weighted exposure-covariate Pearson correlations under weights `w`, the
-# statistic the continuous fit is judged on and the quantity the balance table
-# reports, so the refinement loop measures the same thing the specs assert. A
-# column with no weighted spread has no correlation to report: it is met by every
-# weighting, so it reads as zero rather than carrying an undefined value into the
-# comparison that decides which tolerances still bind.
-sbw_weighted_correlations <- function(exposure, z, w) {
-  vapply(
-    seq_len(ncol(z)),
-    function(j) {
-      correlation <- stats::cov.wt(
-        cbind(exposure, z[, j]),
-        wt = w,
-        cor = TRUE
-      )$cor[1, 2]
-      if (is.finite(correlation)) abs(correlation) else 0
-    },
-    numeric(1)
-  )
-}
-
 fit_sbw_continuous <- function(method, prepared) {
   z <- prepared$matrix
   s <- prepared$sampling_weights
@@ -427,7 +400,7 @@ fit_sbw_continuous <- function(method, prepared) {
   effective <- target
   result <- NULL
   last_converged <- NULL
-  for (pass in seq_len(sbw_cont_max_passes)) {
+  for (pass in seq_len(correlation_refinement_passes)) {
     result <- solve_sbw_cont(
       exposure,
       z,
@@ -455,7 +428,7 @@ fit_sbw_continuous <- function(method, prepared) {
     # cov.wt normalizes internally, so the composed sampling weights, not their
     # renormalized copy, carry the reweighting the reported statistic reflects.
     composed <- as.numeric(result$weights) * s
-    achieved <- sbw_weighted_correlations(exposure, z, composed)
+    achieved <- weighted_exposure_correlations(exposure, z, composed)
     binding <- target > 0 & achieved > target + 1e-8
     if (!any(binding)) {
       break
@@ -463,7 +436,7 @@ fit_sbw_continuous <- function(method, prepared) {
     ratio <- ifelse(achieved > 0, target / achieved, 1)
     effective[binding] <- pmin(
       target[binding],
-      effective[binding] * ratio[binding] * sbw_cont_safety
+      effective[binding] * ratio[binding] * correlation_refinement_safety
     )
   }
 

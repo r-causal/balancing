@@ -862,7 +862,7 @@ test_that("the weighted correlations read a constant column as zero", {
   # from resolving to a missing value.
   exposure <- c(-1, 0, 1, 2, 0.5, -0.5)
   z <- cbind(varying = exposure, constant = rep(0, 6))
-  achieved <- sbw_weighted_correlations(exposure, z, rep(1, 6))
+  achieved <- weighted_exposure_correlations(exposure, z, rep(1, 6))
 
   expect_equal(achieved, c(1, 0))
 })

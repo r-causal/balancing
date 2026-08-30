@@ -71,7 +71,8 @@ fit reports the iterate of the original solve.}
 resolved default of 200000. The re-solve above is given the same cap, and
 when it converges the reported \verb{@iterations} sums the two solves, so an
 energy fit that could not reach its tolerance can report more iterations
-than this.}
+than this. The refinement passes of a continuous fit with a positive
+tolerance are summed the same way, each pass being a solve of its own.}
 }
 \value{
 An \code{bw_energy} specification, a \link{balance_method}.
@@ -103,18 +104,26 @@ covariate dimensionality.
 The two knobs a continuous fit carries are separate, and the WeightIt package
 names them the same way: \code{moments} in \code{\link[=balance_terms]{balance_terms()}} is WeightIt's
 \code{moments}, adding a constraint that holds the weighted correlation of the
-exposure with each covariate power at zero, and \code{distribution_moments} here is
+exposure with each covariate power within its tolerance, which defaults to
+zero, and \code{distribution_moments} here is
 WeightIt's \code{d.moments}, pinning the marginal moments of the exposure and of
 the covariates. Neither sets the other here. WeightIt does couple them in one
 direction: \code{weightit()} raises its own \code{d.moments} to its \code{moments}, so a fit
 matching a WeightIt call with \code{moments = k} for \code{k} above one sets
 \code{distribution_moments = k} here as well as \code{moments = k} in
-\code{\link[=balance_terms]{balance_terms()}}. The correlation rows are held exactly,
-so a tolerance is ignored on this path: the quadratic program bounds a
-linearized correlation whose exposure and covariate scales are fixed at the
-sample, and the spread of energy weights shrinks both weighted standard
-deviations enough that the reported Pearson correlation would land about half
-again above whatever band was requested.
+\code{\link[=balance_terms]{balance_terms()}}. The correlation rows are held within the tolerance
+\code{\link[=balance_terms]{balance_terms()}} carries, and reaching that band takes more than one solve.
+The quadratic program bounds a linearized correlation whose exposure and
+covariate scales are fixed at the sample, and the spread of energy weights
+shrinks both weighted standard deviations, so a single solve at the requested
+band overshoots it: a band of \code{0.05} lands between 0.070 and 0.086 at 200 to
+1000 observations. The fit therefore tightens the bound it hands the program
+and re-solves, up to eight passes, until the reported correlation sits inside
+the band. A band of \code{0.05} took two passes at 350 and at 1000 observations,
+about twice the time and a sixth more memory than the same fit at exact
+balance, which has nothing to tighten and takes one solve. A band the passes
+cannot reach is reported at its last iterate, and the balance warning judges
+it as it judges any other fit.
 
 Without those rows the continuous objective targets distributional
 independence between the exposure and the covariates rather than zero
@@ -132,9 +141,10 @@ effective sample size of its own.
 
 Energy balancing belongs to the quadratic-program family, which has no
 estimating equations, so a fit produces no estimating-equations container and
-the tolerance in \code{\link[=balance_terms]{balance_terms()}} relaxes any added moment constraints of a
-discrete fit rather than selecting an inexact solver. A tolerance supplied
-without moment constraints has nothing to relax, so it is warned and ignored.
+the tolerance in \code{\link[=balance_terms]{balance_terms()}} relaxes the constraints a fit added rather
+than selecting an inexact solver. A tolerance supplied without those
+constraints has nothing to relax, so it is warned and ignored, and the balance
+table reports the tolerance the fit enforced, which is zero.
 }
 \examples{
 n <- 200

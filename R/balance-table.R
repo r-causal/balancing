@@ -19,6 +19,44 @@ balance_margin <- function(tolerance) {
   1e-6 + 0.02 * tolerance
 }
 
+# The largest number of correlation-refinement passes a continuous
+# quadratic-program fit takes, and the fraction of the room to its target the
+# effective tolerance is tightened to on each pass, held just under one so a
+# converged fit sits inside the band rather than on its edge.
+#
+# Both continuous quadratic programs need this loop and they run the same one.
+# Each bounds a linearized correlation whose exposure and covariate scales are
+# fixed at the sample, so reweighting to meet the bound shrinks both weighted
+# standard deviations and the reported Pearson correlation runs above the bound.
+# The two stop against the same statistic, and they take the same cap for the
+# same reason: a pass costs a whole solve, and eight of them is where the
+# tightening has converged in every case measured.
+correlation_refinement_passes <- 8L
+correlation_refinement_safety <- 0.98
+
+# Absolute weighted exposure-covariate Pearson correlations under weights `w`,
+# the statistic a continuous fit is judged on and the quantity the balance table
+# reports, so a refinement loop measures the same thing the specs assert. A
+# column with no weighted spread has no correlation to report: it is met by
+# every weighting, so it reads as zero rather than carrying an undefined value
+# into the comparison that decides which tolerances still bind. The table itself
+# leaves that case missing instead, where it becomes a verdict of out of balance
+# rather than a row the loop would chase forever.
+weighted_exposure_correlations <- function(exposure, z, w) {
+  vapply(
+    seq_len(ncol(z)),
+    function(j) {
+      correlation <- stats::cov.wt(
+        cbind(exposure, z[, j]),
+        wt = w,
+        cor = TRUE
+      )$cor[1, 2]
+      if (is.finite(correlation)) abs(correlation) else 0
+    },
+    numeric(1)
+  )
+}
+
 # Build a bare tibble without a tibble dependency, matching how positively and
 # the tidyverse store display tables on result objects.
 new_balancing_tibble <- function(cols) {
@@ -187,10 +225,10 @@ compute_balance_table <- function(
   terms <- vapply(recipe, function(term) term$term, character(1))
   kinds <- vapply(recipe, function(term) term$kind, character(1))
   # A method that holds its rows at a value of its own reports that value rather
-  # than the one requested. The continuous energy path is the case: it holds
-  # every correlation row exactly whatever the specification asked for, so a
-  # table reading the requested band would judge the fit against a box no row of
-  # the program was ever given, and would print that band as the fit's tolerance.
+  # than the one requested. An energy fit that added no constraint rows is the
+  # case: it enforced nothing, so a table reading the requested band would judge
+  # the fit against a box no row of the program was ever given, and would print
+  # that band as the fit's tolerance.
   tolerances <- if (is.null(enforced_tolerance)) {
     vapply(
       recipe,
