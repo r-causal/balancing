@@ -1257,7 +1257,10 @@ test_that("a tightened pass that stops at the iteration cap keeps the last conve
       data,
       exposure,
       c(x1, x2),
-      method = bw_energy(),
+      # Pinned at the tolerance the problem is taken to reach, so the mocked
+      # failure cannot draw in the re-solve fallback and the two solves counted
+      # here are the two refinement passes.
+      method = bw_energy(convergence_tolerance = 1e-6),
       estimand = "ate",
       constraints = balance_terms(moments = 1L, tolerance = 0.05)
     ),
