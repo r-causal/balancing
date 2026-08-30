@@ -35,11 +35,37 @@
 #' `dimension_adjustment` reweights the covariate energy distance by the
 #' covariate dimensionality.
 #'
+#' The two knobs a continuous fit carries are separate, and the WeightIt package
+#' names them the same way: `moments` in [balance_terms()] is WeightIt's
+#' `moments`, adding a constraint that holds the weighted correlation of the
+#' exposure with each covariate power at zero, and `distribution_moments` here is
+#' WeightIt's `d.moments`, pinning the marginal moments of the exposure and of
+#' the covariates. Neither sets the other. The correlation rows are held exactly,
+#' so a tolerance is ignored on this path: the quadratic program bounds a
+#' linearized correlation whose exposure and covariate scales are fixed at the
+#' sample, and the spread of energy weights shrinks both weighted standard
+#' deviations enough that the reported Pearson correlation would land about half
+#' again above whatever band was requested.
+#'
+#' Without those rows the continuous objective targets distributional
+#' independence between the exposure and the covariates rather than zero
+#' correlations, and it does not drive the correlations to zero. A residual
+#' weighted correlation of roughly 0.1 to 0.3 is ordinary at a few hundred to a
+#' few thousand observations, and WeightIt's continuous energy method leaves the
+#' same residual. What holds it up is `weight_penalty`, which trades that
+#' residual against effective sample size: at its default of `1e-4` the penalty
+#' term is about three quarters of the objective at 1000 observations, leaving a
+#' largest correlation near 0.13 to 0.25 at an effective sample size near 71
+#' percent, while a penalty of zero brings the correlation down to 0.05 to 0.07
+#' and the effective sample size down to about 20 percent. Ask for
+#' `balance_terms(moments = 1)` to remove the correlation outright, at a cost in
+#' effective sample size of its own.
+#'
 #' Energy balancing belongs to the quadratic-program family, which has no
 #' estimating equations, so a fit produces no estimating-equations container and
-#' the tolerance in [balance_terms()] relaxes any added moment constraints rather
-#' than selecting an inexact solver. A tolerance supplied without moment
-#' constraints has nothing to relax, so it is warned and ignored.
+#' the tolerance in [balance_terms()] relaxes any added moment constraints of a
+#' discrete fit rather than selecting an inexact solver. A tolerance supplied
+#' without moment constraints has nothing to relax, so it is warned and ignored.
 #'
 #' @param distance The covariate distance definition the energy objective is
 #'   built on, one of `"scaled_euclidean"` (each covariate centered at its
@@ -48,7 +74,8 @@
 #' @param improved Whether to add the between-group energy distance of the
 #'   improved variant for the average treatment effect with a discrete exposure.
 #' @param weight_penalty The L2 penalty on the weights, which stabilizes the
-#'   quadratic program.
+#'   quadratic program. For a continuous exposure it is also what sets the
+#'   residual exposure-covariate correlation, as the details section explains.
 #' @param min_weight The smallest permitted weight. The reported weights average
 #'   one within each exposure group, so a floor approaching one leaves almost no
 #'   room above it: the weight spread shrinks in proportion to the headroom
@@ -59,10 +86,12 @@
 #'   refuses the same floor as infeasible instead.
 #' @param distribution_moments For a continuous exposure, the number of exposure
 #'   and covariate marginal moments held equal to the sample under the base
-#'   measure, or `NULL` for the constraint moments. Raised automatically when
-#'   smaller than the constraint moments. Energy balancing carries no base
-#'   weights, so the base measure is the sampling weights, and without them the
-#'   marginals are held equal to the unweighted sample.
+#'   measure, or `NULL` for the first moments. This is WeightIt's `d.moments`,
+#'   and it is the only route to those rows: the `moments` in [balance_terms()]
+#'   asks for exposure-covariate correlation constraints instead and leaves the
+#'   marginals here. Energy balancing carries no base weights, so the base
+#'   measure is the sampling weights, and without them the marginals are held
+#'   equal to the unweighted sample.
 #' @param dimension_adjustment For a continuous exposure, whether to weight the
 #'   covariate energy distance by the covariate dimensionality adjustment.
 #' @param convergence_tolerance The quadratic-program solver tolerance, which
@@ -329,8 +358,13 @@ distance_covariates <- function(data, covariates) {
 # The tolerance in a balance_terms() specification relaxes added moment
 # constraints; with none present it has nothing to act on, so warn and proceed
 # with the pure energy objective. A continuous fit holds its distribution moments
-# exactly as identifying conditions and never adds relaxable constraints, so any
-# positive tolerance is ignored there as well.
+# and its correlation rows exactly, so any positive tolerance is ignored there as
+# well. The reason the continuous rows are not relaxable is measured rather than
+# assumed: the quadratic program bounds a linearized correlation whose exposure
+# and covariate scales are fixed at the sampling-weight sample, and the spread of
+# energy weights shrinks both weighted standard deviations enough that the
+# reported Pearson correlation lands about half again above the band. A relaxed
+# band would therefore not mean what it reads as.
 warn_ignored_tolerance <- function(call = rlang::caller_env()) {
   warn(
     c(
@@ -373,14 +407,15 @@ resolve_energy_backend <- function(call = rlang::caller_env()) {
 
 method(fit_method, bw_energy) <- function(method, prepared) {
   backend <- resolve_energy_backend()
+  enforce <- requests_moments(prepared$constraints)
+
   if (identical(prepared$exposure_type, "continuous")) {
     if (has_positive_tolerance(prepared$constraints)) {
       warn_ignored_tolerance()
     }
-    return(fit_energy_continuous(method, prepared, backend))
+    return(fit_energy_continuous(method, prepared, enforce, backend))
   }
 
-  enforce <- requests_moments(prepared$constraints)
   if (!enforce && has_positive_tolerance(prepared$constraints)) {
     warn_ignored_tolerance()
   }
@@ -507,7 +542,7 @@ center_on_measure <- function(columns, measure) {
   sweep(columns, 2, centers, "-")
 }
 
-fit_energy_continuous <- function(method, prepared, backend) {
+fit_energy_continuous <- function(method, prepared, enforce, backend) {
   n <- prepared$n
   s <- prepared$sampling_weights
   covs <- distance_covariates(prepared$data, prepared$covariates)
@@ -523,19 +558,21 @@ fit_energy_continuous <- function(method, prepared, backend) {
   # The distribution-moment constraints hold the weighted exposure and covariate
   # marginals equal to the sample under the base measure. Every one of those rows
   # takes the same measure, so a fit under informative sampling holds the
-  # exposure and the covariates to one population rather than two. They are
-  # raised to at least the constraint moments, with an alert when the requested
-  # value is smaller. The weighted distance covariance the objective minimizes is
-  # what drives the exposure-covariate association toward zero, so no separate
-  # correlation constraint is added in the default fit.
-  covariate_moments <- covariate_constraint_moments(
+  # exposure and the covariates to one population rather than two.
+  # `distribution_moments` is the only argument that sets how many of them there
+  # are: the constraint set a caller passes to balance_terms() asks for
+  # exposure-covariate correlation rows here, so the marginal rows read the
+  # first-moment columns of the constraint matrix and take their higher powers
+  # from `distribution_moments` alone.
+  moments <- method@distribution_moments %||% 1L
+  marginal <- vapply(
     prepared$recipe,
-    prepared$covariates
+    function(record) identical(record$kind, "moment"),
+    logical(1)
   )
-  constraint_moments <- max(1L, max(covariate_moments, 0L))
-  moments <- resolve_distribution_moments(
-    method@distribution_moments,
-    constraint_moments
+  covariate_moments <- covariate_constraint_moments(
+    prepared$recipe[marginal],
+    prepared$covariates
   )
 
   d_treat <- center_on_measure(moment_columns(exposure, moments), measure)
@@ -545,12 +582,32 @@ fit_energy_continuous <- function(method, prepared, backend) {
     moments
   )
   d_covs <- center_on_measure(
-    do.call(cbind, c(list(z), extra_covariate_marginals)),
+    do.call(
+      cbind,
+      c(list(z[, marginal, drop = FALSE]), extra_covariate_marginals)
+    ),
     measure
   )
 
-  bal_covs <- matrix(numeric(0), nrow = n, ncol = 0)
-  bal_tols <- numeric(0)
+  # The correlation rows hold the weighted correlation of the exposure with each
+  # constraint column at zero, which is what `moments` and `interactions` in
+  # balance_terms() ask for on a continuous exposure and what WeightIt's
+  # `moments` argument means for a continuous treatment. They are held exactly
+  # rather than within the tolerance, for the reason warn_ignored_tolerance()
+  # records. The core standardizes the exposure on the base measure itself and
+  # the first distribution row pins its weighted mean there, so a row driven to
+  # zero is a weighted covariance of zero rather than one offset by the gap
+  # between the two exposure means, and a column whose own weighted mean is not
+  # pinned is covered as well. Without a requested constraint set the weighted
+  # distance covariance the objective minimizes is what drives the association
+  # toward zero, and no correlation row is added.
+  if (enforce) {
+    bal_covs <- z
+    bal_tols <- rep(0, ncol(z))
+  } else {
+    bal_covs <- matrix(numeric(0), nrow = n, ncol = 0)
+    bal_tols <- numeric(0)
+  }
 
   options <- energy_options(method, backend)
 
@@ -575,7 +632,7 @@ fit_energy_continuous <- function(method, prepared, backend) {
   # rows; the box rows bound each of the n units.
   n_structural_leading <- 1L
   duals <- energy_duals_frame(result$duals, n, n_structural_leading)
-  assemble_energy(result, method, prepared, duals, approximate = TRUE)
+  assemble_energy(result, method, prepared, duals, approximate = !enforce)
 }
 
 # The solver's dual variables for the structural constraint rows, dropping the

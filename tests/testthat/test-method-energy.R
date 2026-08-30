@@ -1016,6 +1016,194 @@ test_that("dimension_adjustment toggles the continuous solution", {
   )))
 })
 
+# ---- Continuous correlation constraints -----------------------------------
+
+# The weighted exposure-covariate Pearson correlation the balance table reports,
+# computed here so the specs below judge the fit on the statistic a reader sees
+# rather than on the solver's own row.
+weighted_correlation <- function(exposure, column, weights) {
+  abs(stats::cov.wt(cbind(exposure, column), wt = weights, cor = TRUE)$cor[
+    1,
+    2
+  ])
+}
+
+test_that("moments requests exposure-covariate correlation constraints", {
+  # For a continuous exposure `balance_terms(moments = k)` asks for the weighted
+  # correlation of the exposure with each covariate power up to k to be held at
+  # zero, the meaning `moments` carries for a discrete exposure and the meaning
+  # WeightIt gives its own `moments` argument. The energy objective alone leaves
+  # a residual correlation of a tenth or more at these sample sizes, so a fit
+  # that meets this really did add the rows.
+  data <- sim_continuous(n = 350)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(),
+    estimand = "ate",
+    constraints = balance_terms(moments = 1L)
+  )
+  w <- as.numeric(stats::weights(fit))
+  for (column in c("x1", "x2")) {
+    expect_lt(weighted_correlation(data$exposure, data[[column]], w), 1e-6)
+  }
+
+  default <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(),
+    estimand = "ate"
+  )
+  w_default <- as.numeric(stats::weights(default))
+  expect_gt(weighted_correlation(data$exposure, data$x1, w_default), 0.05)
+})
+
+test_that("a second moment constrains the correlation with the covariate squares", {
+  # Each power of a covariate is its own constraint column, so the second moment
+  # adds the correlation of the exposure with the squares alongside the first.
+  data <- sim_continuous(n = 350)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(),
+    estimand = "ate",
+    constraints = balance_terms(moments = 2L)
+  )
+  w <- as.numeric(stats::weights(fit))
+  for (column in c("x1", "x2")) {
+    values <- data[[column]]
+    expect_lt(weighted_correlation(data$exposure, values, w), 1e-6)
+    expect_lt(
+      weighted_correlation(data$exposure, (values - mean(values))^2, w),
+      1e-6
+    )
+  }
+})
+
+test_that("interactions constrain the correlation with the product column", {
+  # `interactions = TRUE` adds the product of two covariates as a constraint
+  # column, which on the continuous path is one more correlation row.
+  data <- sim_continuous(n = 350)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(),
+    estimand = "ate",
+    constraints = balance_terms(interactions = TRUE)
+  )
+  w <- as.numeric(stats::weights(fit))
+  expect_lt(
+    weighted_correlation(data$exposure, data$x1 * data$x2, w),
+    1e-6
+  )
+})
+
+test_that("the balance table reports the correlation rows the fit constrained", {
+  # The rows a continuous fit constrains are the rows the table reports, so a
+  # second-moment request shows four correlation rows, each met within its
+  # tolerance.
+  data <- sim_continuous(n = 350)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(),
+    estimand = "ate",
+    constraints = balance_terms(moments = 2L)
+  )
+  table <- as.data.frame(fit@balance_table)
+  expect_identical(table$term, c("x1", "x1^2", "x2", "x2^2"))
+  expect_true(all(table$statistic == "correlation"))
+  expect_lt(max(table$weighted), 1e-6)
+  expect_true(all(table$within_tolerance))
+})
+
+test_that("a continuous correlation row is held exactly whatever the tolerance", {
+  # The correlation rows are not relaxable, so a positive tolerance is ignored
+  # here as it was before and the achieved correlation sits at zero rather than
+  # on the edge of the requested band. Relaxing them would mislead: the row the
+  # quadratic program bounds is a linearized correlation whose scales are fixed
+  # at the sample, and the spread of energy weights shrinks both weighted
+  # standard deviations enough that the reported Pearson correlation would land
+  # about half again above the band it was given.
+  data <- sim_continuous(n = 350)
+  expect_warning(
+    fit <- balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_energy(),
+      estimand = "ate",
+      constraints = balance_terms(moments = 1L, tolerance = 0.05)
+    ),
+    class = "balancing_ignored_argument_warning"
+  )
+  w <- as.numeric(stats::weights(fit))
+  expect_lt(weighted_correlation(data$exposure, data$x1, w), 1e-6)
+})
+
+test_that("moments no longer sets the marginal distribution moments", {
+  # `distribution_moments` is the only route to the marginal rows. A
+  # second-moment constraint request therefore leaves the weighted exposure
+  # variance where the objective puts it, while `distribution_moments = 2` pins
+  # it at the sample value.
+  data <- sim_continuous(n = 350)
+  sample_variance <- sum((data$exposure - mean(data$exposure))^2) / nrow(data)
+  weighted_variance <- function(w) {
+    center <- stats::weighted.mean(data$exposure, w)
+    sum(w * (data$exposure - center)^2) / sum(w)
+  }
+  fit_terms <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(),
+    estimand = "ate",
+    constraints = balance_terms(moments = 2L)
+  )
+  fit_distribution <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(distribution_moments = 2L),
+    estimand = "ate"
+  )
+  w_terms <- as.numeric(stats::weights(fit_terms))
+  w_distribution <- as.numeric(stats::weights(fit_distribution))
+  expect_gt(abs(weighted_variance(w_terms) - sample_variance), 1e-3)
+  expect_equal(
+    weighted_variance(w_distribution),
+    sample_variance,
+    tolerance = 1e-3
+  )
+})
+
+test_that("the default continuous fit keeps the objective-driven solution", {
+  # The correlation rows are added only when the constraint set asks for them,
+  # so the default fit solves the same program it solved before: the weights
+  # average one, the correlation improves on the unweighted sample, and the
+  # residual the energy objective leaves behind is still there.
+  data <- sim_continuous(n = 350)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  expect_equal(mean(w), 1, tolerance = 1e-8)
+  expect_gt(weighted_correlation(data$exposure, data$x1, w), 0.05)
+  expect_lt(
+    weighted_correlation(data$exposure, data$x1, w),
+    abs(stats::cor(data$exposure, data$x1))
+  )
+})
+
 # ---- Unsupported estimands ------------------------------------------------
 
 # The overlap estimand is legal only for the covariate balancing propensity

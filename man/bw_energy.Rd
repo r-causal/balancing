@@ -29,7 +29,8 @@ weighted mean and divided by its weighted standard deviation),
 improved variant for the average treatment effect with a discrete exposure.}
 
 \item{weight_penalty}{The L2 penalty on the weights, which stabilizes the
-quadratic program.}
+quadratic program. For a continuous exposure it is also what sets the
+residual exposure-covariate correlation, as the details section explains.}
 
 \item{min_weight}{The smallest permitted weight. The reported weights average
 one within each exposure group, so a floor approaching one leaves almost no
@@ -42,10 +43,12 @@ refuses the same floor as infeasible instead.}
 
 \item{distribution_moments}{For a continuous exposure, the number of exposure
 and covariate marginal moments held equal to the sample under the base
-measure, or \code{NULL} for the constraint moments. Raised automatically when
-smaller than the constraint moments. Energy balancing carries no base
-weights, so the base measure is the sampling weights, and without them the
-marginals are held equal to the unweighted sample.}
+measure, or \code{NULL} for the first moments. This is WeightIt's \code{d.moments},
+and it is the only route to those rows: the \code{moments} in \code{\link[=balance_terms]{balance_terms()}}
+asks for exposure-covariate correlation constraints instead and leaves the
+marginals here. Energy balancing carries no base weights, so the base
+measure is the sampling weights, and without them the marginals are held
+equal to the unweighted sample.}
 
 \item{dimension_adjustment}{For a continuous exposure, whether to weight the
 covariate energy distance by the covariate dimensionality adjustment.}
@@ -97,11 +100,37 @@ marginal moments are held equal to the sample under the base measure, and
 \code{dimension_adjustment} reweights the covariate energy distance by the
 covariate dimensionality.
 
+The two knobs a continuous fit carries are separate, and the WeightIt package
+names them the same way: \code{moments} in \code{\link[=balance_terms]{balance_terms()}} is WeightIt's
+\code{moments}, adding a constraint that holds the weighted correlation of the
+exposure with each covariate power at zero, and \code{distribution_moments} here is
+WeightIt's \code{d.moments}, pinning the marginal moments of the exposure and of
+the covariates. Neither sets the other. The correlation rows are held exactly,
+so a tolerance is ignored on this path: the quadratic program bounds a
+linearized correlation whose exposure and covariate scales are fixed at the
+sample, and the spread of energy weights shrinks both weighted standard
+deviations enough that the reported Pearson correlation would land about half
+again above whatever band was requested.
+
+Without those rows the continuous objective targets distributional
+independence between the exposure and the covariates rather than zero
+correlations, and it does not drive the correlations to zero. A residual
+weighted correlation of roughly 0.1 to 0.3 is ordinary at a few hundred to a
+few thousand observations, and WeightIt's continuous energy method leaves the
+same residual. What holds it up is \code{weight_penalty}, which trades that
+residual against effective sample size: at its default of \code{1e-4} the penalty
+term is about three quarters of the objective at 1000 observations, leaving a
+largest correlation near 0.13 to 0.25 at an effective sample size near 71
+percent, while a penalty of zero brings the correlation down to 0.05 to 0.07
+and the effective sample size down to about 20 percent. Ask for
+\code{balance_terms(moments = 1)} to remove the correlation outright, at a cost in
+effective sample size of its own.
+
 Energy balancing belongs to the quadratic-program family, which has no
 estimating equations, so a fit produces no estimating-equations container and
-the tolerance in \code{\link[=balance_terms]{balance_terms()}} relaxes any added moment constraints rather
-than selecting an inexact solver. A tolerance supplied without moment
-constraints has nothing to relax, so it is warned and ignored.
+the tolerance in \code{\link[=balance_terms]{balance_terms()}} relaxes any added moment constraints of a
+discrete fit rather than selecting an inexact solver. A tolerance supplied
+without moment constraints has nothing to relax, so it is warned and ignored.
 }
 \examples{
 n <- 200
