@@ -425,6 +425,25 @@ test_that("column_is_constant() reads a column with a missing value as varying",
   )
 })
 
+# A matrix with no rows has no first row for the comparison to read, and
+# without a guard ahead of it the subscript fails with a base error rather than
+# one of the package's classed conditions. Nothing can be constant over no rows
+# either, so every column reads as varying and both consumers of the reading
+# write into a zero-length selection, leaving their columns as they found them.
+test_that("column_is_constant() reads every column of a zero-row matrix as varying", {
+  m <- matrix(
+    numeric(0),
+    nrow = 0L,
+    ncol = 3L,
+    dimnames = list(NULL, c("value", "missing", "other"))
+  )
+
+  expect_identical(
+    column_is_constant(m),
+    c(value = FALSE, missing = FALSE, other = FALSE)
+  )
+})
+
 test_that("column_is_constant() reads every column of a single row as constant", {
   m <- matrix(
     c(0.98, NA, 3),

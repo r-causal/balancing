@@ -108,7 +108,15 @@ standardize_columns <- function(m, sampling_weights = NULL) {
 # column as varying makes that explicit and leaves the standardization behaving
 # as it did: the column keeps its computed center and scale, and the missing
 # value carries through them into the standardized column.
+#
+# A matrix with no rows is answered before the comparison, which has no first
+# row to read and would fail on the subscript with a base error. Nothing can be
+# constant over no rows, so every column reads as varying, and both consumers
+# then write into a zero-length selection and change nothing.
 column_is_constant <- function(m) {
+  if (nrow(m) == 0L) {
+    return(stats::setNames(rep(FALSE, ncol(m)), colnames(m)))
+  }
   differences <- colSums(m != rep(m[1L, ], each = nrow(m)))
   !is.na(differences) & differences == 0L
 }
