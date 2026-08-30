@@ -197,6 +197,15 @@ balance <- function(
   # rescaled to the weighted scale in `solver_box()` regardless of the column
   # scale, so both are unaffected. Either way the balance table reports on the
   # weighted scale.
+  #
+  # The `NULL` this leaves for every other method is the value the constraint
+  # build was given rather than a stand-in for absent weights, which is why the
+  # prepared list carries it alongside the uniform fill-in the rest of a fit
+  # reads. Two fits need this one: the continuous energy and entropy marginals
+  # build columns of their own to the scale the constraint matrix is on, and no
+  # other fit reads it. Handing them the fill-in would put their columns on a
+  # different scale, since `stats::sd()` and `weighted_scale()` agree on a
+  # uniform vector only to rounding.
   constraint_sampling_weights <- if (
     S7::S7_inherits(method, quadratic_program_method)
   ) {
@@ -237,12 +246,9 @@ balance <- function(
     estimand = estimand,
     focal_level = focal_level,
     sampling_weights = sampling_weights_value %||% rep(1, n),
-    # The null-able sampling weights the constraint columns were built under. A
-    # method that builds columns of its own to the same scale needs this rather
-    # than the uniform fill-in above: no weights and uniform weights are not the
-    # same scale, because `stats::sd()` and `weighted_scale()` agree on a
-    # uniform vector only to rounding, and columns built the other way would
-    # differ from the constraint matrix in their last bits.
+    # The null-able sampling weights the constraint columns were built under,
+    # for the fits that build columns of their own to the same scale. The
+    # resolution above says why they cannot read the uniform fill-in instead.
     constraint_sampling_weights = constraint_sampling_weights,
     n = n,
     constraints = constraints,

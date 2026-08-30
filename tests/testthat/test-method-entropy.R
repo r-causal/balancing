@@ -904,6 +904,56 @@ test_that("distribution_moments is raised to the constraint moments with an aler
   )
 })
 
+test_that("a covariate left out of the constraint set keeps its marginal rows", {
+  # The marginal rows belong to the covariates, not to the constraint set, so
+  # `moments` must not reach them from either side. Excluding x1 from the
+  # constraint set drops x1's product column and nothing else: its weighted mean
+  # and second central moment stay at the sample values `distribution_moments`
+  # pins, exactly as x2's and the exposure's do. Reading the marginal columns off
+  # the constraint matrix dropped x1's marginal rows along with its product
+  # column, and its weighted variance then floated to wherever the tilt put it.
+  data <- sim_continuous(n = 350)
+  central_moment <- function(values, weights, order) {
+    center <- stats::weighted.mean(values, weights)
+    sum(weights * (values - center)^order) / sum(weights)
+  }
+  uniform <- rep(1, nrow(data))
+
+  # The constraint sets differ in what they ask of the product columns and agree
+  # in what they leave to the marginals, so the marginals must come out the same
+  # under both. The second is the case that failed: x1 has no constraint column
+  # to read a marginal off.
+  constraint_sets <- list(
+    balance_terms(moments = 1L),
+    balance_terms(moments = c(x1 = 0L, x2 = 1L))
+  )
+
+  for (constraints in constraint_sets) {
+    fit <- balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(distribution_moments = 2L),
+      estimand = "ate",
+      constraints = constraints
+    )
+    w <- as.numeric(stats::weights(fit))
+    for (column in c("exposure", "x1", "x2")) {
+      values <- data[[column]]
+      expect_equal(
+        stats::weighted.mean(values, w),
+        mean(values),
+        tolerance = 1e-8
+      )
+      expect_equal(
+        central_moment(values, w, 2),
+        central_moment(values, uniform, 2),
+        tolerance = 1e-8
+      )
+    }
+  }
+})
+
 # ---- Continuous with tolerance --------------------------------------------
 
 test_that("a continuous tolerance relaxes correlations but holds the marginals", {

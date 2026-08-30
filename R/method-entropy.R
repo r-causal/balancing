@@ -686,23 +686,40 @@ fit_entropy_continuous <- function(method, prepared) {
   # constraints drive each weighted exposure-covariate product to zero. The
   # distribution moments extend the marginals: they are raised to at least the
   # constraint moments, with an alert when the requested value is smaller.
-  covariate_moments <- covariate_constraint_moments(
-    prepared$recipe,
-    prepared$covariates
+  #
+  # The covariate marginals are built from the covariates rather than read off
+  # the constraint matrix, for the reason marginal_distribution_columns()
+  # records: a covariate's marginal distribution is not what the constraint set
+  # selects, and reading the marginals off the constraint matrix left `moments` a
+  # second route to them. `balance_terms(moments = c(x1 = 0))` drops x1's
+  # constraint column, and with it x1's marginal rows, so a fit asked to leave x1
+  # out of the products stopped holding x1's own distribution as well. The
+  # products stay on the constraint matrix, which is exactly the set of
+  # associations the constraint set names.
+  constraint_moments <- max(
+    1L,
+    max(covariate_constraint_moments(prepared$recipe, prepared$covariates), 0L)
   )
-  constraint_moments <- max(1L, max(covariate_moments, 0L))
   moments <- resolve_distribution_moments(
     method@distribution_moments,
     constraint_moments
   )
 
+  covariate_marginals <- marginal_distribution_columns(
+    prepared$data,
+    prepared$covariates,
+    prepared$constraint_sampling_weights
+  )
   exposure_marginals <- moment_columns(exposure, moments)
   extra_marginals <- higher_covariate_marginals(
     prepared$data,
-    covariate_moments,
+    covariate_marginals$moments,
     moments
   )
-  marginals <- do.call(cbind, c(list(exposure_marginals, z), extra_marginals))
+  marginals <- do.call(
+    cbind,
+    c(list(exposure_marginals, covariate_marginals$columns), extra_marginals)
+  )
   products <- z * e
 
   covs <- cbind(marginals, products)
