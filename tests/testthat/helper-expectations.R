@@ -145,24 +145,35 @@ expect_stacked_psi_matches_rbind <- function(expr) {
   invisible(value)
 }
 
-# expect_finite_column() asserts that a data frame carries the named column and
-# that every value in it is finite.
+# expect_finite_column() asserts that a data frame carries the named column,
+# that the column holds at least one value, and that every value in it is
+# finite.
 #
-# Both halves are load-bearing, and the first is the reason the helper exists.
-# `is.finite()` on a column a data frame does not have returns `logical(0)`,
-# `all(logical(0))` is TRUE, and so a bare `all(is.finite(df$column))` passes
-# without reading anything whenever the column it names is absent. The suite
-# asserts finiteness on reported columns dozens of times, and every one of those
-# assertions would go quiet under a rename of the reported schema rather than
-# reporting it. Testing membership first turns that case into a failure that
-# names the missing column.
+# All three parts are load-bearing, and the first is the reason the helper
+# exists. `is.finite()` on a column a data frame does not have returns
+# `logical(0)`, `all(logical(0))` is TRUE, and so a bare
+# `all(is.finite(df$column))` passes without reading anything whenever the
+# column it names is absent. The suite asserts finiteness on reported columns
+# dozens of times, and every one of those assertions would go quiet under a
+# rename of the reported schema rather than reporting it. Testing membership
+# first turns that case into a failure that names the missing column.
+#
+# A zero-row frame reaches `all(logical(0))` by the other route, with the column
+# present and empty, which is the shape a reporting path returns when it builds
+# its schema and fills no rows. Requiring at least one value, as
+# `expect_column_all()` does, closes that case too.
 expect_finite_column <- function(object, column) {
   testthat::expect_true(
     column %in% names(object),
     info = paste0("expected a column named ", column)
   )
+  values <- object[[column]]
   testthat::expect_true(
-    all(is.finite(object[[column]])),
+    length(values) > 0L,
+    info = paste0("expected ", column, " to hold at least one value")
+  )
+  testthat::expect_true(
+    all(is.finite(values)),
     info = paste0("expected every value of ", column, " to be finite")
   )
   invisible(object)
@@ -185,6 +196,11 @@ expect_finite_column <- function(object, column) {
 # where the predicate closes over the object, and a missing sibling would reopen
 # the hole from the other side: `values < NULL` is `logical(0)` whatever
 # `values` holds.
+#
+# A missing answer is rejected on its own rather than through `all()`, which
+# returns NA and reports a failure reading as though the predicate had been
+# answered and found false. A predicate that cannot answer is a different defect
+# from one that answers no, and the column that produced it is worth naming.
 expect_column_all <- function(object, column, predicate) {
   testthat::expect_true(
     column %in% names(object),
@@ -197,6 +213,13 @@ expect_column_all <- function(object, column, predicate) {
   )
   held <- predicate(values)
   testthat::expect_length(held, length(values))
+  testthat::expect_false(
+    anyNA(held),
+    info = paste0(
+      "expected the predicate to answer no missing values for ",
+      column
+    )
+  )
   testthat::expect_true(
     all(held),
     info = paste0("expected the predicate to hold for every value of ", column)

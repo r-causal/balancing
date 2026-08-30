@@ -4,7 +4,7 @@
 # behind.
 #
 # The failures are caught as conditions rather than through `expect_failure()`,
-# which reads exactly one expectation and `expect_finite_column()` makes two.
+# which reads exactly one expectation and `expect_finite_column()` makes three.
 
 # `is.finite()` on an absent column returns `logical(0)` and `all(logical(0))`
 # is TRUE, so the finiteness half alone would pass on a data frame that does not
@@ -18,6 +18,17 @@ test_that("expect_finite_column() fails when the column is missing", {
     class = "expectation_failure"
   )
   expect_finite_column(estimates, "std.err")
+})
+
+# A present but empty column slips through the finiteness half the same way an
+# absent one does: `all(is.finite(numeric(0)))` is TRUE. A zero-row frame is the
+# shape a reporting path returns when it builds its schema and fills no rows, so
+# the helper requires the column to hold at least one value.
+test_that("expect_finite_column() fails on a column with no values", {
+  expect_error(
+    expect_finite_column(data.frame(std.err = numeric(0)), "std.err"),
+    class = "expectation_failure"
+  )
 })
 
 test_that("expect_finite_column() fails on a non-finite value", {
@@ -64,6 +75,22 @@ test_that("expect_column_all() fails when the predicate does not hold", {
       "std.err",
       function(x) x > 0
     ),
+    class = "expectation_failure"
+  )
+})
+
+# A predicate that answers NA already fails, because `all()` returns NA and
+# `expect_true(NA)` is a failure, but it fails as though the predicate had been
+# answered and found false. Rejecting a missing answer on its own reports what
+# actually happened.
+test_that("expect_column_all() reports a missing predicate answer as missing", {
+  expect_error(
+    expect_column_all(
+      data.frame(std.err = c(0.1, NA)),
+      "std.err",
+      function(x) x > 0
+    ),
+    regexp = "missing values for std\\.err",
     class = "expectation_failure"
   )
 })
