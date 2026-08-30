@@ -451,7 +451,10 @@ balancing_estimating_equations <- new_class(
 #'   converges this sums the original and the fallback solve, so it can exceed
 #'   the requested `max_iterations`. When the re-solve does not converge the
 #'   fit reports the original solve alone, so the count stays within the cap.
-#'   See [bw_energy()] for the fuller account.
+#'   A continuous energy or stable balancing fit with a positive tolerance
+#'   refines the bound it hands the solver over several passes, each a solve of
+#'   its own, and this sums every one of them. See [bw_energy()] and [bw_sbw()]
+#'   for the fuller account.
 #' @param objective The solved objective value.
 #' @param solver_status The solver that produced the result.
 #' @param estimating_equations The [balancing_estimating_equations] container,

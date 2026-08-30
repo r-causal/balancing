@@ -501,6 +501,38 @@ test_that("continuous ate stable balancing meets the correlation tolerance", {
   expect_balanced(fit, data, tolerance = 0.05)
 })
 
+test_that("the continuous refinement takes several passes and sums their iterations", {
+  # The pass count is what separates an honored band from a single overshooting
+  # solve, so it is counted at the solver rather than inferred from the weights,
+  # and the reported iterations have to account for every pass rather than for
+  # the last one alone. This is the guarantee energy balancing already makes for
+  # the same loop.
+  data <- sim_continuous(n = 350)
+  solves <- 0L
+  per_solve <- integer()
+  original <- solve_sbw_cont
+  testthat::local_mocked_bindings(
+    solve_sbw_cont = function(...) {
+      result <- original(...)
+      solves <<- solves + 1L
+      per_solve <<- c(per_solve, as.integer(result$iterations))
+      result
+    }
+  )
+
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_sbw(),
+    estimand = "ate",
+    constraints = balance_terms(tolerance = 0.05)
+  )
+
+  expect_gt(solves, 1L)
+  expect_identical(fit@iterations, sum(per_solve))
+})
+
 test_that("a tightened continuous pass that stops at the iteration cap keeps the last converged iterate", {
   # Stable balancing runs the correlation refinement energy balancing runs,
   # against the same statistic, so it owes the same guarantee. A tightened bound
@@ -509,15 +541,18 @@ test_that("a tightened continuous pass that stops at the iteration cap keeps the
   # converged instead: it reports itself converged, its weights are the earlier
   # pass's, and the correlations that iterate achieved sit above the requested
   # band, so the ordinary balance warning judges them rather than a convergence
-  # warning claiming the solve failed.
+  # warning claiming the solve failed. The reported iterations still account for
+  # every pass, the failed one included, because each pass cost a whole solve.
   data <- sim_continuous(n = 350)
   solves <- 0L
+  per_solve <- integer()
   first_weights <- NULL
   original <- solve_sbw_cont
   testthat::local_mocked_bindings(
     solve_sbw_cont = function(...) {
       result <- original(...)
       solves <<- solves + 1L
+      per_solve <<- c(per_solve, as.integer(result$iterations))
       if (solves == 1L) {
         first_weights <<- as.numeric(result$weights)
       } else {
@@ -550,6 +585,7 @@ test_that("a tightened continuous pass that stops at the iteration cap keeps the
   expect_identical(seen, "balancing_balance_warning")
   expect_identical(solves, 2L)
   expect_true(fit@converged)
+  expect_identical(fit@iterations, sum(per_solve))
 
   # The reported weights renormalize the solver's, so the restored iterate shows
   # as proportionality to the first pass's raw weights rather than as equality.

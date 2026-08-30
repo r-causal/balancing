@@ -54,7 +54,10 @@ reach its tolerance re-solves at a reachable one, and when that re-solve
 converges this sums the original and the fallback solve, so it can exceed
 the requested \code{max_iterations}. When the re-solve does not converge the
 fit reports the original solve alone, so the count stays within the cap.
-See \code{\link[=bw_energy]{bw_energy()}} for the fuller account.}
+A continuous energy or stable balancing fit with a positive tolerance
+refines the bound it hands the solver over several passes, each a solve of
+its own, and this sums every one of them. See \code{\link[=bw_energy]{bw_energy()}} and \code{\link[=bw_sbw]{bw_sbw()}}
+for the fuller account.}
 
 \item{objective}{The solved objective value.}
 

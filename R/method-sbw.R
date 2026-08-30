@@ -75,7 +75,10 @@
 #'   tolerance below what the problem can reach spends the full iteration cap and
 #'   then warns.
 #' @param max_iterations The maximum solver iterations, or `NULL` for the
-#'   resolved default of 200000.
+#'   resolved default of 200000. A continuous fit with a positive tolerance
+#'   refines the bound it hands the solver over several passes, each a solve
+#'   given this same cap, and the reported `@iterations` sums them, so such a
+#'   fit can report more iterations than this.
 #' @param ... Reserved for future extensions; must be empty. Tuning parameters
 #'   must be passed by name.
 #'
@@ -395,9 +398,11 @@ fit_sbw_continuous <- function(method, prepared) {
   # weighted Pearson correlation the specs check, on the reported weights (the
   # balancing weights composed with the sampling weights), and rescales each
   # column's effective tolerance toward its target, never above it, so the loop
-  # tightens monotonically and stops once every column is inside its band.
+  # tightens monotonically and stops once every column is inside its band. Each
+  # pass costs a whole solve, and the reported iterations sum every one of them.
   target <- prepared$tolerances
   effective <- target
+  iterations <- 0L
   result <- NULL
   last_converged <- NULL
   for (pass in seq_len(correlation_refinement_passes)) {
@@ -410,6 +415,7 @@ fit_sbw_continuous <- function(method, prepared) {
       method@min_weight,
       options
     )
+    iterations <- iterations + as.integer(result$iterations)
     if (!isTRUE(result$converged)) {
       # A tightened pass that certifies infeasibility means the requested
       # correlation band is unreachable, which surfaces honestly as the infeasible
@@ -439,6 +445,7 @@ fit_sbw_continuous <- function(method, prepared) {
       effective[binding] * ratio[binding] * correlation_refinement_safety
     )
   }
+  result$iterations <- iterations
 
   # The continuous solve carries one total-sum row followed by the correlation
   # rows; the box rows bound each of the n units, and the absolute-deviation norms
