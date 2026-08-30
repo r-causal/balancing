@@ -987,3 +987,50 @@ test_that("a kernel balancing fit prints its summary block", {
     fit
   })
 })
+
+# ---- Solver tolerance box -------------------------------------------------
+
+# The moment-constraint band a kernel balancing fit hands the solver is built by
+# `solver_box()` (R/method-entropy.R), which the CFD assembly calls directly at
+# R/method-cfd.R with the prepared matrix, the requested tolerances, and the
+# sampling weights. A tolerance is written on the standardized scale, so the box
+# converts it by the column's standard deviation, and a column holding one value
+# repeated has no spread to convert against: its box is the tolerance itself.
+#
+# It does not arrive that way on its own. The weighted center divides a sum of
+# products by a sum of weights and need not return the repeated value exactly,
+# so the centered column carries a rounding residual and the computed scale
+# reports that residual as the column's spread. Left alone, the constant 0.98
+# column below shrinks its own band by roughly fifteen orders of magnitude and
+# the fit is constrained against rounding. This pins the guard on the call the
+# CFD path makes rather than only on the entropy one.
+cfd_solver_box_fixture <- function() {
+  withr::with_seed(707, {
+    n <- 300L
+    z <- cbind(
+      stats::rnorm(n),
+      stats::runif(n, -2, 3),
+      rep(0.98, n),
+      as.numeric(stats::rbinom(n, 1L, 0.4))
+    )
+    list(z = z, sampling_weights = stats::runif(n, 0.3, 2.5))
+  })
+}
+
+test_that("the kernel balancing tolerance box leaves a constant column raw", {
+  fixture <- cfd_solver_box_fixture()
+  z <- fixture$z
+  w <- fixture$sampling_weights
+  tolerances <- seq_len(ncol(z)) / 100
+  constant <- 3L
+
+  expect_true(all(z[, constant] == 0.98))
+  expect_identical(
+    solver_box(z, tolerances, w)[[constant]],
+    tolerances[[constant]]
+  )
+  expect_identical(
+    solver_box(z, tolerances)[[constant]],
+    tolerances[[constant]]
+  )
+})
