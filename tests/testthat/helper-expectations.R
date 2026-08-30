@@ -87,11 +87,18 @@ expect_balanced <- function(x, .data, tolerance = 0) {
   testthat::expect_lte(max(achieved), tolerance + 1e-6)
 }
 
-# expect_stacked_psi_matches_rbind() pins the assembly of the stacked estimating
-# function against the `rbind()` of its blocks. The stacked sandwich builds the
-# S-by-n matrix block by block through `stack_psi_blocks()`, and the claim that
-# helper makes is that filling a preallocated matrix produces exactly what
-# stacking the same blocks with `rbind()` produces, to the bit.
+# expect_stacked_psi_matches_rbind() pins both readings of the stacked
+# estimating function against the `rbind()` of its blocks. The meat's evaluation
+# builds the S-by-n matrix block by block through `stack_psi_blocks()`, and the
+# bread's evaluations skip that matrix and take its row sums block by block
+# through `sum_psi_blocks()`. The claim this helper makes is that filling a
+# preallocated matrix produces exactly what stacking the same blocks with
+# `rbind()` produces, to the bit, and that reducing them produces exactly the
+# row sums of that same stack.
+#
+# Both halves are stated here because the two routes now carry the same fit
+# between them, and a reduction that disagreed with the assembly by a bit would
+# move the bread while leaving the meat where it was.
 #
 # The comparison is made on the matrix itself rather than on the variance the
 # fit reports, because the variance would not see every difference:
@@ -102,18 +109,20 @@ expect_balanced <- function(x, .data, tolerance = 0) {
 # the outcome model, and whether subgroups or a crossing were declared, and no
 # fixed list reaches all of them.
 #
-# The stand-in delegates to the real helper and returns its value, so the fit
-# running under it is the fit the package performs and every evaluation the
+# The stand-ins delegate to the real helpers and return their values, so the fit
+# running under them is the fit the package performs and every evaluation the
 # finite difference asks for is compared, not only the one at the root.
 # Mismatches are collected and reported once at the end: the finite difference
-# calls the closure twice per stacked coordinate, and an expectation inside the
-# stand-in would turn a single defect into hundreds of failures. The call count
-# is asserted too, so a route that stopped assembling its psi matrix through the
-# helper would fail here rather than pass vacuously.
+# calls the closure twice per stacked coordinate, and an expectation inside a
+# stand-in would turn a single defect into hundreds of failures. The call counts
+# are asserted too, so a route that stopped assembling or reducing its psi
+# blocks through these helpers would fail here rather than pass vacuously.
 expect_stacked_psi_matches_rbind <- function(expr) {
   assemble <- stack_psi_blocks
+  reduce <- sum_psi_blocks
   mismatches <- character()
   calls <- 0L
+  reductions <- 0L
 
   testthat::local_mocked_bindings(
     stack_psi_blocks = function(blocks, n) {
@@ -134,6 +143,31 @@ expect_stacked_psi_matches_rbind <- function(expr) {
         )
       }
       stacked
+    },
+    sum_psi_blocks = function(blocks, n) {
+      reductions <<- reductions + 1L
+      sums <- reduce(blocks, n)
+      expected <- unname(rowSums(do.call(rbind, blocks)))
+      if (!identical(sums, expected)) {
+        gap <- if (length(sums) == length(expected)) {
+          paste0(", largest difference ", format(max(abs(sums - expected))))
+        } else {
+          ""
+        }
+        mismatches <<- c(
+          mismatches,
+          paste0(
+            "reduction ",
+            reductions,
+            ": reduced ",
+            length(sums),
+            " rows, rbind gives ",
+            length(expected),
+            gap
+          )
+        )
+      }
+      sums
     }
   )
 
@@ -141,6 +175,7 @@ expect_stacked_psi_matches_rbind <- function(expr) {
 
   testthat::expect_identical(mismatches, character())
   testthat::expect_gt(calls, 0L)
+  testthat::expect_gt(reductions, 0L)
 
   invisible(value)
 }

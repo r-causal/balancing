@@ -252,17 +252,26 @@ expect_ipw_matches_reference_stack <- function(result, reference, keys) {
 # fills in analytically are neither differenced nor carried, so each of them
 # saves two.
 #
-# The count is read at `stack_psi_blocks()`, the one place every route assembles
-# its matrix, and the stand-in delegates to the real helper and returns its
-# value, so the call running under it is the call the package performs.
+# The count is read at the two places a route takes delivery of its blocks:
+# `stack_psi_blocks()`, which the meat's single evaluation assembles its matrix
+# through, and `sum_psi_blocks()`, which every evaluation the bread differences
+# reduces through. Between them they see every evaluation and each of them sees
+# it once, so their sum is the number the sandwich costs. Each stand-in
+# delegates to the real helper and returns its value, so the call running under
+# them is the call the package performs.
 expect_stacked_evaluations <- function(expr, expected) {
   assemble <- stack_psi_blocks
+  reduce <- sum_psi_blocks
   evaluations <- 0L
 
   testthat::local_mocked_bindings(
     stack_psi_blocks = function(blocks, n) {
       evaluations <<- evaluations + 1L
       assemble(blocks, n)
+    },
+    sum_psi_blocks = function(blocks, n) {
+      evaluations <<- evaluations + 1L
+      reduce(blocks, n)
     }
   )
 

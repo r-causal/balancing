@@ -9,6 +9,10 @@
 # stated here: the helper against `rbind()` on blocks written out by hand,
 # including the shapes a stack actually presents it with, and the helper against
 # `rbind()` on the blocks a real fit builds.
+#
+# Beside it sits `sum_psi_blocks()`, which the bread reaches instead, since the
+# bread reads only row sums and has no use for the matrix. Its contract is the
+# assembly's read through `rowSums()`, and it is stated the same two ways.
 
 # ---- Fixtures --------------------------------------------------------------
 
@@ -182,6 +186,62 @@ test_that("stack_psi_blocks() writes rows where blocks were stacked before", {
       do.call(rbind, by_mean_rows),
       matrix(by_contrast_values, nrow = 2L, ncol = n)
     )
+  )
+})
+
+# ---- The reduction the bread reads -----------------------------------------
+
+# The bread never looks at the stack itself, only at its row sums, so the sums
+# are taken block by block where the blocks are built and the S-by-n
+# destination is never allocated on that path. That is worth having only while
+# the two readings agree to the bit, which is what these state: the reduction of
+# a list of blocks has to be the row sums of the matrix the same list assembles
+# to, over the shapes a stack presents and over the absent and empty entries a
+# route that carries no block of some kind passes.
+
+test_that("sum_psi_blocks() reduces to the row sums of the assembled stack", {
+  n <- 5L
+  weight_block <- matrix(seq_len(2L * n) / 10, nrow = 2L)
+  score_block <- matrix(seq_len(3L * n) * 2.5, nrow = 3L)
+  mean_rows <- list(seq_len(n) + 0.25, seq_len(n) - 0.75)
+  contrast_values <- c(rd = -0.5, "log(rr)" = 0.25, "log(or)" = 1.5)
+  by_mean_rows <- list(seq_len(n) * 0.5, seq_len(n) * -0.5)
+  by_contrast_values <- c("rd_g = lo" = 0.1, "rd_g = hi" = -0.2)
+
+  blocks <- c(
+    list(weight_block, score_block),
+    mean_rows,
+    constant_psi_rows(contrast_values),
+    by_mean_rows,
+    constant_psi_rows(by_contrast_values)
+  )
+
+  expect_identical(
+    sum_psi_blocks(blocks, n),
+    unname(rowSums(stack_psi_blocks(blocks, n)))
+  )
+})
+
+test_that("sum_psi_blocks() drops absent and empty blocks as the assembly does", {
+  n <- 4L
+  weight_block <- matrix(seq_len(2L * n) / 10, nrow = 2L)
+  empty_block <- matrix(numeric(0), nrow = 0L, ncol = n)
+  blocks <- list(weight_block, NULL, empty_block, seq_len(n) + 0.5, 1.25)
+
+  expect_identical(
+    sum_psi_blocks(blocks, n),
+    unname(rowSums(stack_psi_blocks(blocks, n)))
+  )
+})
+
+test_that("sum_psi_blocks() refuses a block whose width is not the sample size", {
+  n <- 4L
+  wide_enough <- matrix(seq_len(n) + 0.5, nrow = 1L)
+  too_narrow <- matrix(c(1, 2), nrow = 1L)
+
+  expect_error(
+    sum_psi_blocks(list(wide_enough, too_narrow), n),
+    class = "balancing_internal_error"
   )
 })
 

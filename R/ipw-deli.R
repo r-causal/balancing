@@ -270,7 +270,12 @@ ipw_deli_sandwich <- function(
     as.numeric(weight_parameters)
   )
 
-  stacked_equations <- function(theta) {
+  # The blocks of the stacked estimating function at one parameter vector,
+  # returned unstacked. Two consumers read them, and only one of them wants a
+  # matrix: the engine's meat is built from the S-by-n stack, while its bread
+  # reads nothing but the row sums. Returning the blocks lets each take what it
+  # needs, which is what `make_stacked_system()` below arranges.
+  stacked_blocks <- function(theta) {
     beta <- theta[p + seq_len(q)]
     mean_theta <- theta[p + q + seq_len(m)]
     contrast_theta <- theta[p + q + m + seq_len(k)]
@@ -336,15 +341,12 @@ ipw_deli_sandwich <- function(
       continuous = continuous
     )
 
-    stack_psi_blocks(
-      c(
-        list(hooks$psi, score),
-        mean_rows,
-        contrast_rows,
-        by_rows$mean,
-        by_rows$contrast
-      ),
-      n
+    c(
+      list(hooks$psi, score),
+      mean_rows,
+      contrast_rows,
+      by_rows$mean,
+      by_rows$contrast
     )
   }
 
@@ -376,7 +378,7 @@ ipw_deli_sandwich <- function(
     p + q + m + k + m_by + seq_len(k_by)
   )
   stacked <- make_stacked_system(
-    stacked_equations,
+    stacked_blocks,
     deterministic_values,
     deterministic,
     theta,
@@ -587,13 +589,15 @@ make_hooks_cache <- function(container, rescale, parameters) {
 # values and dimnames alike, for any stack carrying at least one entry of the
 # full width; `rbind()` reads the width off its arguments, and every stack the
 # package builds opens with a block that gives it one. The only reason not to
-# write `rbind()` is cost. The closure this serves is evaluated `2(S - k) + 1`
-# times per sandwich, once per differenced coordinate per side of the central
-# difference and once more for the meat, and every evaluation builds the whole
-# matrix afresh. `rbind()` has to work the result's type, shape, and row names
-# out from the arguments it was handed before it can copy anything, and it pays
-# that per argument; a caller that already knows the shape can allocate once and
-# write each entry where it belongs.
+# write `rbind()` is cost. `rbind()` has to work the result's type, shape, and
+# row names out from the arguments it was handed before it can copy anything,
+# and it pays that per argument; a caller that already knows the shape can
+# allocate once and write each entry where it belongs.
+#
+# This runs once per sandwich, for the evaluation the meat is built from. The
+# `2(S - k)` evaluations the bread differences never reach here, because the
+# bread reads only row sums and `sum_psi_blocks()` below takes those from the
+# same blocks without assembling anything.
 #
 # The entries are written in place for the memory rather than for the time. A
 # caller that stacked its rows into a block of their own before handing that
@@ -602,15 +606,19 @@ make_hooks_cache <- function(container, rescale, parameters) {
 # rows over unstacked allocates neither the block nor the copy. That is what the
 # mean rows and the stratum mean rows do, and a deterministic block goes
 # further: its rows repeat one value each, so passing the value writes the row
-# without a destination-width vector existing anywhere. Measured over an `ipw()`
-# call at n = 20000 on the widest surfaces, that is 8 to 11 percent of
-# everything the call allocates, on a call that allocates half a gigabyte and
-# collects it upwards of a hundred times. What it does for the time is inside the noise of
-# the measurement, and it is not free: every assignment materializes a column
-# index the length of the sample to stand in for the subscript it was not given,
-# whether it writes one row or many. Writing that subscript out as `seq_len(n)`
-# does not remove the index, and assigning through a single linear index
-# computed by hand is far worse on both counts.
+# without a destination-width vector existing anywhere. Measured while this ran
+# on every evaluation of the sandwich, writing the rows in place removed 8 to 11
+# percent of everything an `ipw()` call at n = 20000 allocated on the widest
+# surfaces. What it does for the time is inside the noise of the measurement,
+# and it is not free: every assignment materializes a column index the length of
+# the sample to stand in for the subscript it was not given, whether it writes
+# one row or many. Writing that subscript out as `seq_len(n)` does not remove
+# the index, and assigning through a single linear index computed by hand is far
+# worse on both counts.
+#
+# All but one of those evaluations has since moved to `sum_psi_blocks()`, which
+# reads the same unstacked entries and is where that reasoning now mostly pays.
+# Handing the rows over unstacked is what lets it read them at all.
 #
 # The buffer is filled with `NA_real_` rather than zero. The two measure the
 # same, since either way the allocation writes a value into every cell, so the
@@ -662,6 +670,77 @@ stack_psi_blocks <- function(blocks, n) {
   }
 
   stacked
+}
+
+# The row sums of the stack the same entries assemble to, taken block by block
+# so that the stack itself is never built.
+#
+# The bread reads nothing but these sums. The engine derives them from the
+# estimating functions by summing the matrix it was handed, which means every
+# differenced coordinate allocates an S-by-n destination whose only use is to be
+# reduced to S numbers and dropped. Supplying the reduction instead removes that
+# destination from all but the one evaluation the meat keeps, which is 2(S - k)
+# of the 2(S - k) + 1 assemblies a sandwich performs.
+#
+# The earlier attempt at the same saving refilled one destination across
+# evaluations rather than removing it, and saved nothing: the matrix reaches the
+# engine as an argument, so it arrives at the next evaluation already shared and
+# the first row written to it duplicates it. Reducing here is what makes that
+# moot, because on this path the matrix never exists to be shared.
+#
+# What this is worth is allocation. Measured over three rounds of ten `ipw()`
+# calls at n = 20000, the `.by` shape falls from 403.2 MB to 283.5 MB and the
+# declared-crossing shape from 487.7 MB to 358.0 MB, the same figure to the byte
+# in every round, and the collections a caller waits through fall by about a
+# third. The destinations are more than their own size, because an assignment
+# into a row of one also materializes a column index the length of the sample,
+# and nothing here writes into a matrix. What it is worth for the time is not
+# established: over those rounds neither shape's median separates from the
+# assembling build's by more than the rounds differ among themselves.
+#
+# Each block's sum is taken by the same accumulation `rowSums()` would apply to
+# the rows that block fills: `rowSums()` on a matrix entry, `sum()` on a row
+# given as one value per observation, and `constant_row_sums()` on the rows a
+# deterministic block repeats, all of which accumulate the same values in the
+# same order in the same extended precision. So the reduction is the row sums of
+# the assembled stack to the bit, which is the only footing on which the bread
+# may take this route while the meat takes the other.
+#
+# The deterministic rows are summed together rather than one at a time because
+# `constant_row_sums()` builds a matrix to accumulate over and one of those is
+# cheaper than one per row. They need not be contiguous in the stack for that:
+# the block they are gathered from is built here and read back by position.
+sum_psi_blocks <- function(blocks, n) {
+  blocks <- blocks[!vapply(blocks, is.null, logical(1))]
+  rows <- vapply(
+    seq_along(blocks),
+    function(i) psi_block_rows(blocks[[i]], i, n),
+    integer(1)
+  )
+  starts <- cumsum(rows) - rows
+  sums <- numeric(sum(rows))
+
+  constant <- vapply(
+    blocks,
+    function(block) !is.matrix(block) && length(block) == 1L,
+    logical(1)
+  )
+  for (i in which(!constant & rows > 0L)) {
+    block <- blocks[[i]]
+    sums[starts[[i]] + seq_len(rows[[i]])] <- if (is.matrix(block)) {
+      rowSums(block)
+    } else {
+      sum(block)
+    }
+  }
+  if (any(constant)) {
+    sums[starts[constant] + 1L] <- constant_row_sums(
+      unlist(blocks[constant], use.names = FALSE),
+      n
+    )
+  }
+
+  sums
 }
 
 # The number of rows an entry of the stack contributes, and the point at which
@@ -725,14 +804,22 @@ constant_psi_rows <- function(values) {
 # read each other, so the whole of it is recomputed from the perturbed vector.
 #
 # So the summed system is supplied rather than derived. A perturbation that
-# moves any parameter the rest of the stack reads is answered by the estimating
-# functions themselves, which is what the engine would have done and therefore
+# moves any parameter the rest of the stack reads is answered by building the
+# blocks at that vector and reducing them where they are built, which is the
+# same arithmetic on the same values the engine would have summed and therefore
 # the same numbers to the last bit. A perturbation that moves only a
 # deterministic parameter is answered from the recorded sums and
-# `constant_row_sums()`, without assembling a stack at all. The saving is two
+# `constant_row_sums()`, without building any block at all. The saving is two
 # evaluations of the whole system per deterministic row, and each of those
 # evaluations scores the outcome model and predicts every fixed-exposure design
 # over the sample.
+#
+# Supplying it also decides which of the two systems allocates the S-by-n
+# matrix. Only `psi_at()` assembles one, for the single evaluation the meat is
+# built from and keeps; the bread's evaluations come through `summed_at()`,
+# which returns S numbers and lets the blocks they were reduced from go. That
+# takes 2(S - k) destinations out of every call, and it is the reason the
+# estimating functions are built as a list of blocks rather than as a matrix.
 #
 # `index` names the deterministic rows, which are also the coordinates of the
 # parameters they carry. No row outside that block reads one of those
@@ -746,7 +833,7 @@ constant_psi_rows <- function(values) {
 # parameter moved, and narrowing it to that row would zero the bread entries the
 # others carry.
 make_stacked_system <- function(
-  stacked_equations,
+  stacked_blocks,
   deterministic_values,
   index,
   parameters,
@@ -757,7 +844,7 @@ make_stacked_system <- function(
   anchor_sums <- NULL
 
   psi_at <- function(theta) {
-    psi <- stacked_equations(theta)
+    psi <- stack_psi_blocks(stacked_blocks(theta), n)
     if (is.null(anchor_sums) && identical(as.numeric(theta)[moving], anchor)) {
       anchor_sums <<- unname(rowSums(psi))
     }
@@ -765,11 +852,17 @@ make_stacked_system <- function(
   }
 
   summed_at <- function(theta) {
-    if (is.null(anchor_sums) || !identical(as.numeric(theta)[moving], anchor)) {
-      return(unname(rowSums(psi_at(theta))))
+    at_anchor <- identical(as.numeric(theta)[moving], anchor)
+    if (!is.null(anchor_sums) && at_anchor) {
+      sums <- anchor_sums
+      sums[index] <- constant_row_sums(deterministic_values(theta), n)
+      return(sums)
     }
-    sums <- anchor_sums
-    sums[index] <- constant_row_sums(deterministic_values(theta), n)
+
+    sums <- sum_psi_blocks(stacked_blocks(theta), n)
+    if (at_anchor) {
+      anchor_sums <<- sums
+    }
     sums
   }
 
