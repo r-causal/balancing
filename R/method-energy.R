@@ -567,6 +567,100 @@ center_on_measure <- function(columns, measure) {
   sweep(columns, 2, centers, "-")
 }
 
+# The first-moment marginal columns of a continuous fit: one indicator per level
+# of a factor covariate, the covariate itself where it is already an indicator,
+# and the standardized first power of a numeric covariate. Returns the columns
+# alongside the highest marginal power each covariate reached, which
+# higher_covariate_marginals() continues from.
+#
+# They are built from the covariates rather than read off the constraint recipe
+# because a covariate's marginal distribution is not what the constraint set
+# selects. Reading them off the recipe left `moments` a second route to the
+# marginals: `balance_terms(moments = c(x1 = 0))` drops x1's constraint record,
+# and with it x1's marginal row, so a fit asked to leave x1 out of the
+# correlation rows stopped holding x1's own distribution as well.
+#
+# The columns cross the boundary on the same scale the constraint matrix uses,
+# so they are built through the same records and the same rebuild, and the
+# constant and aliased columns are dropped exactly as the constraint build drops
+# them. A factor's indicators sum to the constant every method carries, so one
+# of them is redundant against the fit's own total-sum row. The drops are silent
+# here: the constraint build has already reported whatever it dropped, and these
+# rows are the fit's own bookkeeping rather than a set the caller named.
+marginal_distribution_columns <- function(data, covariates, sampling_weights) {
+  center_fn <- if (is.null(sampling_weights)) {
+    mean
+  } else {
+    function(x) weighted_center(x, sampling_weights)
+  }
+  scale_fn <- if (is.null(sampling_weights)) {
+    stats::sd
+  } else {
+    function(x) weighted_scale(x, sampling_weights)
+  }
+
+  records <- list()
+  for (cov in covariates) {
+    v <- covariate_values(data, cov)
+    if (is.factor(v) || is.character(v)) {
+      levels <- if (is.factor(v)) {
+        levels(v)
+      } else {
+        sort(unique(as.character(v)))
+      }
+      for (level in levels) {
+        records[[length(records) + 1L]] <- new_recipe_record(
+          term = paste0(cov, "_", level),
+          kind = "moment",
+          type = "indicator",
+          source = cov,
+          level = level
+        )
+      }
+    } else if (is.logical(v) || is_binary_numeric(v)) {
+      records[[length(records) + 1L]] <- new_recipe_record(
+        term = cov,
+        kind = "moment",
+        type = "indicator",
+        source = cov,
+        level = NA_character_
+      )
+    } else {
+      base_center <- center_fn(v)
+      raw <- v - base_center
+      scale <- scale_fn(raw)
+      if (scale == 0) {
+        scale <- 1
+      }
+      records[[length(records) + 1L]] <- new_recipe_record(
+        term = cov,
+        kind = "moment",
+        type = "numeric",
+        source = cov,
+        power = 1L,
+        base_center = base_center,
+        center = center_fn(raw),
+        scale = scale
+      )
+    }
+  }
+
+  columns <- rebuild_constraint_matrix(records, data)
+  for (drop in list(constant_columns, aliased_columns)) {
+    dropped <- drop(columns)
+    if (length(dropped) > 0) {
+      keep <- setdiff(seq_along(records), dropped)
+      records <- records[keep]
+      columns <- columns[, keep, drop = FALSE]
+    }
+  }
+
+  list(
+    columns = columns,
+    moments = covariate_constraint_moments(records, covariates)
+  )
+}
+
 fit_energy_continuous <- function(method, prepared, enforce, backend) {
   n <- prepared$n
   s <- prepared$sampling_weights
@@ -586,30 +680,25 @@ fit_energy_continuous <- function(method, prepared, enforce, backend) {
   # exposure and the covariates to one population rather than two.
   # `distribution_moments` is the only argument that sets how many of them there
   # are: the constraint set a caller passes to balance_terms() asks for
-  # exposure-covariate correlation rows here, so the marginal rows read the
-  # first-moment columns of the constraint matrix and take their higher powers
-  # from `distribution_moments` alone.
+  # exposure-covariate correlation rows here, and the marginal rows are built
+  # from the covariates and `distribution_moments` alone.
   moments <- method@distribution_moments %||% 1L
-  marginal <- vapply(
-    prepared$recipe,
-    function(record) identical(record$kind, "moment"),
-    logical(1)
-  )
-  covariate_moments <- covariate_constraint_moments(
-    prepared$recipe[marginal],
-    prepared$covariates
+  marginals <- marginal_distribution_columns(
+    prepared$data,
+    prepared$covariates,
+    prepared$constraint_sampling_weights
   )
 
   d_treat <- center_on_measure(moment_columns(exposure, moments), measure)
   extra_covariate_marginals <- higher_covariate_marginals(
     prepared$data,
-    covariate_moments,
+    marginals$moments,
     moments
   )
   d_covs <- center_on_measure(
     do.call(
       cbind,
-      c(list(z[, marginal, drop = FALSE]), extra_covariate_marginals)
+      c(list(marginals$columns), extra_covariate_marginals)
     ),
     measure
   )

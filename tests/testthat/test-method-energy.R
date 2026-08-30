@@ -1182,6 +1182,58 @@ test_that("moments no longer sets the marginal distribution moments", {
   )
 })
 
+test_that("a covariate left out of the constraint set keeps its marginal rows", {
+  # The marginal rows belong to the covariates, not to the constraint set, so
+  # `moments` must not reach them from either side. Excluding x1 from the
+  # constraint set drops x1's correlation row and nothing else: its weighted mean
+  # and variance stay at the sample values `distribution_moments` pins, exactly
+  # as x2's and the exposure's do. Reading the marginal columns off the
+  # constraint recipe dropped x1's marginal rows along with its correlation row,
+  # and its weighted variance then floated to wherever the objective put it.
+  data <- sim_continuous(n = 350)
+  central_moment <- function(values, weights, order) {
+    center <- stats::weighted.mean(values, weights)
+    sum(weights * (values - center)^order) / sum(weights)
+  }
+  uniform <- rep(1, nrow(data))
+
+  # The constraint sets differ in what they ask of the correlation rows and
+  # agree in what they leave to the marginals, so the marginals must come out
+  # the same under all three. The middle one is the case that failed: x1 has no
+  # constraint record to read a marginal off. The last one is its mirror, where
+  # x1's record reaches past the distribution moments.
+  constraint_sets <- list(
+    balance_terms(moments = 1L),
+    balance_terms(moments = c(x1 = 0L, x2 = 1L)),
+    balance_terms(moments = 3L)
+  )
+
+  for (constraints in constraint_sets) {
+    fit <- balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_energy(distribution_moments = 2L),
+      estimand = "ate",
+      constraints = constraints
+    )
+    w <- as.numeric(stats::weights(fit))
+    for (column in c("exposure", "x1", "x2")) {
+      values <- data[[column]]
+      expect_equal(
+        stats::weighted.mean(values, w),
+        mean(values),
+        tolerance = 1e-8
+      )
+      expect_equal(
+        central_moment(values, w, 2),
+        central_moment(values, uniform, 2),
+        tolerance = 1e-8
+      )
+    }
+  }
+})
+
 test_that("the default continuous fit keeps the objective-driven solution", {
   # The correlation rows are added only when the constraint set asks for them,
   # so the default fit solves the same program it solved before: the weights

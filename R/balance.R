@@ -237,6 +237,13 @@ balance <- function(
     estimand = estimand,
     focal_level = focal_level,
     sampling_weights = sampling_weights_value %||% rep(1, n),
+    # The null-able sampling weights the constraint columns were built under. A
+    # method that builds columns of its own to the same scale needs this rather
+    # than the uniform fill-in above: no weights and uniform weights are not the
+    # same scale, because `stats::sd()` and `weighted_scale()` agree on a
+    # uniform vector only to rounding, and columns built the other way would
+    # differ from the constraint matrix in their last bits.
+    constraint_sampling_weights = constraint_sampling_weights,
     n = n,
     constraints = constraints,
     tolerances = column_tolerances(built$recipe)
