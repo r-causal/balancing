@@ -34,6 +34,12 @@
 //! That branch therefore keeps the exposure: Windows profiles on a thread that
 //! suspends the R thread and walks its contexts too, so the race is narrowed
 //! to one platform rather than removed.
+//!
+//! One thing the Unix path gives up: `R_CheckUserInterrupt` also ran
+//! `R_ProcessEvents`, which services polled GUI events and `setTimeLimit()`
+//! checks. Neither matters to a solve, but a time limit set around
+//! `balance()` now fires when the call returns rather than at the next
+//! iteration.
 
 #[cfg(windows)]
 use std::ffi::c_void;
