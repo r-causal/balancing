@@ -53,11 +53,11 @@
 #' band overshoots it: a band of `0.05` lands between 0.070 and 0.086 at 200 to
 #' 1000 observations. The fit therefore tightens the bound it hands the program
 #' and re-solves, up to eight passes, until the reported correlation sits inside
-#' the band. A band of `0.05` took two passes at 350 and at 1000 observations,
-#' about twice the time and a sixth more memory than the same fit at exact
-#' balance, which has nothing to tighten and takes one solve. A band the passes
-#' cannot reach is reported at its last iterate, and the balance warning judges
-#' it as it judges any other fit.
+#' the band. A band of `0.05` took two passes at 350 and at 1000 observations, so
+#' it costs about two solves against the one the same fit at exact balance takes,
+#' exact balance having nothing to tighten. A band the passes cannot reach is
+#' reported at its last iterate, and the balance warning judges it as it judges
+#' any other fit.
 #'
 #' Without those rows the continuous objective targets distributional
 #' independence between the exposure and the covariates rather than zero
