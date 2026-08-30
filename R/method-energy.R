@@ -728,8 +728,8 @@ fit_energy_continuous <- function(method, prepared, enforce, backend) {
   # rescales a binding column's bound toward its target, never above it, so the
   # loop tightens monotonically, and it stops once every column is inside the
   # band the balance table judges it against. A band the passes cannot reach is
-  # kept at its last iterate and reported: the table then judges it out of
-  # balance and the fit warns through the ordinary balance warning.
+  # kept at the last iterate that converged and reported: the table then judges
+  # it out of balance and the fit warns through the ordinary balance warning.
   #
   # Exact balance and a fit with no correlation rows have nothing to tighten and
   # take a single pass. Each pass costs a whole solve, and the reported
@@ -737,6 +737,7 @@ fit_energy_continuous <- function(method, prepared, enforce, backend) {
   effective <- target
   iterations <- 0L
   result <- NULL
+  last_converged <- NULL
   for (pass in seq_len(correlation_refinement_passes)) {
     result <- solve_energy_with_fallback(method, options, function(opts) {
       solve_energy_cont(
@@ -755,12 +756,28 @@ fit_energy_continuous <- function(method, prepared, enforce, backend) {
       )
     })
     iterations <- iterations + as.integer(result$iterations)
+    if (!isTRUE(result$converged)) {
+      # A tightened pass that certifies infeasibility means the requested
+      # correlation band is unreachable, which surfaces honestly as the
+      # infeasible condition. A pass that merely ran out of iterations falls
+      # back to the last converged iterate, which the balance warning then
+      # judges, rather than reporting the unsettled iterate a tightened bound
+      # left behind.
+      if (
+        !identical(result$status, "primal_infeasible") &&
+          !is.null(last_converged)
+      ) {
+        result <- last_converged
+      }
+      break
+    }
     # A fit with nothing to tighten leaves before the measurement as well as
     # before the second solve, so the default fit pays for no correlation it
     # would not have computed.
-    if (!isTRUE(result$converged) || !any(target > 0)) {
+    if (!any(target > 0)) {
       break
     }
+    last_converged <- result
     # cov.wt normalizes internally, so the composed sampling weights, not their
     # renormalized copy, carry the reweighting the reported statistic reflects.
     composed <- as.numeric(result$weights) * s

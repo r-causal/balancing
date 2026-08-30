@@ -28,9 +28,20 @@ balance_margin <- function(tolerance) {
 # Each bounds a linearized correlation whose exposure and covariate scales are
 # fixed at the sample, so reweighting to meet the bound shrinks both weighted
 # standard deviations and the reported Pearson correlation runs above the bound.
-# The two stop against the same statistic, and they take the same cap for the
+# The two stop against the same statistic, they rescale a binding column the
+# same way, and a pass that runs out of iterations falls back to the last
+# converged iterate in both, while a pass the backend certifies infeasible is
+# left to surface as the infeasible condition. They take the same cap for the
 # same reason: a pass costs a whole solve, and eight of them is where the
 # tightening has converged in every case measured.
+#
+# One thing does differ, and deliberately: the slack a column may exceed its
+# target by before the pass counts it as binding. Energy uses
+# `balance_margin()`, the same slack the balance table's verdict allows, so it
+# stops refining exactly when the table would stop complaining. Stable balancing
+# weights use a flat 1e-8, which is tighter than the verdict, so they keep
+# tightening through a band the table would already accept. Neither reports a
+# column the table judges out of balance; the tighter margin only buys passes.
 correlation_refinement_passes <- 8L
 correlation_refinement_safety <- 0.98
 
