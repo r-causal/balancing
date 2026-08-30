@@ -14,8 +14,8 @@
 //! poll must report nothing pending. Reporting one anyway would stop the solve
 //! and then hand `balance()` a stopped fit that `rlang::interrupt()` declines
 //! to signal, which would fall through to the non-convergence path. R declares
-//! both flags `LibExtern`, so both are exported. Both are read volatile and
-//! neither is ever written.
+//! both flags `LibExtern`, so both are exported. Both are read through an
+//! `AtomicI32` with relaxed ordering and neither is ever written.
 //!
 //! Reading the flags pushes nothing on R's context stack, which is the reason
 //! for the platform split. The earlier implementation wrapped
@@ -43,6 +43,8 @@
 
 #[cfg(windows)]
 use std::ffi::c_void;
+#[cfg(not(windows))]
+use std::sync::atomic::{AtomicI32, Ordering};
 
 // R names these in its own style, which is not Rust's convention for statics.
 #[cfg(not(windows))]
@@ -69,11 +71,20 @@ extern "C" fn check(_data: *mut c_void) {
 /// Return `true` when a user interrupt is pending.
 #[cfg(not(windows))]
 pub fn pending() -> bool {
-    // Volatile because both flags change outside anything the compiler can
-    // see, and a poll sits in a loop it would otherwise be hoisted out of.
+    // Both flags are written by R's signal handler, which is another thread of
+    // execution as far as the abstract machine is concerned, so a plain or
+    // volatile read of them is a data race. Reading them as relaxed atomics is
+    // the defined way to say "some value that was written, no ordering implied",
+    // which is exactly what a poll wants: no synchronization is needed, only a
+    // read the compiler may not hoist out of the solver's loop or invent a value
+    // for. `c_int` is `i32` on every target this builds for, and `AtomicI32` has
+    // the layout and alignment of `i32`, so the cast reads the same object.
+    //
+    // `R_interrupts_suspended` is `Rboolean` in R's headers, an int-sized enum on
+    // every supported target, and is read here as a `c_int`.
     unsafe {
-        std::ptr::read_volatile(&raw const R_interrupts_suspended) == 0
-            && std::ptr::read_volatile(&raw const R_interrupts_pending) != 0
+        (*(&raw const R_interrupts_suspended).cast::<AtomicI32>()).load(Ordering::Relaxed) == 0
+            && (*(&raw const R_interrupts_pending).cast::<AtomicI32>()).load(Ordering::Relaxed) != 0
     }
 }
 
