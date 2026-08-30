@@ -25,3 +25,12 @@
       ! Every block of the stacked estimating function must cover every observation.
       x Block 2 holds 2 values for a sample of 4.
 
+# balancing_internal_error: a block that does not hold doubles
+
+    Code
+      sum_psi_blocks(list(wide_enough, seq_len(n)), n)
+    Condition <balancing_internal_error>
+      Error in `sum_psi_blocks()`:
+      ! Every block of the stacked estimating function must hold doubles.
+      x Block 2 holds <integer> values.
+

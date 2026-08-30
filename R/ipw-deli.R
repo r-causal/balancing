@@ -765,11 +765,30 @@ sum_psi_blocks <- function(blocks, n) {
 # saying it carries the wrong number of columns would send a reader looking for
 # a dimension it does not have.
 #
+# The storage is checked here for the same reason the width is. The assembly and
+# the reduction have to agree to the bit, and they only do while every entry
+# holds doubles: `rowSums()` on the assembled stack returns a double whatever
+# the block was, while the reduction takes a per-observation row with `sum()`,
+# which returns an integer for an integer row and can overflow it to `NA`. No
+# route builds a block of any other storage today, so this is an invariant of
+# the assembly rather than a conversion it performs.
+#
 # `call` is the assembly the entries were handed to, passed in rather than read
 # off the stack. These counts are taken inside a `vapply()` closure, so a
 # refusal left to find its own caller would report that closure, which is not a
 # call anyone wrote and not the one holding the block that is wrong.
 psi_block_rows <- function(block, index, n, call = rlang::caller_env()) {
+  if (!is.double(block)) {
+    abort(
+      c(
+        "Every block of the stacked estimating function must hold doubles.",
+        x = "Block {index} holds {.cls {typeof(block)}} values."
+      ),
+      error_class = "balancing_internal_error",
+      call = call
+    )
+  }
+
   if (is.matrix(block)) {
     width <- ncol(block)
     if (width == n) {

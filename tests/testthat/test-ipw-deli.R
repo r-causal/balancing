@@ -174,6 +174,30 @@ test_that("balancing_internal_error: a bare-vector block the reduction refuses",
   expect_balancing_error(sum_psi_blocks(list(wide_enough, c(1, 2)), n))
 })
 
+# The two readings agree only while every block holds doubles. `rowSums()` on
+# the assembled stack returns a double whatever the block's storage was, while
+# the reduction takes a per-observation row with `sum()`, which returns an
+# integer for an integer row and can overflow it to `NA`. No route builds such a
+# row today, so the storage is refused where the width is rather than left to
+# make the two readings differ.
+
+test_that("balancing_internal_error: a block that does not hold doubles", {
+  n <- 4L
+  wide_enough <- matrix(seq_len(n) + 0.5, nrow = 1L)
+
+  expect_balancing_error(sum_psi_blocks(list(wide_enough, seq_len(n)), n))
+})
+
+test_that("the assembly refuses a block that does not hold doubles", {
+  n <- 4L
+  wide_enough <- matrix(seq_len(n) + 0.5, nrow = 1L)
+
+  expect_error(
+    stack_psi_blocks(list(wide_enough, matrix(seq_len(n), nrow = 1L)), n),
+    class = "balancing_internal_error"
+  )
+})
+
 # The blocks a stack carries are not all matrices, and two kinds of them used to
 # be. A route's mean rows were stacked into a block of their own before that
 # block was copied into the destination, and its contrast rows were expanded
@@ -259,17 +283,6 @@ test_that("sum_psi_blocks() drops absent and empty blocks as the assembly does",
   expect_identical(
     sum_psi_blocks(blocks, n),
     unname(rowSums(stack_psi_blocks(blocks, n)))
-  )
-})
-
-test_that("sum_psi_blocks() refuses a block whose width is not the sample size", {
-  n <- 4L
-  wide_enough <- matrix(seq_len(n) + 0.5, nrow = 1L)
-  too_narrow <- matrix(c(1, 2), nrow = 1L)
-
-  expect_error(
-    sum_psi_blocks(list(wide_enough, too_narrow), n),
-    class = "balancing_internal_error"
   )
 })
 
