@@ -795,6 +795,48 @@ test_that("a tolerance without moment constraints warns and is ignored", {
   )
 })
 
+test_that("a fit that added no constraint rows reports the tolerance it enforced", {
+  # A tolerance with no moment constraints to relax reaches no row of the
+  # program, so the table must not report it as the fit's tolerance: the fit
+  # enforced nothing, which is a tolerance of zero. A fit that did add rows
+  # holds them inside the requested band and reports that band, which the
+  # relaxation spec above covers.
+  data <- sim_binary(n = 200)
+  expect_warning(
+    fit <- balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_cfd(),
+      estimand = "ate",
+      constraints = balance_terms(tolerance = 0.1)
+    ),
+    class = "balancing_ignored_argument_warning"
+  )
+  expect_column_all(
+    as.data.frame(fit@balance_table),
+    "tolerance",
+    function(value) value == 0
+  )
+})
+
+test_that("the ignored-tolerance warning records its class and printed tolerance", {
+  # The printed block reads its tolerance from the balance table, so it is the
+  # visible half of the same contract: a fit given a band it never placed a row
+  # in reports the zero it enforced.
+  data <- sim_binary(n = 150)
+  expect_balancing_warning(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_cfd(),
+      estimand = "ate",
+      constraints = balance_terms(tolerance = 0.1)
+    )
+  )
+})
+
 # ---- Diagnostics ----------------------------------------------------------
 
 test_that("the fit reports dual variables and the quadratic-program backend", {
