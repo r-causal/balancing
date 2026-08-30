@@ -231,7 +231,7 @@ test_that("bw_cbps balances a binary ate", {
     estimand = "ate"
   )
   expect_arms_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 })
 
 test_that("a binary ate fit reports arm-to-arm balance without a balance warning", {
@@ -263,7 +263,7 @@ test_that("bw_cbps balances a binary att", {
     estimand = "att"
   )
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 })
 
 test_that("bw_cbps balances a binary atc", {
@@ -276,7 +276,7 @@ test_that("bw_cbps balances a binary atc", {
     estimand = "atc"
   )
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 })
 
 test_that("the convergence verdict does not move with the sampling-weight scale", {
@@ -583,7 +583,7 @@ test_that("bw_cbps balances a categorical ate", {
     estimand = "ate"
   )
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 })
 
 test_that("bw_cbps balances a categorical att", {
@@ -597,7 +597,7 @@ test_that("bw_cbps balances a categorical att", {
     .focal_level = "b"
   )
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 })
 
 # ---- Statistical promises: continuous -------------------------------------
@@ -614,7 +614,7 @@ test_that("bw_cbps balances a continuous ate on the correlation scale", {
     estimand = "ate"
   )
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 })
 
 # ---- Group sums -----------------------------------------------------------
@@ -729,7 +729,7 @@ test_that("bw_cbps ato weights take the overlap form", {
     estimand = "ato"
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
 
   # Overlap weighting tilts by the overlap factor h = p(1 - p): a treated unit
   # is weighted by (1 - p) and a control unit by p, evaluated at the fitted
@@ -956,7 +956,7 @@ test_that("each link function fits and balances a binary ate", {
       estimand = "ate"
     )
     expect_arms_balanced(fit, data)
-    expect_true(all(stats::weights(fit) >= 0))
+    expect_all(stats::weights(fit), function(value) value >= 0)
   }
 })
 
@@ -1264,7 +1264,7 @@ test_that("an over-identified fit succeeds and records its criterion", {
     method = bw_cbps(over_identified = TRUE),
     estimand = "ate"
   )
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
   # The GMM criterion is recorded on the objective slot.
   expect_type(fit@objective, "double")
   expect_true(is.finite(fit@objective))

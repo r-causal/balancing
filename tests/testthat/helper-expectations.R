@@ -226,3 +226,41 @@ expect_column_all <- function(object, column, predicate) {
   )
   invisible(object)
 }
+
+# expect_all() asserts that a vector holds at least one value and that a
+# predicate holds for every value in it.
+#
+# It is `expect_column_all()` for a value the test already holds rather than for
+# a named column of a frame, and it closes the same hole. The suite asserts a
+# predicate over a bare vector in about a hundred places, most often over the
+# weights a fit produced, and `all(w >= 0)` on a zero-length `w` is TRUE, so any
+# of those would pass on a vector a fit failed to fill or a subscript selected
+# nothing from. Requiring at least one value turns that into a failure.
+#
+# The predicate's answer is required to carry one value per element and to be
+# free of missing values, for the reasons `expect_column_all()` records: a
+# comparison against a sibling vector reopens the hole from the other side when
+# the sibling is not there, and a predicate that cannot answer is a different
+# defect from one that answers no. The vector's expression is deparsed so every
+# failure names what was read.
+expect_all <- function(values, predicate) {
+  label <- deparse1(substitute(values))
+  testthat::expect_true(
+    length(values) > 0L,
+    info = paste0("expected ", label, " to hold at least one value")
+  )
+  held <- predicate(values)
+  testthat::expect_length(held, length(values))
+  testthat::expect_false(
+    anyNA(held),
+    info = paste0(
+      "expected the predicate to answer no missing values for ",
+      label
+    )
+  )
+  testthat::expect_true(
+    all(held),
+    info = paste0("expected the predicate to hold for every value of ", label)
+  )
+  invisible(values)
+}

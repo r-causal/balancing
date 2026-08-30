@@ -175,14 +175,14 @@ expect_basis_msm_accessors <- function(result, effect, outcome_mod) {
   covariance <- stats::vcov(result)
   testthat::expect_equal(covariance, t(covariance), tolerance = 1e-12)
   off_diagonal <- covariance[upper.tri(covariance)]
-  testthat::expect_true(all(is.finite(off_diagonal)))
+  expect_all(off_diagonal, is.finite)
   testthat::expect_gt(max(abs(off_diagonal)), 1e-8)
 
   # The stacked parameter vector names the stored entries by the estimates
   # table's own labels, which is what lets the stored estimates and standard
   # errors be read back out of the variance system the result carries.
   theta <- result$fit$theta
-  testthat::expect_true(all(labels %in% names(theta)))
+  expect_all(labels, function(value) value %in% names(theta))
   testthat::expect_equal(
     unname(theta[labels]),
     estimates$estimate,
@@ -781,9 +781,9 @@ test_that("the basis standard errors account for having estimated the weights", 
       numeric(1)
     )
 
-    expect_true(all(is.finite(reported)))
-    expect_true(all(reported > 0))
-    expect_true(all(abs(reported / naive - 1) > 1e-6))
+    expect_all(reported, is.finite)
+    expect_all(reported, function(value) value > 0)
+    expect_all(abs(reported / naive - 1), function(value) value > 1e-6)
   }
 })
 

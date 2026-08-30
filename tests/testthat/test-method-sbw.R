@@ -248,8 +248,8 @@ test_that("a binary ate fit meets the tolerance and floors the weights", {
     constraints = balance_terms(tolerance = 0.05)
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
-  expect_true(all(w >= 1e-8))
+  expect_all(w, function(value) value >= 0)
+  expect_all(w, function(value) value >= 1e-8)
   expect_balanced(fit, data, tolerance = 0.05)
 })
 
@@ -284,7 +284,7 @@ test_that("a binary att targets the treated total in both groups", {
   n_treated <- sum(treated)
   expect_equal(sum(w[treated]), n_treated, tolerance = 1e-4)
   expect_equal(sum(w[!treated]), n_treated, tolerance = 1e-4)
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   expect_balanced(fit, data, tolerance = 0.05)
 })
 
@@ -299,8 +299,8 @@ test_that("a binary atc fit produces non-negative floored weights", {
     constraints = balance_terms(tolerance = 0.05)
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
-  expect_true(all(w >= 1e-8))
+  expect_all(w, function(value) value >= 0)
+  expect_all(w, function(value) value >= 1e-8)
   expect_balanced(fit, data, tolerance = 0.05)
 })
 
@@ -348,7 +348,7 @@ test_that("the minimum-weight floor holds on the reported scale", {
     constraints = balance_terms(tolerance = 0.05)
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 1e-3))
+  expect_all(w, function(value) value >= 1e-3)
 })
 
 # ---- Sampling weights -----------------------------------------------------
@@ -416,7 +416,7 @@ test_that("a continuous ate meets the correlation tolerance under sampling weigh
     sampling_weights = sw
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   expect_equal(sum(w), sum(sw), tolerance = 1e-3)
   expect_balanced(fit, data, tolerance = 0.05)
 })
@@ -459,7 +459,7 @@ test_that("categorical ate stable balancing produces valid weights", {
     constraints = balance_terms(tolerance = 0.05)
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   for (level in levels(data$exposure)) {
     idx <- data$exposure == level
     expect_equal(sum(w[idx]), sum(idx), tolerance = 1e-4)
@@ -479,7 +479,7 @@ test_that("categorical att stable balancing produces valid weights", {
     constraints = balance_terms(tolerance = 0.05)
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   expect_balanced(fit, data, tolerance = 0.05)
 })
 
@@ -496,8 +496,8 @@ test_that("continuous ate stable balancing meets the correlation tolerance", {
     constraints = balance_terms(tolerance = 0.05)
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
-  expect_true(all(w >= 1e-8))
+  expect_all(w, function(value) value >= 0)
+  expect_all(w, function(value) value >= 1e-8)
   expect_balanced(fit, data, tolerance = 0.05)
 })
 
@@ -558,8 +558,8 @@ test_that("an l1 binary ate meets the tolerance and normalizes each group", {
     constraints = balance_terms(tolerance = 0.05)
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
-  expect_true(all(w >= 1e-8))
+  expect_all(w, function(value) value >= 0)
+  expect_all(w, function(value) value >= 1e-8)
   treated <- data$exposure == 1
   expect_equal(sum(w[treated]), sum(treated), tolerance = 1e-3)
   expect_equal(sum(w[!treated]), sum(!treated), tolerance = 1e-3)
@@ -577,7 +577,7 @@ test_that("an l1 binary att targets the treated total and meets the tolerance", 
     constraints = balance_terms(tolerance = 0.05)
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   treated <- data$exposure == 1
   n_treated <- sum(treated)
   expect_equal(sum(w[treated]), n_treated, tolerance = 1e-3)
@@ -596,8 +596,8 @@ test_that("a linf binary ate meets the tolerance and normalizes each group", {
     constraints = balance_terms(tolerance = 0.05)
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
-  expect_true(all(w >= 1e-8))
+  expect_all(w, function(value) value >= 0)
+  expect_all(w, function(value) value >= 1e-8)
   treated <- data$exposure == 1
   expect_equal(sum(w[treated]), sum(treated), tolerance = 1e-3)
   expect_equal(sum(w[!treated]), sum(!treated), tolerance = 1e-3)
@@ -615,7 +615,7 @@ test_that("a linf binary att meets the tolerance", {
     constraints = balance_terms(tolerance = 0.05)
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   expect_balanced(fit, data, tolerance = 0.05)
 })
 
@@ -630,7 +630,7 @@ test_that("an l1 categorical ate produces valid balanced weights", {
     constraints = balance_terms(tolerance = 0.05)
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   for (level in levels(data$exposure)) {
     idx <- data$exposure == level
     expect_equal(sum(w[idx]), sum(idx), tolerance = 1e-3)
@@ -649,7 +649,7 @@ test_that("a linf categorical ate produces valid balanced weights", {
     constraints = balance_terms(tolerance = 0.05)
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   expect_balanced(fit, data, tolerance = 0.05)
 })
 
@@ -664,8 +664,8 @@ test_that("an l1 continuous ate meets the correlation tolerance", {
     constraints = balance_terms(tolerance = 0.05)
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
-  expect_true(all(w >= 1e-8))
+  expect_all(w, function(value) value >= 0)
+  expect_all(w, function(value) value >= 1e-8)
   expect_balanced(fit, data, tolerance = 0.05)
 })
 
@@ -680,7 +680,7 @@ test_that("a linf continuous ate meets the correlation tolerance", {
     constraints = balance_terms(tolerance = 0.05)
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   expect_balanced(fit, data, tolerance = 0.05)
 })
 
@@ -720,7 +720,7 @@ test_that("a linf fit balances under non-uniform sampling weights", {
     sampling_weights = sw
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   treated <- data$exposure == 1
   expect_equal(sum(w[treated]), sum(sw[treated]), tolerance = 1e-3)
   expect_equal(sum(w[!treated]), sum(sw[!treated]), tolerance = 1e-3)
@@ -880,7 +880,7 @@ test_that("a constant covariate leaves a continuous stable-balancing fit intact"
   )
 
   expect_false("fixed" %in% fit@balance_table$term)
-  expect_true(all(is.finite(as.numeric(stats::weights(fit)))))
+  expect_all(as.numeric(stats::weights(fit)), is.finite)
   expect_balanced(fit, data, tolerance = 0.05)
 })
 
@@ -897,7 +897,7 @@ test_that("a single-level factor leaves a continuous stable-balancing fit intact
   )
 
   expect_false("f_a" %in% fit@balance_table$term)
-  expect_true(all(is.finite(as.numeric(stats::weights(fit)))))
+  expect_all(as.numeric(stats::weights(fit)), is.finite)
   expect_balanced(fit, data, tolerance = 0.05)
 })
 
@@ -935,7 +935,7 @@ test_that("the stable-balancing tolerance box leaves a constant column raw", {
   tolerances <- seq_len(ncol(z)) / 100
   constant <- 3L
 
-  expect_true(all(z[, constant] == 0.98))
+  expect_all(z[, constant], function(value) value == 0.98)
   expect_identical(
     solver_box(z, tolerances, w)[[constant]],
     tolerances[[constant]]
@@ -1048,8 +1048,8 @@ test_that("the default routing falls back to clarabel on an osqp infeasibility c
   expect_true(auto$fell_back)
   expect_identical(auto$solver_status, "clarabel")
   weights <- as.numeric(auto$weights)
-  expect_true(all(is.finite(weights)))
-  expect_true(all(weights >= 0))
+  expect_all(weights, is.finite)
+  expect_all(weights, function(value) value >= 0)
 
   # The rescue matches a direct clarabel solve: the same strictly convex program,
   # solved to the same objective, so the fallback adds no accuracy cost.

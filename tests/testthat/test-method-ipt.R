@@ -126,7 +126,7 @@ test_that("bw_ipt balances a binary ate", {
     estimand = "ate"
   )
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 })
 
 test_that("bw_ipt balances a binary att", {
@@ -139,7 +139,7 @@ test_that("bw_ipt balances a binary att", {
     estimand = "att"
   )
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 })
 
 test_that("bw_ipt balances a binary atc", {
@@ -152,7 +152,7 @@ test_that("bw_ipt balances a binary atc", {
     estimand = "atc"
   )
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 })
 
 test_that("bw_ipt balances a factor covariate for a binary ate", {
@@ -169,7 +169,7 @@ test_that("bw_ipt balances a factor covariate for a binary ate", {
     estimand = "ate"
   )
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 
   w <- as.numeric(stats::weights(fit))
   for (level in levels(data$x3)) {
@@ -197,7 +197,7 @@ test_that("bw_ipt balances a factor covariate for a binary att", {
     estimand = "att"
   )
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 
   w <- as.numeric(stats::weights(fit))
   treated <- data$exposure == 1
@@ -223,7 +223,7 @@ test_that("bw_ipt balances a categorical ate", {
     estimand = "ate"
   )
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 })
 
 test_that("bw_ipt balances a categorical att", {
@@ -237,7 +237,7 @@ test_that("bw_ipt balances a categorical att", {
     .focal_level = "b"
   )
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 })
 
 test_that("a capped iteration count warns about convergence", {
@@ -307,7 +307,7 @@ test_that("bw_ipt balances a binary ate under sampling weights", {
   # Balance holds against the sampling-weighted pooled reference, which
   # expect_balanced() derives from the fit's own sampling weights.
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 
   # weights() folds the sampling weights in, so each group's total matches its
   # sampling-weighted size, the mean-one-per-group convention under weights.
@@ -330,7 +330,7 @@ test_that("bw_ipt balances a binary att under sampling weights", {
     sampling_weights = sw
   )
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 
   # The focal (treated) units keep base weight one, so their reported weight is
   # the sampling weight alone; the control group matches the focal total.
@@ -354,7 +354,7 @@ test_that("bw_ipt balances a categorical att under sampling weights", {
     sampling_weights = sw
   )
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 
   # Each non-focal level is tilted to the focal total, and the focal level keeps
   # base weight one.
@@ -490,7 +490,7 @@ test_that("each link function fits and balances a binary ate", {
       estimand = "ate"
     )
     expect_balanced(fit, data)
-    expect_true(all(stats::weights(fit) >= 0))
+    expect_all(stats::weights(fit), function(value) value >= 0)
   }
 })
 

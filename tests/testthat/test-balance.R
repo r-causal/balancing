@@ -58,7 +58,7 @@ test_that("everything() excludes the exposure from its own covariates", {
 
   expect_identical(fit@covariates, c("x1", "x2", "x3"))
   expect_false("exposure" %in% fit@balance_table$term)
-  expect_true(all(is.finite(as.numeric(stats::weights(fit)))))
+  expect_all(as.numeric(stats::weights(fit)), is.finite)
 })
 
 test_that("a covariate selection naming only the exposure is a classed error", {
@@ -193,7 +193,7 @@ test_that("a binary factor with an unused level fits an estimating-equation meth
   data$exposure <- factor(data$exposure, levels = c(0, 1, 2))
   fit <- balance(data, exposure, c(x1, x2), method = bw_entropy())
   expect_equal(fit@exposure_levels, c("0", "1"))
-  expect_true(all(is.finite(as.numeric(stats::weights(fit)))))
+  expect_all(as.numeric(stats::weights(fit)), is.finite)
 })
 
 test_that("a binary factor with an unused level fits a quadratic-program method", {
@@ -215,7 +215,7 @@ test_that("a binary factor with an unused level fits a quadratic-program method"
     function(idx) sum(w[idx])^2 / sum(w[idx]^2),
     numeric(1)
   )
-  expect_true(all(is.finite(group_ess)))
+  expect_all(group_ess, is.finite)
 })
 
 test_that("a categorical factor with an unused level fits an estimating-equation method", {
@@ -228,7 +228,7 @@ test_that("a categorical factor with an unused level fits an estimating-equation
   )
   fit <- balance(data, exposure, c(x1, x2), method = bw_ipt())
   expect_false("zzz" %in% fit@exposure_levels)
-  expect_true(all(is.finite(as.numeric(stats::weights(fit)))))
+  expect_all(as.numeric(stats::weights(fit)), is.finite)
 })
 
 test_that("a categorical factor with an unused level keeps a finite effective sample size", {
@@ -248,7 +248,7 @@ test_that("a categorical factor with an unused level keeps a finite effective sa
     function(idx) sum(w[idx])^2 / sum(w[idx]^2),
     numeric(1)
   )
-  expect_true(all(is.finite(group_ess)))
+  expect_all(group_ess, is.finite)
 })
 
 test_that("dropping an unused exposure level announces itself", {
@@ -945,7 +945,7 @@ test_that("partly zero sampling weights that leave every group mass still fit", 
     method = bw_entropy(),
     sampling_weights = sampling
   )
-  expect_true(all(is.finite(as.numeric(stats::weights(fit)))))
+  expect_all(as.numeric(stats::weights(fit)), is.finite)
   expect_finite_column(fit@balance_table, "weighted")
 })
 

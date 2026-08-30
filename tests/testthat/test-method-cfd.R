@@ -164,7 +164,7 @@ test_that("a smoothness the constructor accepts always reaches the kernel", {
     estimand = "ate"
   )
   expect_identical(fit@method@smoothness, 1.5)
-  expect_true(all(is.finite(as.numeric(stats::weights(fit)))))
+  expect_all(as.numeric(stats::weights(fit)), is.finite)
 })
 
 test_that("bw_cfd() rejects a negative weight penalty", {
@@ -317,8 +317,8 @@ test_that("a binary ate normalizes each group to its size", {
     estimand = "ate"
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
-  expect_true(all(w >= 1e-8))
+  expect_all(w, function(value) value >= 0)
+  expect_all(w, function(value) value >= 1e-8)
   treated <- data$exposure == 1
   expect_equal(sum(w[treated]), sum(treated), tolerance = 1e-4)
   expect_equal(sum(w[!treated]), sum(!treated), tolerance = 1e-4)
@@ -343,7 +343,7 @@ test_that("a binary att targets the treated total in both groups", {
   n_treated <- sum(treated)
   expect_equal(sum(w[treated]), n_treated, tolerance = 1e-4)
   expect_equal(sum(w[!treated]), n_treated, tolerance = 1e-4)
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   expect_balanced(fit, data, tolerance = 0.1)
 })
 
@@ -357,8 +357,8 @@ test_that("a binary atc fit produces non-negative floored weights", {
     estimand = "atc"
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
-  expect_true(all(w >= 1e-8))
+  expect_all(w, function(value) value >= 0)
+  expect_all(w, function(value) value >= 1e-8)
   expect_balanced(fit, data, tolerance = 0.1)
 })
 
@@ -405,12 +405,12 @@ test_that("kernel balancing balances a factor covariate", {
     expect_true(fit@converged)
     expect_equal(sum(w[treated]), sum(treated), tolerance = 1e-4)
     expect_equal(sum(w[!treated]), control_target, tolerance = 1e-4)
-    expect_true(all(w >= 1e-8))
+    expect_all(w, function(value) value >= 1e-8)
 
     # Every level's gap closes by at least a factor of four and lands inside a
     # ceiling no unweighted level clears.
     weighted <- level_gaps(w)
-    expect_true(all(weighted < unweighted / 4))
+    expect_all(weighted, function(value) value < unweighted / 4)
     expect_lt(max(weighted), 0.01)
     expect_balanced(fit, data, tolerance = 0.1)
   }
@@ -476,7 +476,7 @@ test_that("the per-group effective sample size rises with the weight penalty", {
   curve <- lapply(penalties, ess_at)
 
   for (step in seq_len(length(curve) - 1L)) {
-    expect_true(all(curve[[step + 1L]] > curve[[step]]))
+    expect_all(curve[[step + 1L]], function(value) value > curve[[step]])
   }
 })
 
@@ -516,7 +516,7 @@ test_that("categorical ate kernel balancing produces valid weights", {
     estimand = "ate"
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   for (level in levels(data$exposure)) {
     idx <- data$exposure == level
     expect_equal(sum(w[idx]), sum(idx), tolerance = 1e-4)
@@ -535,7 +535,7 @@ test_that("categorical att kernel balancing produces valid weights", {
     .focal_level = "b"
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   expect_balanced(fit, data, tolerance = 0.1)
 })
 
@@ -557,8 +557,8 @@ test_that("every kernel converges to valid, floored weights", {
     fit <- fit_of(method)
     w <- as.numeric(stats::weights(fit))
     expect_true(fit@converged)
-    expect_true(all(w >= 0))
-    expect_true(all(w >= 1e-8))
+    expect_all(w, function(value) value >= 0)
+    expect_all(w, function(value) value >= 1e-8)
   }
 })
 
@@ -1024,7 +1024,7 @@ test_that("the kernel balancing tolerance box leaves a constant column raw", {
   tolerances <- seq_len(ncol(z)) / 100
   constant <- 3L
 
-  expect_true(all(z[, constant] == 0.98))
+  expect_all(z[, constant], function(value) value == 0.98)
   expect_identical(
     solver_box(z, tolerances, w)[[constant]],
     tolerances[[constant]]

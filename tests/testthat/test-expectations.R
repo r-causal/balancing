@@ -107,3 +107,44 @@ test_that("expect_column_all() fails when the predicate answers a short vector",
     class = "expectation_failure"
   )
 })
+
+# `expect_all()` is `expect_column_all()` for a vector the test already holds.
+# The suite asserts a predicate over a bare vector in about a hundred places,
+# most often over the weights a fit produced, and `all()` on a zero-length
+# vector is TRUE, so any of those would pass on a vector a fit failed to fill or
+# a subscript selected nothing from.
+test_that("expect_all() fails on a vector with no values", {
+  expect_error(
+    expect_all(numeric(0), function(value) value > 0),
+    class = "expectation_failure"
+  )
+  expect_all(c(0.1, 0.2), function(value) value > 0)
+})
+
+test_that("expect_all() fails when the predicate does not hold", {
+  expect_error(
+    expect_all(c(0.1, -0.2), function(value) value > 0),
+    class = "expectation_failure"
+  )
+})
+
+# The sibling-comparison hole reaches a bare vector the same way it reaches a
+# column: comparing against a vector that is not there answers `logical(0)`.
+test_that("expect_all() fails when the predicate answers a short vector", {
+  absent <- numeric(0)
+
+  expect_error(
+    expect_all(c(0.1, 0.2), function(value) value < absent),
+    class = "expectation_failure"
+  )
+})
+
+test_that("expect_all() names the vector when the predicate answers NA", {
+  values <- c(0.1, NA)
+
+  expect_error(
+    expect_all(values, function(value) value > 0),
+    regexp = "missing values for values",
+    class = "expectation_failure"
+  )
+})

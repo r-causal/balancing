@@ -113,7 +113,7 @@ test_that("the pooled degrees of freedom fall back to the outcome models", {
     numeric(1)
   )
 
-  expect_true(all(is.na(result_df)))
+  expect_all(result_df, is.na)
   expect_false(is.na(pooled$dfcom))
   expect_false(is.infinite(pooled$dfcom))
   expect_equal(pooled$dfcom, min(outcome_df))

@@ -267,8 +267,8 @@ test_that("energy balancing reduces the binary ate energy distance", {
     estimand = "ate"
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
-  expect_true(all(w >= 1e-8))
+  expect_all(w, function(value) value >= 0)
+  expect_all(w, function(value) value >= 1e-8)
 
   # Energy balancing drives balance through its objective rather than exact
   # moment constraints, so the achieved first-moment imbalance is verified
@@ -311,7 +311,7 @@ test_that("a binary att targets the treated total in both groups", {
   n_treated <- sum(treated)
   expect_equal(sum(w[treated]), n_treated, tolerance = 1e-4)
   expect_equal(sum(w[!treated]), n_treated, tolerance = 1e-4)
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   expect_balanced(fit, data, tolerance = 0.1)
 })
 
@@ -325,8 +325,8 @@ test_that("a binary atc fit produces non-negative weights", {
     estimand = "atc"
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
-  expect_true(all(w >= 1e-8))
+  expect_all(w, function(value) value >= 0)
+  expect_all(w, function(value) value >= 1e-8)
   expect_balanced(fit, data, tolerance = 0.1)
 })
 
@@ -374,12 +374,12 @@ test_that("energy balancing balances a factor covariate", {
     expect_true(fit@converged)
     expect_equal(sum(w[treated]), sum(treated), tolerance = 1e-4)
     expect_equal(sum(w[!treated]), control_target, tolerance = 1e-4)
-    expect_true(all(w >= 1e-8))
+    expect_all(w, function(value) value >= 1e-8)
 
     # Every level's gap closes by at least a factor of four and lands inside a
     # ceiling no unweighted level clears.
     weighted <- level_gaps(w)
-    expect_true(all(weighted < unweighted / 4))
+    expect_all(weighted, function(value) value < unweighted / 4)
     expect_lt(max(weighted), 0.01)
     expect_balanced(fit, data, tolerance = 0.1)
   }
@@ -446,7 +446,7 @@ test_that("the per-group effective sample size rises with the weight penalty", {
   curve <- lapply(penalties, ess_at)
 
   for (step in seq_len(length(curve) - 1L)) {
-    expect_true(all(curve[[step + 1L]] > curve[[step]]))
+    expect_all(curve[[step + 1L]], function(value) value > curve[[step]])
   }
 })
 
@@ -487,7 +487,7 @@ test_that("categorical ate energy balancing produces valid weights", {
     estimand = "ate"
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   for (level in levels(data$exposure)) {
     idx <- data$exposure == level
     expect_equal(sum(w[idx]), sum(idx), tolerance = 1e-4)
@@ -506,7 +506,7 @@ test_that("categorical att energy balancing produces valid weights", {
     .focal_level = "b"
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   expect_balanced(fit, data, tolerance = 0.1)
 })
 
@@ -770,7 +770,7 @@ test_that("continuous energy balancing reduces the distance covariance", {
     estimand = "ate"
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
 
   covariates <- as.matrix(data[c("x1", "x2")])
   weighted <- weighted_distance_covariance(data$exposure, covariates, w)
@@ -835,7 +835,7 @@ test_that("a continuous fit preserves an indicator covariate's marginal", {
   )
   # The stratum keeps its share of the total weight rather than being annihilated.
   expect_equal(sum(w[data$g == 1]), sum(data$g == 1), tolerance = 1e-4)
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
 })
 
 test_that("a continuous fit holds the base-measure marginals under sampling weights", {
@@ -1406,8 +1406,8 @@ test_that("a fit that cannot reach its tolerance returns usable weights", {
   )
 
   w <- as.numeric(weights(fit))
-  expect_true(all(is.finite(w)))
-  expect_true(all(w >= bw_energy()@min_weight))
+  expect_all(w, is.finite)
+  expect_all(w, function(value) value >= bw_energy()@min_weight)
   groups <- split(seq_len(nrow(data)), as.character(data$z))
   for (idx in groups) {
     expect_equal(sum(w[idx]), length(idx))
@@ -1456,8 +1456,8 @@ test_that("a continuous fit that spends its cap reports the re-solve", {
   # weights are finite, sit at or above the documented floor, carry the sample
   # at its target total, and improve on the unweighted correlation.
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(is.finite(w)))
-  expect_true(all(w >= bw_energy()@min_weight))
+  expect_all(w, is.finite)
+  expect_all(w, function(value) value >= bw_energy()@min_weight)
   expect_equal(mean(w), 1, tolerance = 1e-6)
   table <- as.data.frame(fit@balance_table)
   expect_lt(max(abs(table$weighted)), 0.5 * max(abs(table$unweighted)))

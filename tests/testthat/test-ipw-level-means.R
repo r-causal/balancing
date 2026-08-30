@@ -362,7 +362,7 @@ test_that("each binary contrast is the transform of the means above it", {
 
   # A counterfactual risk is a probability, so both means lie strictly inside
   # the unit interval and every transform below is defined.
-  expect_true(all(mu > 0 & mu < 1))
+  expect_all(mu, function(value) value > 0 & value < 1)
 
   expect_equal(effects[["rd"]], mu[["1"]] - mu[["0"]], tolerance = 1e-8)
   expect_equal(

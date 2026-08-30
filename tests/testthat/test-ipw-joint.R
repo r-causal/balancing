@@ -219,7 +219,7 @@ test_that("the fixture declares the crossing the joint surface is written in", {
 
   # Every cell is populated, which is what a crossing needs to be identified and
   # what the four mean rows each stand for.
-  expect_true(all(table(data$joint) > 0L))
+  expect_all(table(data$joint), function(value) value > 0L)
 })
 
 # A declared column is a factor over the cells, so weighting it is weighting
@@ -867,7 +867,7 @@ test_that("a declared crossing refuses two treatments under one name", {
     c("a", "a")
   )
   expect_identical(anyDuplicated(levels(data$joint)), 0L)
-  expect_true(all(table(data$joint) > 0L))
+  expect_all(table(data$joint), function(value) value > 0L)
 
   fit <- fit_joint_weights(data)
   w <- as.numeric(stats::weights(fit))

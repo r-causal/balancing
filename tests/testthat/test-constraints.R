@@ -61,7 +61,7 @@ test_that("numeric covariates become one mean-balance column each", {
 
   expect_identical(ncol(built$matrix), 2L)
   kinds <- vapply(built$recipe, function(term) term$kind, character(1))
-  expect_true(all(kinds == "moment"))
+  expect_all(kinds, function(value) value == "moment")
 })
 
 test_that("factor covariates expand to a level indicator set less the alias", {
@@ -106,7 +106,7 @@ test_that("moments above one add centered raw powers", {
   expect_identical(ncol(built$matrix), 3L)
   expect_identical(sort(powers), c(1L, 2L, 3L))
   expect_identical(kinds[powers == 1L], "moment")
-  expect_true(all(kinds[powers > 1L] == "power"))
+  expect_all(kinds[powers > 1L], function(value) value == "power")
 })
 
 test_that("the recipe records the standardization center and scale", {
@@ -973,7 +973,7 @@ test_that("objective-driven methods fit with an empty constraint set", {
       constraints = no_moment_constraints()
     )
     expect_identical(nrow(fit@balance_table), 0L)
-    expect_true(all(is.finite(as.numeric(stats::weights(fit)))))
+    expect_all(as.numeric(stats::weights(fit)), is.finite)
 
     fit_categorical <- balance(
       categorical,
@@ -982,7 +982,7 @@ test_that("objective-driven methods fit with an empty constraint set", {
       method = method,
       constraints = no_moment_constraints()
     )
-    expect_true(all(is.finite(as.numeric(stats::weights(fit_categorical)))))
+    expect_all(as.numeric(stats::weights(fit_categorical)), is.finite)
   }
 
   fit_continuous <- balance(
@@ -992,7 +992,7 @@ test_that("objective-driven methods fit with an empty constraint set", {
     method = bw_energy(),
     constraints = no_moment_constraints()
   )
-  expect_true(all(is.finite(as.numeric(stats::weights(fit_continuous)))))
+  expect_all(as.numeric(stats::weights(fit_continuous)), is.finite)
 })
 
 test_that("a fit with no constraint terms prints and summarizes cleanly", {

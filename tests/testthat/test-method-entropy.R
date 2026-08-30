@@ -124,7 +124,7 @@ test_that("entropy balancing balances a binary ate", {
     estimand = "ate"
   )
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 })
 
 test_that("entropy balancing balances a binary att", {
@@ -137,7 +137,7 @@ test_that("entropy balancing balances a binary att", {
     estimand = "att"
   )
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 })
 
 test_that("entropy balancing balances a binary atc", {
@@ -150,7 +150,7 @@ test_that("entropy balancing balances a binary atc", {
     estimand = "atc"
   )
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 })
 
 test_that("entropy balancing balances a factor covariate for a binary ate", {
@@ -181,7 +181,7 @@ test_that("entropy balancing balances a factor covariate for a binary ate", {
     )
     expect_true(fit@converged)
     expect_balanced(fit, data)
-    expect_true(all(stats::weights(fit) >= 0))
+    expect_all(stats::weights(fit), function(value) value >= 0)
 
     w <- as.numeric(stats::weights(fit))
     for (level in levels(data$x3)) {
@@ -219,7 +219,7 @@ test_that("entropy balancing balances a factor covariate for a binary att", {
     estimand = "att"
   )
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 
   w <- as.numeric(stats::weights(fit))
   treated <- data$exposure == 1
@@ -280,7 +280,7 @@ test_that("a covariate set of several factors fits under the defaults", {
   )
 
   expect_true(fit@converged)
-  expect_true(all(is.finite(as.numeric(stats::weights(fit)))))
+  expect_all(as.numeric(stats::weights(fit)), is.finite)
   expect_balanced(fit, data)
 })
 
@@ -327,7 +327,7 @@ test_that("entropy balancing balances a categorical ate", {
     estimand = "ate"
   )
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 })
 
 test_that("entropy balancing balances a categorical att", {
@@ -341,7 +341,7 @@ test_that("entropy balancing balances a categorical att", {
     .focal_level = "b"
   )
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 })
 
 # ---- Statistical promises: continuous -------------------------------------
@@ -356,7 +356,7 @@ test_that("entropy balancing balances a continuous ate", {
     estimand = "ate"
   )
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 })
 
 test_that("a continuous fit preserves an indicator covariate's marginal", {
@@ -381,7 +381,7 @@ test_that("a continuous fit preserves an indicator covariate's marginal", {
   # The stratum keeps its share of the total weight rather than being annihilated.
   expect_equal(sum(w[data$g == 1]), sum(data$g == 1), tolerance = 1e-4)
   expect_balanced(fit, data)
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
 })
 
 test_that("a continuous fit holds the base-measure marginals under sampling weights", {
@@ -995,7 +995,7 @@ test_that("solver_box() leaves a constant column at its raw tolerance", {
   tolerances <- seq_len(ncol(z)) / 100
   constant <- 3L
 
-  expect_true(all(z[, constant] == 0.98))
+  expect_all(z[, constant], function(value) value == 0.98)
   expect_identical(
     solver_box(z, tolerances, w)[[constant]],
     tolerances[[constant]]
@@ -1036,7 +1036,7 @@ test_that("entropy balancing balances a binary ate under sampling weights", {
   # Balance holds against the sampling-weighted pooled reference, which
   # expect_balanced() derives from the fit's own sampling weights.
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 })
 
 test_that("entropy balancing balances a binary att under sampling weights", {
@@ -1068,7 +1068,7 @@ test_that("entropy balancing balances a binary ate under base weights", {
   # The base measure moves the pooled target; expect_balanced() reads the base
   # weights from the fitted method.
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 })
 
 test_that("entropy balancing balances a binary atu under base weights", {

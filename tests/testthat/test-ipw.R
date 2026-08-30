@@ -503,7 +503,7 @@ expect_weights_fn_contract <- function(fit, data) {
   # renormalized base weights, so the ratio is well defined here rather than
   # merely guarded.
   raw <- ee@weights_raw
-  expect_true(all(raw != 0))
+  expect_all(raw, function(value) value != 0)
   rescaled <- (reported / raw) * ee@weight_jacobian
 
   finite_diff <- vapply(
@@ -3834,7 +3834,7 @@ test_that("ipw() respects conf_level", {
   narrow_width <- narrow$ci.upper - narrow$ci.lower
 
   expect_column_all(narrow, "conf.level", function(x) x == 0.80)
-  expect_true(all(narrow_width < wide_width))
+  expect_all(narrow_width, function(value) value < wide_width)
 })
 
 test_that("ipw() rejects an estimand that contradicts the fit", {
@@ -5498,7 +5498,7 @@ test_that("the stacked variance tolerates a deficiency the weights are flat alon
     sampling_weights = fit@sampling_weights
   )
 
-  expect_true(all(is.finite(sqrt(diag(tolerated$vcov)[keys]))))
+  expect_all(sqrt(diag(tolerated$vcov)[keys]), is.finite)
   expect_equal(
     unname(sqrt(diag(tolerated$vcov)[keys])),
     unname(sqrt(diag(plain$vcov)[keys]))
@@ -6382,10 +6382,10 @@ test_that("the deli sandwich carries a unit-varying offset into the means", {
 
   binary_se <- sqrt(diag(binary_result$vcov))
   continuous_se <- sqrt(diag(continuous_result$vcov))
-  expect_true(all(is.finite(binary_se)))
-  expect_true(all(binary_se > 0))
-  expect_true(all(is.finite(continuous_se)))
-  expect_true(all(continuous_se > 0))
+  expect_all(binary_se, is.finite)
+  expect_all(binary_se, function(value) value > 0)
+  expect_all(continuous_se, is.finite)
+  expect_all(continuous_se, function(value) value > 0)
 })
 
 # ---- The analytic contrast block ------------------------------------------
