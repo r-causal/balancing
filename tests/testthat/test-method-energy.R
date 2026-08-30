@@ -1218,6 +1218,109 @@ test_that("the refinement takes several passes and sums their iterations", {
   expect_identical(solves, 1L)
 })
 
+test_that("a tightened pass that stops at the iteration cap keeps the last converged iterate", {
+  # A tightened bound is harder than the one before it, so a pass can spend the
+  # iteration cap on a band an earlier pass met comfortably. What the fit reports
+  # then is the last iterate that converged rather than the unsettled one the
+  # tightened pass left behind: the weights are the earlier pass's, the fit
+  # reports itself converged, and the correlations that iterate actually achieved
+  # sit above the requested band, so the ordinary balance warning judges them
+  # instead of a convergence warning claiming the solve failed. The reported
+  # iterations still account for every pass, the failed one included, because
+  # each pass cost a whole solve.
+  data <- sim_continuous(n = 350)
+  solves <- 0L
+  per_solve <- integer()
+  first_weights <- NULL
+  original <- solve_energy_cont
+  testthat::local_mocked_bindings(
+    solve_energy_cont = function(...) {
+      result <- original(...)
+      solves <<- solves + 1L
+      per_solve <<- c(per_solve, as.integer(result$iterations))
+      if (solves == 1L) {
+        first_weights <<- as.numeric(result$weights)
+      } else {
+        result$converged <- FALSE
+        result$status <- "max_iter"
+      }
+      result
+    }
+  )
+
+  # Every warning is collected rather than one being matched, so a convergence
+  # warning raised alongside the balance warning fails here instead of passing
+  # under an expectation that looked only for the one it wanted.
+  seen <- character()
+  fit <- withCallingHandlers(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_energy(),
+      estimand = "ate",
+      constraints = balance_terms(moments = 1L, tolerance = 0.05)
+    ),
+    warning = function(cnd) {
+      seen <<- c(seen, class(cnd)[[1]])
+      invokeRestart("muffleWarning")
+    }
+  )
+
+  expect_identical(seen, "balancing_balance_warning")
+  expect_identical(solves, 2L)
+  expect_true(fit@converged)
+  expect_identical(fit@iterations, sum(per_solve))
+
+  # The reported weights renormalize the solver's, so the restored iterate shows
+  # as proportionality to the first pass's raw weights rather than as equality.
+  w <- as.numeric(stats::weights(fit))
+  expect_equal(
+    w / sum(w),
+    first_weights / sum(first_weights),
+    tolerance = 1e-10
+  )
+
+  table <- as.data.frame(fit@balance_table)
+  expect_all(table$weighted, function(r) r > 0.05 + balance_margin(0.05))
+  expect_column_all(table, "within_tolerance", function(value) !value)
+})
+
+test_that("a tightened pass certified infeasible raises rather than restoring", {
+  # The other half of the same guard. An infeasibility certificate is a claim
+  # about the constraint set, not about the iteration cap, so restoring the
+  # looser iterate would answer a band the solver said cannot be met with
+  # weights that do not meet it. The certificate surfaces as the infeasible
+  # condition instead.
+  data <- sim_continuous(n = 350)
+  solves <- 0L
+  original <- solve_energy_cont
+  testthat::local_mocked_bindings(
+    solve_energy_cont = function(...) {
+      result <- original(...)
+      solves <<- solves + 1L
+      if (solves > 1L) {
+        result$converged <- FALSE
+        result$status <- "primal_infeasible"
+      }
+      result
+    }
+  )
+
+  expect_error(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_energy(),
+      estimand = "ate",
+      constraints = balance_terms(moments = 1L, tolerance = 0.05)
+    ),
+    class = "balancing_infeasible_error"
+  )
+  expect_identical(solves, 2L)
+})
+
 test_that("moments no longer sets the marginal distribution moments", {
   # `distribution_moments` is the only route to the marginal rows. A
   # second-moment constraint request therefore leaves the weighted exposure
