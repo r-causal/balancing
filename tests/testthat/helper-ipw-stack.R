@@ -15,10 +15,14 @@
 # defined in, the container's own hooks, `deli::ee_glm()` for the outcome score,
 # and the contrast formulas, so it restates no method's math; what it does not
 # reuse is the assembly and the sandwich call under `ipw()`, which is the code an
-# analytic contrast block changes. The blocks are stacked with `rbind()` rather
-# than through `stack_psi_blocks()` for that reason, and the two are pinned to
-# agree to the bit by `expect_stacked_psi_matches_rbind()` elsewhere in this
-# suite.
+# analytic contrast block changes. The blocks are built as matrices here and
+# stacked with `rbind()`, rather than handed a row at a time to
+# `stack_psi_blocks()` to be written into a preallocated destination, for that
+# reason: this is the assembly the package performed before it wrote its rows in
+# place, and the specs reading this system are what hold the two to the same
+# answer. The assembly is pinned against `rbind()` a second time, on the entries
+# the package hands it, by `expect_stacked_psi_matches_rbind()` elsewhere in
+# this suite.
 #
 # The deli call is copied argument for argument from `stacked_covariance()`,
 # central differences at a step of 1e-6 with no pseudoinverse fallback, and the
@@ -156,14 +160,31 @@ ipw_reference_stack <- function(
       ipw_joint_row_values(joint, mean_theta, contrast_theta, continuous)
     }
     contrast_rows <- matrix(contrast_values, nrow = k, ncol = n)
-    by_rows <- ipw_by_rows(
-      by_stack = by_stack,
-      fixed = fixed,
-      mean_theta = theta[p + q + m + k + seq_len(m_by)],
-      contrast_theta = theta[p + q + m + k + m_by + seq_len(k_by)],
-      continuous = continuous,
-      n = n
-    )
+    by_mean_theta <- theta[p + q + m + k + seq_len(m_by)]
+    by_contrast_theta <- theta[p + q + m + k + m_by + seq_len(k_by)]
+    by_mean_rows <- NULL
+    by_contrast_rows <- NULL
+    if (!is.null(by_stack)) {
+      by_mean_rows <- do.call(
+        rbind,
+        lapply(seq_len(m_by), function(row) {
+          stratum <- (row - 1L) %/% m + 1L
+          level <- (row - 1L) %% m + 1L
+          by_stack$tilts[[stratum]] * (fixed[[level]] - by_mean_theta[[row]])
+        })
+      )
+      by_contrast_rows <- matrix(
+        ipw_by_contrast_row_values(
+          by_stack = by_stack,
+          mean_theta = by_mean_theta,
+          contrast_theta = by_contrast_theta,
+          continuous = continuous,
+          n_levels = m
+        ),
+        nrow = k_by,
+        ncol = n
+      )
+    }
 
     do.call(
       rbind,
@@ -172,8 +193,8 @@ ipw_reference_stack <- function(
         score,
         mean_rows,
         contrast_rows,
-        by_rows$mean,
-        by_rows$contrast
+        by_mean_rows,
+        by_contrast_rows
       )
     )
   }

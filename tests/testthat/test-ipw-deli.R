@@ -142,6 +142,49 @@ test_that("stack_psi_blocks() refuses a block whose column count is not the samp
   )
 })
 
+# The blocks a stack carries are not all matrices, and two kinds of them used to
+# be. A route's mean rows were stacked into a block of their own before that
+# block was copied into the destination, and its contrast rows were expanded
+# into a block holding one value repeated across every column. Both are written
+# a row at a time now, and the deterministic rows are written as the single
+# value they repeat, so what the assembly returns has to be what stacking those
+# blocks returned, to the bit. All four of the kinds a `.by` request puts in the
+# stack are present here: the whole-sample mean and contrast rows, and the
+# stratum rows of each.
+
+test_that("stack_psi_blocks() writes rows where blocks were stacked before", {
+  n <- 5L
+  weight_block <- matrix(seq_len(2L * n) / 10, nrow = 2L)
+  score_block <- matrix(seq_len(3L * n) * 2.5, nrow = 3L)
+  mean_rows <- list(seq_len(n) + 0.25, seq_len(n) - 0.75)
+  contrast_values <- c(rd = -0.5, "log(rr)" = 0.25, "log(or)" = 1.5)
+  by_mean_rows <- list(seq_len(n) * 0.5, seq_len(n) * -0.5)
+  by_contrast_values <- c("rd_g = lo" = 0.1, "rd_g = hi" = -0.2)
+
+  stacked <- stack_psi_blocks(
+    c(
+      list(weight_block, score_block),
+      mean_rows,
+      constant_psi_rows(contrast_values),
+      by_mean_rows,
+      constant_psi_rows(by_contrast_values)
+    ),
+    n
+  )
+
+  expect_identical(
+    stacked,
+    rbind(
+      weight_block,
+      score_block,
+      do.call(rbind, mean_rows),
+      matrix(contrast_values, nrow = 3L, ncol = n),
+      do.call(rbind, by_mean_rows),
+      matrix(by_contrast_values, nrow = 2L, ncol = n)
+    )
+  )
+})
+
 # ---- The assembly a real fit performs --------------------------------------
 
 # Four routes build four different sets of blocks: a binary exposure two mean

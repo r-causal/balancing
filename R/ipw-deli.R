@@ -304,9 +304,13 @@ ipw_deli_sandwich <- function(
     # rather than over every unit. A marginal model predicts one value per
     # exposure level, which makes the weighted row a constant multiple of the
     # unweighted one and leaves the sandwich exactly where it was.
-    mean_rows <- do.call(
-      rbind,
-      lapply(seq_len(m), function(j) tilt * (fixed[[j]] - mean_theta[[j]]))
+    #
+    # Each row is handed over on its own rather than stacked into a block
+    # first. The assembly writes each of them into the destination row it
+    # belongs in, so a block of them would be built only to be copied there.
+    mean_rows <- lapply(
+      seq_len(m),
+      function(j) tilt * (fixed[[j]] - mean_theta[[j]])
     )
 
     # The contrasts are deterministic functions of the means, so their rows are
@@ -316,10 +320,12 @@ ipw_deli_sandwich <- function(
     # those rows repeat are named on their own because the summed system below
     # reads them without assembling a stack, and the two readings of a contrast
     # row have to be one reading.
-    contrast_rows <- matrix(
-      ipw_contrast_row_values(joint, mean_theta, contrast_theta, continuous),
-      nrow = k,
-      ncol = n
+    #
+    # The rows are handed over as those values rather than as a block repeating
+    # each of them across the sample. The assembly writes a row from the value
+    # it repeats, so the wide block would exist only to be read once.
+    contrast_rows <- constant_psi_rows(
+      ipw_contrast_row_values(joint, mean_theta, contrast_theta, continuous)
     )
 
     by_rows <- ipw_by_rows(
@@ -327,14 +333,12 @@ ipw_deli_sandwich <- function(
       fixed = fixed,
       mean_theta = theta[p + q + m + k + seq_len(m_by)],
       contrast_theta = theta[p + q + m + k + m_by + seq_len(k_by)],
-      continuous = continuous,
-      n = n
+      continuous = continuous
     )
 
     stack_psi_blocks(
-      list(
-        hooks$psi,
-        score,
+      c(
+        list(hooks$psi, score),
         mean_rows,
         contrast_rows,
         by_rows$mean,
@@ -570,27 +574,43 @@ make_hooks_cache <- function(container, rescale, parameters) {
 # The stacked estimating function, assembled from its blocks into the S-by-n
 # matrix the sandwich differentiates.
 #
-# `blocks` holds the stack in order. An entry may be `NULL`, which is what a
-# route carrying no block of that kind passes, and an entry may have no rows,
-# which is what a block the fit turned out to have nothing to put in comes back
-# as. Both contribute nothing, exactly as they contribute nothing to `rbind()`.
+# `blocks` holds the stack in order. An entry is either a block that already
+# exists as a matrix, which is what the container's estimating functions and the
+# outcome model's score arrive as, or a single row: a vector carrying one value
+# per observation, or the one value a deterministic row repeats across the whole
+# sample. An entry may also be `NULL`, which is what a route carrying no block
+# of that kind passes, and a matrix entry may have no rows, which is what a
+# block the fit turned out to have nothing to put in comes back as. Both
+# contribute nothing, exactly as they contribute nothing to `rbind()`.
 #
-# What this returns is `rbind()`'s answer to the bit, values and dimnames alike,
-# and the only reason not to write `rbind()` is cost. The closure it serves is
-# evaluated `2(S - k) + 1` times per sandwich, once per differenced coordinate
-# per side of the central difference and once more for the meat, and every
-# evaluation builds the whole matrix afresh.
-# `rbind()` has to work the result's type, shape, and row names out from the
-# arguments it was handed before it can copy anything, and it pays that per
-# argument; a caller that already knows the shape can allocate once and copy
-# each block straight into its own rows. Measured on the block shapes the widest
-# surfaces produce, that assembly was 30 percent of the call's self time, and
-# the fill runs it 1.1 to 1.6 times faster. What it buys is time, not memory.
-# Each block assignment materializes a column index the length of the sample to
-# stand in for the subscript it was not given, so the fill allocates slightly
-# more than `rbind()` does. Writing that subscript out as `seq_len(n)` does not
-# remove the index, and assigning through a single linear index computed by hand
-# is far worse on both counts.
+# What this returns is what `rbind()` returns for the same entries, to the bit,
+# values and dimnames alike, for any stack carrying at least one entry of the
+# full width; `rbind()` reads the width off its arguments, and every stack the
+# package builds opens with a block that gives it one. The only reason not to
+# write `rbind()` is cost. The closure this serves is evaluated `2(S - k) + 1`
+# times per sandwich, once per differenced coordinate per side of the central
+# difference and once more for the meat, and every evaluation builds the whole
+# matrix afresh. `rbind()` has to work the result's type, shape, and row names
+# out from the arguments it was handed before it can copy anything, and it pays
+# that per argument; a caller that already knows the shape can allocate once and
+# write each entry where it belongs.
+#
+# The entries are written in place for the memory rather than for the time. A
+# caller that stacked its rows into a block of their own before handing that
+# block over paid for those values twice, once where the block was built and
+# once where it was copied into the destination, and a caller that hands its
+# rows over unstacked allocates neither the block nor the copy. That is what the
+# mean rows and the stratum mean rows do, and a deterministic block goes
+# further: its rows repeat one value each, so passing the value writes the row
+# without a destination-width vector existing anywhere. Measured over an `ipw()`
+# call at n = 20000 on the widest surfaces, that is 8 to 11 percent of
+# everything the call allocates, on a call that allocates half a gigabyte and
+# collects it upwards of a hundred times. What it does for the time is inside the noise of
+# the measurement, and it is not free: every assignment materializes a column
+# index the length of the sample to stand in for the subscript it was not given,
+# whether it writes one row or many. Writing that subscript out as `seq_len(n)`
+# does not remove the index, and assigning through a single linear index
+# computed by hand is far worse on both counts.
 #
 # The buffer is filled with `NA_real_` rather than zero. The two measure the
 # same, since either way the allocation writes a value into every cell, so the
@@ -599,32 +619,19 @@ make_hooks_cache <- function(container, rescale, parameters) {
 # `deli_psi_return_error` before it forms either half of the sandwich, where a
 # zero row would read as a coordinate the system does not depend on and quietly
 # return a wrong variance.
-#
-# The width of each block is checked rather than trusted. Assigning into the
-# rows of a preallocated buffer recycles a block that is not `n` columns wide,
-# so a block of the wrong width would be spread across the rows instead of
-# refused and the stack would carry values belonging to no unit. `rbind()` has
-# the same recycling behavior, so this is a guard the assembly adds rather than
-# one it inherits.
 stack_psi_blocks <- function(blocks, n) {
   blocks <- blocks[!vapply(blocks, is.null, logical(1))]
-  rows <- vapply(blocks, nrow, integer(1))
+  rows <- vapply(
+    seq_along(blocks),
+    function(i) psi_block_rows(blocks[[i]], i, n),
+    integer(1)
+  )
   starts <- cumsum(rows) - rows
   stacked <- matrix(NA_real_, nrow = sum(rows), ncol = n)
 
   for (i in seq_along(blocks)) {
     if (rows[[i]] > 0L) {
-      block <- blocks[[i]]
-      if (ncol(block) != n) {
-        abort(
-          c(
-            "Every block of the stacked estimating function must carry one column per observation.",
-            x = "Block {i} carries {ncol(block)} column{?s} for a sample of {n}."
-          ),
-          error_class = "balancing_internal_error"
-        )
-      }
-      stacked[starts[[i]] + seq_len(rows[[i]]), ] <- block
+      stacked[starts[[i]] + seq_len(rows[[i]]), ] <- blocks[[i]]
     }
   }
 
@@ -632,7 +639,9 @@ stack_psi_blocks <- function(blocks, n) {
   # carried a name, and otherwise names every row, padding the blocks that
   # carried none with the empty string. A zero-row block never forces names,
   # since it contributes no row to name, but it does still offer its column
-  # names, and the first block offering any is the one they come from.
+  # names, and the first block offering any is the one they come from. An entry
+  # that is a single row offers neither, which is `rbind()`'s reading of it too:
+  # a row is placed by position and named by nothing.
   named <- vapply(
     blocks,
     function(block) !is.null(rownames(block)),
@@ -653,6 +662,51 @@ stack_psi_blocks <- function(blocks, n) {
   }
 
   stacked
+}
+
+# The number of rows an entry of the stack contributes, and the point at which
+# that count is committed, so it is also where the entry's width is checked
+# rather than trusted. The destination is allocated at the width the caller
+# declares, and assigning into its rows recycles anything narrower instead of
+# refusing it, so an entry of the wrong width would be spread over the rows it
+# was meant to fill and the stack would carry values belonging to no unit.
+# `rbind()` recycles the same way, so this is a guard the assembly adds rather
+# than one it inherits.
+#
+# A matrix contributes its rows and has to be exactly `n` wide. Anything else is
+# a single row, which is either one value per observation or the one value a
+# deterministic row repeats. Those are the only two widths a row may have: a row
+# of any other length is the mistake this refuses, and a row of length one is
+# recycled deliberately.
+psi_block_rows <- function(block, index, n) {
+  if (is.matrix(block)) {
+    width <- ncol(block)
+    if (width == n) {
+      return(nrow(block))
+    }
+  } else {
+    width <- length(block)
+    if (width == n || width == 1L) {
+      return(1L)
+    }
+  }
+
+  abort(
+    c(
+      "Every block of the stacked estimating function must carry one column per observation.",
+      x = "Block {index} carries {width} column{?s} for a sample of {n}."
+    ),
+    error_class = "balancing_internal_error"
+  )
+}
+
+# The rows of a deterministic block, one entry per row holding the value that
+# row repeats across the sample. The values arrive named, since they are read
+# off the named parameter vector, and the names are dropped here: the assembly
+# writes a row by position, and the block these rows replace carried no names
+# either.
+constant_psi_rows <- function(values) {
+  as.list(unname(values))
 }
 
 # The stacked estimating functions and the summed system its bread is
@@ -1209,7 +1263,10 @@ ipw_by_stack <- function(by, pieces, tilt, continuous, levels, categorical) {
   )
 }
 
-# The stratum blocks of one evaluation of the stacked estimating functions.
+# The stratum rows of one evaluation of the stacked estimating functions, in the
+# two groups the stack carries them as: the mean rows one vector each, and the
+# contrast rows the single value each of them repeats. The assembly writes both
+# straight into the stack, so neither group is built as a block of its own here.
 #
 # The mean rows are the whole-sample mean rows restricted to a stratum: the root
 # of the row weighted by that stratum's tilt is the tilt-weighted mean of the
@@ -1228,35 +1285,29 @@ ipw_by_rows <- function(
   fixed,
   mean_theta,
   contrast_theta,
-  continuous,
-  n
+  continuous
 ) {
   if (is.null(by_stack)) {
     return(list(mean = NULL, contrast = NULL))
   }
 
   n_levels <- length(fixed)
-  mean_rows <- do.call(
-    rbind,
-    lapply(seq_along(mean_theta), function(row) {
-      stratum <- (row - 1L) %/% n_levels + 1L
-      level <- (row - 1L) %% n_levels + 1L
-      by_stack$tilts[[stratum]] * (fixed[[level]] - mean_theta[[row]])
-    })
-  )
+  mean_rows <- lapply(seq_along(mean_theta), function(row) {
+    stratum <- (row - 1L) %/% n_levels + 1L
+    level <- (row - 1L) %% n_levels + 1L
+    by_stack$tilts[[stratum]] * (fixed[[level]] - mean_theta[[row]])
+  })
 
   list(
     mean = mean_rows,
-    contrast = matrix(
+    contrast = constant_psi_rows(
       ipw_by_contrast_row_values(
         by_stack = by_stack,
         mean_theta = mean_theta,
         contrast_theta = contrast_theta,
         continuous = continuous,
         n_levels = n_levels
-      ),
-      nrow = length(contrast_theta),
-      ncol = n
+      )
     )
   )
 }
