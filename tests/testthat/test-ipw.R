@@ -842,7 +842,7 @@ test_that("ipw() standard errors are finite and positive", {
   estimates <- as.data.frame(result)
 
   expect_finite_column(estimates, "std.error")
-  expect_true(all(estimates$std.error > 0))
+  expect_column_all(estimates, "std.error", function(x) x > 0)
 })
 
 test_that("a shift-related covariate leaves the ipw() chain identified", {
@@ -889,7 +889,7 @@ test_that("a shift-related covariate leaves the ipw() chain identified", {
   reduced_estimates <- as.data.frame(ipw(reduced, reduced_mod))
 
   expect_finite_column(estimates, "std.error")
-  expect_true(all(estimates$std.error > 0))
+  expect_column_all(estimates, "std.error", function(x) x > 0)
   expect_equal(estimates$estimate, reduced_estimates$estimate)
   expect_equal(estimates$std.error, reduced_estimates$std.error)
 })
@@ -957,7 +957,7 @@ test_that("a factor covariate leaves the ipw() sandwich finite", {
   reduced_estimates <- as.data.frame(ipw(reduced, reduced_mod))
 
   expect_finite_column(estimates, "std.error")
-  expect_true(all(estimates$std.error > 0))
+  expect_column_all(estimates, "std.error", function(x) x > 0)
   expect_equal(estimates$estimate, reduced_estimates$estimate, tolerance = 1e-6)
   expect_equal(
     estimates$std.error,
@@ -1072,7 +1072,7 @@ for (spec in list(
         )
         expect_identical(estimates$contrast, c("0", "1", rep("1 vs 0", 3L)))
         expect_finite_column(estimates, "std.error")
-        expect_true(all(estimates$std.error > 0))
+        expect_column_all(estimates, "std.error", function(x) x > 0)
         expect_equal(rd_se, oracle_se, tolerance = 1e-8)
       }
     )
@@ -1512,9 +1512,9 @@ for (spec in list(
         }
 
         expect_finite_column(binary_estimates, "std.error")
-        expect_true(all(binary_estimates$std.error > 0))
+        expect_column_all(binary_estimates, "std.error", function(x) x > 0)
         expect_finite_column(continuous_estimates, "std.error")
-        expect_true(all(continuous_estimates$std.error > 0))
+        expect_column_all(continuous_estimates, "std.error", function(x) x > 0)
       }
     )
   })
@@ -1594,7 +1594,7 @@ test_that("ipw() standardizes an adjusted model over the sampling weights", {
   expect_equal(result$fit$theta[["mu0"]], means$mu0, tolerance = 1e-8)
   expect_equal(result$fit$theta[["mu1"]], means$mu1, tolerance = 1e-8)
   expect_finite_column(estimates, "std.error")
-  expect_true(all(estimates$std.error > 0))
+  expect_column_all(estimates, "std.error", function(x) x > 0)
 })
 
 # The whole family is compared against the independent oracle, across estimands
@@ -1968,7 +1968,7 @@ test_that("ipw() supports an interaction between the exposure and a covariate", 
       tolerance = 1e-8
     )
     expect_finite_column(estimates, "std.error")
-    expect_true(all(estimates$std.error > 0))
+    expect_column_all(estimates, "std.error", function(x) x > 0)
   }
 })
 
@@ -2056,10 +2056,10 @@ test_that("the categorical estimates table keeps the shared column contract", {
   expect_identical(nrow(estimates), 9L)
   expect_finite_column(estimates, "estimate")
   expect_finite_column(estimates, "std.err")
-  expect_true(all(estimates$ci.lower < estimates$estimate))
-  expect_true(all(estimates$ci.upper > estimates$estimate))
-  expect_true(all(estimates$conf.level == 0.95))
-  expect_true(all(estimates$p.value >= 0 & estimates$p.value <= 1))
+  expect_column_all(estimates, "ci.lower", function(x) x < estimates$estimate)
+  expect_column_all(estimates, "ci.upper", function(x) x > estimates$estimate)
+  expect_column_all(estimates, "conf.level", function(x) x == 0.95)
+  expect_column_all(estimates, "p.value", function(x) x >= 0 & x <= 1)
   expect_equal(
     estimates$z,
     estimates$estimate / estimates$std.err,
@@ -3451,7 +3451,7 @@ test_that("a categorical att standardizes an adjusted model over the focal group
   # ignored the estimand entirely.
   expect_false(isTRUE(all.equal(unname(focal), unname(pooled))))
   expect_finite_column(estimates, "std.error")
-  expect_true(all(estimates$std.error > 0))
+  expect_column_all(estimates, "std.error", function(x) x > 0)
 })
 
 # The standard errors are checked three ways: they are finite and positive
@@ -3476,7 +3476,7 @@ test_that("categorical standard errors are finite and positive", {
     outcome_mod <- fit_outcome(formula, data, w, stats::binomial())
     estimates <- as.data.frame(ipw(fit, outcome_mod))
     expect_finite_column(estimates, "std.error")
-    expect_true(all(estimates$std.error > 0))
+    expect_column_all(estimates, "std.error", function(x) x > 0)
   }
 })
 
@@ -3688,7 +3688,7 @@ for (spec in list(
         tolerance = 1e-8
       )
       expect_finite_column(estimates, "std.error")
-      expect_true(all(estimates$std.error > 0))
+      expect_column_all(estimates, "std.error", function(x) x > 0)
     })
   })
 }
@@ -3833,7 +3833,7 @@ test_that("ipw() respects conf_level", {
   wide_width <- wide$ci.upper - wide$ci.lower
   narrow_width <- narrow$ci.upper - narrow$ci.lower
 
-  expect_true(all(narrow$conf.level == 0.80))
+  expect_column_all(narrow, "conf.level", function(x) x == 0.80)
   expect_true(all(narrow_width < wide_width))
 })
 
@@ -4371,7 +4371,7 @@ test_that("ipw() standard errors with an offset come from the variance engine", 
   )
 
   expect_finite_column(estimates, "std.error")
-  expect_true(all(estimates$std.error > 0))
+  expect_column_all(estimates, "std.error", function(x) x > 0)
   expect_equal(
     estimates$std.error,
     unname(sqrt(diag(engine$vcov))[

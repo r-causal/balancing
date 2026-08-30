@@ -397,9 +397,9 @@ test_that("every binary mean row carries usable inference", {
   means <- level_mean_rows(ipw(fit, outcome_mod)$estimates)
 
   expect_finite_column(means, "std.err")
-  expect_true(all(means$std.err > 0))
-  expect_true(all(means$ci.lower < means$estimate))
-  expect_true(all(means$estimate < means$ci.upper))
+  expect_column_all(means, "std.err", function(x) x > 0)
+  expect_column_all(means, "ci.lower", function(x) x < means$estimate)
+  expect_column_all(means, "estimate", function(x) x < means$ci.upper)
   expect_equal(means$z, means$estimate / means$std.err, tolerance = 1e-12)
 
   # The interval is the normal approximation the rest of the table is built on.
@@ -899,7 +899,7 @@ test_that("a .by fit gives every mean row a usable standard error", {
   means <- level_mean_rows(result$estimates)
 
   expect_finite_column(means, "std.err")
-  expect_true(all(means$std.err > 0))
+  expect_column_all(means, "std.err", function(x) x > 0)
 
   # The stratum means are parameters of the same stacked system, so their
   # standard errors are the diagonal of the sandwich the rest of the table is

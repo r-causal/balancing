@@ -167,3 +167,39 @@ expect_finite_column <- function(object, column) {
   )
   invisible(object)
 }
+
+# expect_column_all() asserts that a data frame or list carries the named
+# column, that the column holds at least one value, and that a predicate holds
+# for every value in it.
+#
+# It exists for the same reason `expect_finite_column()` does, and closes the
+# same hole one step further out. A bare `all(object$column > 0)` reads
+# `NULL > 0` as `logical(0)` when the column is absent and `all(logical(0))` as
+# TRUE, so the assertion passes without reading anything; a column present but
+# empty passes the same way. Naming the column as a string and testing
+# membership and length first turns both cases into failures that say which
+# column went missing.
+#
+# The predicate's result is required to carry one value per row rather than only
+# to be all-true. Several assertions compare a column against a sibling column,
+# where the predicate closes over the object, and a missing sibling would reopen
+# the hole from the other side: `values < NULL` is `logical(0)` whatever
+# `values` holds.
+expect_column_all <- function(object, column, predicate) {
+  testthat::expect_true(
+    column %in% names(object),
+    info = paste0("expected a column named ", column)
+  )
+  values <- object[[column]]
+  testthat::expect_true(
+    length(values) > 0L,
+    info = paste0("expected ", column, " to hold at least one value")
+  )
+  held <- predicate(values)
+  testthat::expect_length(held, length(values))
+  testthat::expect_true(
+    all(held),
+    info = paste0("expected the predicate to hold for every value of ", column)
+  )
+  invisible(object)
+}

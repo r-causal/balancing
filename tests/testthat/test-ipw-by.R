@@ -718,9 +718,9 @@ test_that("a .by fit reports a usable standard error for every row", {
 
   expect_identical(nrow(estimates), 15L)
   expect_finite_column(estimates, "std.err")
-  expect_true(all(estimates$std.err > 0))
-  expect_true(all(estimates$ci.lower < estimates$estimate))
-  expect_true(all(estimates$ci.upper > estimates$estimate))
+  expect_column_all(estimates, "std.err", function(x) x > 0)
+  expect_column_all(estimates, "ci.lower", function(x) x < estimates$estimate)
+  expect_column_all(estimates, "ci.upper", function(x) x > estimates$estimate)
   expect_equal(
     unname(sqrt(diag(stats::vcov(result)))),
     estimates$std.err,
