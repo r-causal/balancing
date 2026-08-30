@@ -628,10 +628,11 @@ make_hooks_cache <- function(container, rescale, parameters) {
 # zero row would read as a coordinate the system does not depend on and quietly
 # return a wrong variance.
 stack_psi_blocks <- function(blocks, n) {
+  here <- rlang::current_env()
   blocks <- blocks[!vapply(blocks, is.null, logical(1))]
   rows <- vapply(
     seq_along(blocks),
-    function(i) psi_block_rows(blocks[[i]], i, n),
+    function(i) psi_block_rows(blocks[[i]], i, n, call = here),
     integer(1)
   )
   starts <- cumsum(rows) - rows
@@ -711,10 +712,11 @@ stack_psi_blocks <- function(blocks, n) {
 # cheaper than one per row. They need not be contiguous in the stack for that:
 # the block they are gathered from is built here and read back by position.
 sum_psi_blocks <- function(blocks, n) {
+  here <- rlang::current_env()
   blocks <- blocks[!vapply(blocks, is.null, logical(1))]
   rows <- vapply(
     seq_along(blocks),
-    function(i) psi_block_rows(blocks[[i]], i, n),
+    function(i) psi_block_rows(blocks[[i]], i, n, call = here),
     integer(1)
   )
   starts <- cumsum(rows) - rows
@@ -757,25 +759,38 @@ sum_psi_blocks <- function(blocks, n) {
 # deterministic row repeats. Those are the only two widths a row may have: a row
 # of any other length is the mistake this refuses, and a row of length one is
 # recycled deliberately.
-psi_block_rows <- function(block, index, n) {
+#
+# The refusal is worded from what the entry is. Only a matrix entry has columns;
+# an entry given as a bare vector is one row, and what it carries is values, so
+# saying it carries the wrong number of columns would send a reader looking for
+# a dimension it does not have.
+#
+# `call` is the assembly the entries were handed to, passed in rather than read
+# off the stack. These counts are taken inside a `vapply()` closure, so a
+# refusal left to find its own caller would report that closure, which is not a
+# call anyone wrote and not the one holding the block that is wrong.
+psi_block_rows <- function(block, index, n, call = rlang::caller_env()) {
   if (is.matrix(block)) {
     width <- ncol(block)
     if (width == n) {
       return(nrow(block))
     }
+    carries <- "carries {width} column{?s}"
   } else {
     width <- length(block)
     if (width == n || width == 1L) {
       return(1L)
     }
+    carries <- "holds {width} value{?s}"
   }
 
   abort(
     c(
-      "Every block of the stacked estimating function must carry one column per observation.",
-      x = "Block {index} carries {width} column{?s} for a sample of {n}."
+      "Every block of the stacked estimating function must cover every observation.",
+      x = paste0("Block {index} ", carries, " for a sample of {n}.")
     ),
-    error_class = "balancing_internal_error"
+    error_class = "balancing_internal_error",
+    call = call
   )
 }
 

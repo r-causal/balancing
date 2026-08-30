@@ -146,6 +146,34 @@ test_that("stack_psi_blocks() refuses a block whose column count is not the samp
   )
 })
 
+# The refusal is worded from what the entry is and reported at the assembly the
+# entries were handed to. A matrix entry is the only kind with columns to count;
+# a bare vector is one row, so what is wrong with it is how many values it
+# holds. Neither is refused from the `vapply()` closure the count is taken in,
+# which is a frame no caller wrote and which names no block.
+
+test_that("balancing_internal_error: a matrix block of the wrong width", {
+  n <- 4L
+  wide_enough <- matrix(seq_len(n) + 0.5, nrow = 1L)
+  too_narrow <- matrix(c(1, 2), nrow = 1L)
+
+  expect_balancing_error(stack_psi_blocks(list(wide_enough, too_narrow), n))
+})
+
+test_that("balancing_internal_error: a bare-vector block of the wrong length", {
+  n <- 4L
+  wide_enough <- matrix(seq_len(n) + 0.5, nrow = 1L)
+
+  expect_balancing_error(stack_psi_blocks(list(wide_enough, c(1, 2)), n))
+})
+
+test_that("balancing_internal_error: a bare-vector block the reduction refuses", {
+  n <- 4L
+  wide_enough <- matrix(seq_len(n) + 0.5, nrow = 1L)
+
+  expect_balancing_error(sum_psi_blocks(list(wide_enough, c(1, 2)), n))
+})
+
 # The blocks a stack carries are not all matrices, and two kinds of them used to
 # be. A route's mean rows were stacked into a block of their own before that
 # block was copied into the destination, and its contrast rows were expanded
