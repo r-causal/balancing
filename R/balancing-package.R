@@ -25,7 +25,9 @@ NULL
 #' - `balancing.threads`: the number of worker threads the Rust core may use.
 #'   When unset, the count is resolved automatically from the physical core
 #'   count, capped by `OMP_THREAD_LIMIT` and `OMP_NUM_THREADS`, and forced to two
-#'   under `R CMD check`.
+#'   under `R CMD check`. The count is decided in R and handed to the core, which
+#'   sizes its worker pool from it: `RAYON_NUM_THREADS` is never read, so setting
+#'   that environment variable changes nothing about how a fit runs.
 #' - `balancing.entropy_solver`: the solver for the exact entropy problem, one
 #'   of `"newton"` (the default), `"lbfgs"`, or `"lbfgs_then_newton"`. Newton is
 #'   the only solver that drives the estimating equations to machine precision;

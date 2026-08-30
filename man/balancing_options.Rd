@@ -15,7 +15,9 @@ how a fit runs without changing any function's signature.
 \item \code{balancing.threads}: the number of worker threads the Rust core may use.
 When unset, the count is resolved automatically from the physical core
 count, capped by \code{OMP_THREAD_LIMIT} and \code{OMP_NUM_THREADS}, and forced to two
-under \verb{R CMD check}.
+under \verb{R CMD check}. The count is decided in R and handed to the core, which
+sizes its worker pool from it: \code{RAYON_NUM_THREADS} is never read, so setting
+that environment variable changes nothing about how a fit runs.
 \item \code{balancing.entropy_solver}: the solver for the exact entropy problem, one
 of \code{"newton"} (the default), \code{"lbfgs"}, or \code{"lbfgs_then_newton"}. Newton is
 the only solver that drives the estimating equations to machine precision;

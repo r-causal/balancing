@@ -278,6 +278,13 @@ check_tolerance <- function(tolerance, call = rlang::caller_env()) {
 # CRAN run never spawns more than the checker permits. The count is computed on
 # the R side and passed to the core, which re-checks OMP_THREAD_LIMIT as a
 # backstop.
+#
+# That list is the whole of it: RAYON_NUM_THREADS is not read anywhere. The core
+# never installs a rayon global pool, and every parallel region runs inside a
+# pool built with an explicit `num_threads()` (crates/core/src/threads.rs), which
+# is the setting rayon consults the environment variable in place of. So the
+# variable that would size a default rayon pool has no path to one here, and a
+# user who sets it and sees no change is seeing the documented behavior.
 resolve_threads <- function(threads = NULL) {
   if (!is.null(threads)) {
     return(max(1L, as.integer(threads)))
