@@ -44,10 +44,43 @@ new_recipe_record <- function(
   )
 }
 
+# One covariate column, as every part of the expansion reads it. A duration is a
+# number in the unit its own column declares, and every statistic the expansion
+# computes from a column, a moment, a quantile cutpoint, a standardization
+# constant, is unit-agnostic, so such a column enters as that number and balances
+# exactly as the same durations written as bare numbers would. Base R also
+# refuses `^` on the class and answers `is.numeric()` with FALSE for it, so the
+# power and quantile records could not be built from the column as it stands.
+#
+# A date and a date-time are the same case: each stores a number on a fixed
+# origin, each refuses `^`, and neither answers `is.numeric()`. They enter as the
+# number `as.numeric()` gives, which is days since 1970-01-01 for a date and
+# seconds since then for a date-time, and nothing rescales or reinterprets it.
+# What the coercion settles is only how the column is read; which branch of the
+# expansion it then takes is decided from the numbers, exactly as it is for a
+# duration and for a column of bare numbers.
+#
+# The date-time test is on `POSIXt`, the class both date-time representations
+# share, rather than on `POSIXct` alone. A `POSIXlt` column holds the same
+# instant split into calendar components and `as.numeric()` gives it the same
+# seconds since 1970-01-01, so reading only the seconds-count representation
+# left the other one to fall through as an ordinary column and meet base R's own
+# error from raising a difftime to a power, which names neither the covariate
+# nor the class that could not be read.
+#
+# A column of any other class passes through unchanged.
+covariate_values <- function(data, name) {
+  column <- data[[name]]
+  if (inherits(column, c("difftime", "Date", "POSIXt"))) {
+    return(as.numeric(column))
+  }
+  column
+}
+
 # Raw representation of one base column, used to form interactions and to rebuild
 # a column from the data.
 base_values <- function(source, level, data) {
-  column <- data[[source]]
+  column <- covariate_values(data, source)
   if (is.na(level)) {
     as.numeric(column)
   } else {
@@ -60,7 +93,7 @@ rebuild_column <- function(record, data) {
   switch(
     record$type,
     numeric = {
-      x <- as.numeric(data[[record$source]])
+      x <- as.numeric(covariate_values(data, record$source))
       ((x - record$base_center)^record$power - record$center) / record$scale
     },
     indicator = base_values(record$source, record$level, data),
@@ -69,7 +102,9 @@ rebuild_column <- function(record, data) {
       right <- base_values(record$partner, record$partner_level, data)
       (left * right - record$center) / record$scale
     },
-    quantile = as.numeric(as.numeric(data[[record$source]]) <= record$cutpoint)
+    quantile = as.numeric(
+      as.numeric(covariate_values(data, record$source)) <= record$cutpoint
+    )
   )
 }
 
@@ -303,7 +338,7 @@ build_constraint_matrix <- function(
   interaction_bases <- list()
 
   for (cov in .covariates) {
-    v <- .data[[cov]]
+    v <- covariate_values(.data, cov)
     if (is.factor(v) || is.character(v)) {
       levels <- if (is.factor(v)) levels(v) else sort(unique(as.character(v)))
       for (level in levels) {
@@ -498,7 +533,7 @@ interaction_term <- function(left, right) {
 quantile_records <- function(covariates, data, quantiles, tolerances) {
   records <- list()
   for (cov in covariates) {
-    v <- data[[cov]]
+    v <- covariate_values(data, cov)
     if (!is.numeric(v) || is_binary_numeric(v)) {
       next
     }
@@ -567,12 +602,26 @@ constant_columns <- function(columns) {
 # augmented matrix, falls beyond the rank. The later member of an affine set is
 # therefore the one dropped, which for a factor is its last level, and the choice
 # is deterministic rather than a function of column ordering within the pivot.
+#
+# Rank is a tolerance question rather than an exact one, so the tolerance is
+# named here rather than left to the default: a column whose residual, after the
+# constant and the columns ahead of it are projected out, falls below `tol` times
+# that column's own norm is moved beyond the rank and dropped as aliased. The
+# default 1e-07 is the right order for this matrix because every column arrives
+# at unit scale, the numeric and interaction columns standardized and the
+# indicator and quantile columns zero or one, so the relative test reads against
+# the same magnitude column by column. It sits far above the residual that
+# rounding leaves on a set that is dependent in exact arithmetic and far below
+# the residual a column that varies on its own keeps. A separate rank tolerance
+# lives in `measure_jacobian_rank()` (R/ipw-deli.R), a relative singular-value
+# cutoff on an estimating-equation Jacobian, and the two values are set
+# independently on purpose because they read different matrices.
 aliased_columns <- function(columns) {
   if (ncol(columns) == 0L) {
     return(integer(0))
   }
   augmented <- cbind(1, columns)
-  decomposition <- qr(augmented)
+  decomposition <- qr(augmented, tol = 1e-07)
   if (decomposition$rank == ncol(augmented)) {
     return(integer(0))
   }

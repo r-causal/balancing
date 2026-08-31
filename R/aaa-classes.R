@@ -25,10 +25,14 @@ cat_cli <- function(expr) {
 #' stable balancing weights) subclasses `quadratic_program_method`. None of the
 #' abstract classes can be constructed directly.
 #'
-#' @param convergence_tolerance The solver convergence tolerance, or `NULL` for
-#'   the core default.
-#' @param max_iterations The maximum solver iterations, or `NULL` for the core
-#'   default.
+#' @param convergence_tolerance The solver convergence tolerance, or `NULL` to
+#'   leave it to the solver. The value resolved for `NULL` differs by family:
+#'   `1e-10` on the gradient for the estimating-equation methods, and `1e-8` as
+#'   both the absolute and the relative tolerance for the quadratic-program
+#'   methods.
+#' @param max_iterations The maximum solver iterations, or `NULL` to leave the
+#'   cap to the solver. The value resolved for `NULL` is 1000 for the
+#'   estimating-equation methods and 200000 for the quadratic-program methods.
 #' @param weight_penalty The L2 penalty on the weights.
 #' @param min_weight The smallest permitted weight.
 #'
@@ -222,6 +226,16 @@ fit_method <- new_generic("fit_method", "method", function(method, prepared) {
 #'   value selects the inexact problem for entropy balancing and is the central
 #'   tuning parameter for stable balancing weights.
 #'
+#' For a continuous exposure there are no groups to equate, so a constraint
+#' column is instead held within `tolerance` of zero weighted correlation with
+#' the exposure. On the continuous energy path this is what `moments` and
+#' `interactions` request, and there the correlation is held exactly whatever
+#' `tolerance` says, for the reason [bw_energy()] records. The marginal
+#' distribution of the exposure and of the covariates is a separate matter,
+#' held by `distribution_moments` in [bw_energy()] and [bw_entropy()]; asking
+#' for correlation constraints does not add marginal rows, and raising
+#' `distribution_moments` adds no correlation constraint.
+#'
 #' A factor covariate contributes one indicator per level rather than the
 #' reference coding a model formula would use. Those indicators sum to the
 #' constant every balancing method carries, so one of them is redundant and the
@@ -232,6 +246,8 @@ fit_method <- new_generic("fit_method", "method", function(method, prepared) {
 #'
 #' @param moments The highest covariate power to balance. A single whole number
 #'   or a named integer vector; `NULL` (the default) resolves to first moments.
+#'   For a continuous exposure each power is held at zero weighted correlation
+#'   with the exposure instead.
 #' @param interactions Whether to add pairwise interactions of the base columns.
 #'   These expand the constraint set the weights must balance, adding the
 #'   pairwise products of the base columns to the covariate functions a fit
@@ -417,7 +433,8 @@ balancing_estimating_equations <- new_class(
 #'   energy or kernel balancing with no moment constraints, therefore records no
 #'   covariates even though its objective reads every selected one.
 #' @param focal_level The focal exposure level for `"att"` and `"atc"`, or
-#'   `NULL`.
+#'   `NULL`. This is the fitted object's property, set from the `.focal_level`
+#'   argument of [balance()].
 #' @param n The number of observations.
 #' @param constraints The resolved [balance_terms] specification, or `NULL`.
 #' @param recipe The covariate expansion recipe, a list of per-column records.
@@ -425,7 +442,15 @@ balancing_estimating_equations <- new_class(
 #' @param duals Solver dual variables for diagnostics, or `NULL`.
 #' @param coefficients The fitted coefficients or dual variables, or `NULL`.
 #' @param converged Whether the solver met its convergence criterion.
-#' @param iterations The solver iteration count.
+#' @param iterations The solver iteration count. An energy fit that could not
+#'   reach its tolerance re-solves at a reachable one, and when that re-solve
+#'   converges this sums the original and the fallback solve, so it can exceed
+#'   the requested `max_iterations`. When the re-solve does not converge the
+#'   fit reports the original solve alone, so the count stays within the cap.
+#'   A continuous energy or stable balancing fit with a positive tolerance
+#'   refines the bound it hands the solver over several passes, each a solve of
+#'   its own, and this sums every one of them. See [bw_energy()] and [bw_sbw()]
+#'   for the fuller account.
 #' @param objective The solved objective value.
 #' @param solver_status The solver that produced the result.
 #' @param estimating_equations The [balancing_estimating_equations] container,
@@ -506,6 +531,10 @@ method(print, balancing) <- function(x, ...) {
       # constraint's statistic is undefined, and printing "NaN" as the largest
       # imbalance states a distance that was never measured. Saying the
       # assessment is what failed is the same ruling the balance warning follows.
+      # The figure is rendered to three significant digits, matching the balance
+      # warning, because a well-solved fit can leave an imbalance far below the
+      # fourth decimal and a fixed format prints that as a zero, contradicting
+      # the warning that names the same number.
       statistic <- x@balance_table$statistic[1]
       largest <- max(abs(x@balance_table$weighted))
       if (is.finite(largest)) {
@@ -515,7 +544,7 @@ method(print, balancing) <- function(x, ...) {
           "standardized mean difference"
         }
         cli::cli_text(
-          "Largest imbalance: {formatC(largest, format = 'f', digits = 4)} ({label})"
+          "Largest imbalance: {formatC(largest, format = 'g', digits = 3)} ({label})"
         )
       } else {
         cli::cli_text("Largest imbalance: could not be assessed")

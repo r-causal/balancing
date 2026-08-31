@@ -72,7 +72,7 @@ test_that("combining bw vectors with mismatched estimands warns and downgrades",
 })
 
 test_that("combining a bw with a psw warns and downgrades", {
-  skip_if_not_installed("propensity")
+  skip_if_not_installed("propensity", minimum_version = "0.1.0.9000")
   x <- bw(c(1, 2), estimand = "ate")
   y <- propensity::psw(c(3, 4), estimand = "ate")
   expect_warning(
@@ -171,7 +171,7 @@ test_that("combining an integer with a bw yields a plain double", {
 })
 
 test_that("combining a psw before a bw warns and downgrades", {
-  skip_if_not_installed("propensity")
+  skip_if_not_installed("propensity", minimum_version = "0.1.0.9000")
   x <- propensity::psw(c(1, 2), estimand = "ate")
   y <- bw(c(3, 4), estimand = "ate")
   expect_warning(

@@ -54,9 +54,14 @@
 #'   the inexact problem, solved by FISTA against the relative change in the
 #'   loss; that criterion is the weaker of the two, so the value is tightened to
 #'   at most `1e-14` to hold the achieved balance inside the requested box, and
-#'   anything above `1e-14` is inert there.
-#' @param max_iterations The maximum solver iterations, or `NULL` for the core
-#'   default.
+#'   anything above `1e-14` is inert there. `1e-10` is both this argument's
+#'   default and the value the solver resolves for `NULL`.
+#' @param max_iterations The maximum solver iterations, or `NULL` for the
+#'   resolved default of 1000. When the L-BFGS then Newton hybrid runs, either
+#'   as the automatic retry of a Newton solve that came back short or because
+#'   `options(balancing.entropy_solver = "lbfgs_then_newton")` asked for it, the
+#'   cap applies to each phase separately and the reported iteration count is
+#'   the sum of the two, so such a fit can report more iterations than the cap.
 #' @param ... Reserved for future extensions; must be empty. Tuning parameters
 #'   must be passed by name.
 #'
@@ -292,15 +297,35 @@ entropy_solve_succeeded <- function(result) {
 # constraint row uses. A numeric column already standardized to that scale has a
 # unit standard deviation, so its box equals the tolerance; a raw indicator or
 # quantile column is scaled by its own standard deviation.
+#
+# The weighted branch reads every column in one pass of column arithmetic, which
+# is the same arithmetic in the same order as the per-column form and so gives
+# the same box to the bit. The unweighted branch stays on `stats::sd()` a column
+# at a time, which is the faster of the two there: its long double correction is
+# carried in C, and reproducing it in R costs more than the per-column dispatch
+# saves.
+#
+# A column with no spread has nothing to convert its tolerance against, so it
+# keeps the tolerance as its box. Which columns those are is read from the values
+# through `column_is_constant()` (R/balance-table.R) rather than from an exact
+# zero in the scale computed here, for the reason recorded there: the weighted
+# center divides a sum of products by a sum of weights and need not return the
+# repeated value exactly, so a constant column under non-uniform sampling weights
+# comes back with a rounding residual for a standard deviation. Testing the scale
+# for equality with zero misses that residual and scales the column's box by
+# noise, which constrains the fit against rounding rather than against the
+# tolerance the caller asked for. Reading the values also keeps this box and the
+# balance table it is measured against agreeing on which columns have no spread.
 solver_box <- function(z, tolerances, sampling_weights = NULL) {
   weighted <- !is.null(sampling_weights) &&
     length(unique(sampling_weights)) > 1L
   column_sd <- if (weighted) {
-    apply(z, 2, weighted_scale, w = sampling_weights)
+    centers <- column_weighted_means(z, sampling_weights)
+    centered_column_scales(sweep(z, 2, centers, "-"), sampling_weights)
   } else {
     apply(z, 2, stats::sd)
   }
-  column_sd[column_sd == 0] <- 1
+  column_sd[column_is_constant(z) | column_sd == 0] <- 1
   tolerances * column_sd
 }
 
@@ -661,23 +686,40 @@ fit_entropy_continuous <- function(method, prepared) {
   # constraints drive each weighted exposure-covariate product to zero. The
   # distribution moments extend the marginals: they are raised to at least the
   # constraint moments, with an alert when the requested value is smaller.
-  covariate_moments <- covariate_constraint_moments(
-    prepared$recipe,
-    prepared$covariates
+  #
+  # The covariate marginals are built from the covariates rather than read off
+  # the constraint matrix, for the reason marginal_distribution_columns()
+  # records: a covariate's marginal distribution is not what the constraint set
+  # selects, and reading the marginals off the constraint matrix left `moments` a
+  # second route to them. `balance_terms(moments = c(x1 = 0))` drops x1's
+  # constraint column, and with it x1's marginal rows, so a fit asked to leave x1
+  # out of the products stopped holding x1's own distribution as well. The
+  # products stay on the constraint matrix, which is exactly the set of
+  # associations the constraint set names.
+  constraint_moments <- max(
+    1L,
+    max(covariate_constraint_moments(prepared$recipe, prepared$covariates), 0L)
   )
-  constraint_moments <- max(1L, max(covariate_moments, 0L))
   moments <- resolve_distribution_moments(
     method@distribution_moments,
     constraint_moments
   )
 
+  covariate_marginals <- marginal_distribution_columns(
+    prepared$data,
+    prepared$covariates,
+    prepared$constraint_sampling_weights
+  )
   exposure_marginals <- moment_columns(exposure, moments)
   extra_marginals <- higher_covariate_marginals(
     prepared$data,
-    covariate_moments,
+    covariate_marginals$moments,
     moments
   )
-  marginals <- do.call(cbind, c(list(exposure_marginals, z), extra_marginals))
+  marginals <- do.call(
+    cbind,
+    c(list(exposure_marginals, covariate_marginals$columns), extra_marginals)
+  )
   products <- z * e
 
   covs <- cbind(marginals, products)
@@ -739,8 +781,18 @@ fit_entropy_continuous <- function(method, prepared) {
   )
   result <- solved$result
 
+  # The whole sample is one group here, so the reporting scale is a single
+  # constant rather than the per-group vector the discrete path builds. The
+  # divergence check the discrete renormalization applies still has to run: a
+  # tilt that overflowed leaves this total missing, and that is a failed solve
+  # rather than a reporting-scale question.
   w <- result$weights
   current <- sum(s * w)
+  check_finite_weight_total(
+    current,
+    solvers = solved$solvers_tried,
+    call = rlang::current_env()
+  )
   if (current > 0) {
     w <- w * (n_eff / current)
   }

@@ -12,7 +12,7 @@ bw_energy(
   min_weight = 1e-08,
   distribution_moments = NULL,
   dimension_adjustment = TRUE,
-  convergence_tolerance = NULL,
+  convergence_tolerance = 1e-06,
   max_iterations = NULL
 )
 }
@@ -21,14 +21,16 @@ bw_energy(
 must be passed by name.}
 
 \item{distance}{The covariate distance definition the energy objective is
-built on, one of \code{"scaled_euclidean"} (each covariate divided by its
-standard deviation), \code{"mahalanobis"}, or \code{"euclidean"}.}
+built on, one of \code{"scaled_euclidean"} (each covariate centered at its
+weighted mean and divided by its weighted standard deviation),
+\code{"mahalanobis"}, or \code{"euclidean"}.}
 
 \item{improved}{Whether to add the between-group energy distance of the
 improved variant for the average treatment effect with a discrete exposure.}
 
 \item{weight_penalty}{The L2 penalty on the weights, which stabilizes the
-quadratic program.}
+quadratic program. For a continuous exposure it is also what sets the
+residual exposure-covariate correlation, as the details section explains.}
 
 \item{min_weight}{The smallest permitted weight. The reported weights average
 one within each exposure group, so a floor approaching one leaves almost no
@@ -41,19 +43,35 @@ refuses the same floor as infeasible instead.}
 
 \item{distribution_moments}{For a continuous exposure, the number of exposure
 and covariate marginal moments held equal to the sample under the base
-measure, or \code{NULL} for the constraint moments. Raised automatically when
-smaller than the constraint moments. Energy balancing carries no base
-weights, so the base measure is the sampling weights, and without them the
-marginals are held equal to the unweighted sample.}
+measure, or \code{NULL} for the first moments. This is the only route to those
+rows: the \code{moments} in \code{\link[=balance_terms]{balance_terms()}} asks for exposure-covariate
+correlation constraints instead and leaves the marginals here. Energy balancing carries no base weights, so the base
+measure is the sampling weights, and without them the marginals are held
+equal to the unweighted sample.}
 
 \item{dimension_adjustment}{For a continuous exposure, whether to weight the
 covariate energy distance by the covariate dimensionality adjustment.}
 
-\item{convergence_tolerance}{The quadratic-program solver tolerance, or \code{NULL}
-for the core default.}
+\item{convergence_tolerance}{The quadratic-program solver tolerance, which
+the solver applies as both its absolute and its relative tolerance, or
+\code{NULL} for the family default of \code{1e-8}. Energy balancing defaults to
+\code{1e-6} rather than to that family default because its quadratic form is
+indefinite: on a small sample the alternating-direction residual floors
+above \code{1e-8}, and a run that keeps going past that floor walks away from
+the optimum instead of stalling at it. The energy objective always solves
+through the alternating-direction backend, whatever \code{balancing.qp_backend}
+names, so there is no backend to choose here: a tolerance below what the
+problem can reach spends the full iteration cap, then warns and reports the
+iterate of a re-solve at a tolerance the problem does reach, provided that
+re-solve converges within the same \code{max_iterations}. When it does not, the
+fit reports the iterate of the original solve.}
 
-\item{max_iterations}{The maximum solver iterations, or \code{NULL} for the core
-default.}
+\item{max_iterations}{The maximum solver iterations, or \code{NULL} for the
+resolved default of 200000. The re-solve above is given the same cap, and
+when it converges the reported \verb{@iterations} sums the two solves, so an
+energy fit that could not reach its tolerance can report more iterations
+than this. The refinement passes of a continuous fit with a positive
+tolerance are summed the same way, each pass being a solve of its own.}
 }
 \value{
 An \code{bw_energy} specification, a \link{balance_method}.
@@ -82,11 +100,44 @@ marginal moments are held equal to the sample under the base measure, and
 \code{dimension_adjustment} reweights the covariate energy distance by the
 covariate dimensionality.
 
+The two knobs a continuous fit carries are separate. \code{moments} in
+\code{\link[=balance_terms]{balance_terms()}} adds a constraint that holds the weighted correlation of
+the exposure with each covariate power within its tolerance, which defaults
+to zero, and \code{distribution_moments} pins the marginal moments of the
+exposure and of the covariates. Neither sets the other: a fit that wants
+both asks for both. The correlation rows are held within the tolerance
+\code{\link[=balance_terms]{balance_terms()}} carries, and reaching that band takes more than one solve.
+The quadratic program bounds a linearized correlation whose exposure and
+covariate scales are fixed at the sample, and the spread of energy weights
+shrinks both weighted standard deviations, so a single solve at the requested
+band overshoots it: a band of \code{0.05} lands between 0.070 and 0.086 at 200 to
+1000 observations. The fit therefore tightens the bound it hands the program
+and re-solves, up to eight passes, until the reported correlation sits inside
+the band. A band of \code{0.05} took two passes at 350 and at 1000 observations, so
+it costs about two solves against the one the same fit at exact balance takes,
+exact balance having nothing to tighten. A band the passes cannot reach is
+reported at its last iterate, and the balance warning judges it as it judges
+any other fit.
+
+Without those rows the continuous objective targets distributional
+independence between the exposure and the covariates rather than zero
+correlations, and it does not drive the correlations to zero. A residual
+weighted correlation of roughly 0.1 to 0.3 is ordinary at a few hundred to a
+few thousand observations. What holds it up is \code{weight_penalty}, which trades that
+residual against effective sample size: at its default of \code{1e-4} the penalty
+term is about three quarters of the objective at 1000 observations, leaving a
+largest correlation near 0.22 to 0.25 at an effective sample size near 71
+percent, while a penalty of zero brings the correlation down to 0.05 to 0.07
+and the effective sample size down to about 20 percent. Ask for
+\code{balance_terms(moments = 1)} to remove the correlation outright, at a cost in
+effective sample size of its own.
+
 Energy balancing belongs to the quadratic-program family, which has no
 estimating equations, so a fit produces no estimating-equations container and
-the tolerance in \code{\link[=balance_terms]{balance_terms()}} relaxes any added moment constraints rather
-than selecting an inexact solver. A tolerance supplied without moment
-constraints has nothing to relax, so it is warned and ignored.
+the tolerance in \code{\link[=balance_terms]{balance_terms()}} relaxes the constraints a fit added rather
+than selecting an inexact solver. A tolerance supplied without those
+constraints has nothing to relax, so it is warned and ignored, and the balance
+table reports the tolerance the fit enforced, which is zero.
 }
 \examples{
 n <- 200

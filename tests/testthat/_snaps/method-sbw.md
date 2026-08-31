@@ -39,5 +39,5 @@
       Observations: 500
       Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0.05)
-      Largest imbalance: 0.1000 (standardized mean difference)
+      Largest imbalance: 0.1 (standardized mean difference)
 

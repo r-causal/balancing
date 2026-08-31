@@ -249,7 +249,7 @@ test_that("a binary att result carries the covariance of its means and effects",
     c(x1, x2),
     method = bw_entropy(),
     estimand = "att",
-    focal_level = "1"
+    .focal_level = "1"
   )
   w <- stats::weights(fit)
   outcome_mod <- fit_accessor_outcome(
@@ -1060,7 +1060,9 @@ test_that("the ipw accessors are the ones causalgenerics registers", {
   )
 })
 
-test_that("balancing registers no S3 method on class ipw", {
+test_that("balancing registers no S3 method on the ipw result classes", {
+  # `pool_ipw()` returns an `ipw_pooled` object, so the pooled result carries the
+  # same borrowed accessor surface as a single fit and is swept alongside it.
   specs <- c(
     "coef.ipw",
     "vcov.ipw",
@@ -1072,7 +1074,19 @@ test_that("balancing registers no S3 method on class ipw", {
     "as.data.frame.ipw",
     "vcov.ipw_model",
     "as_marginal.ipw",
-    "as_conditional.ipw"
+    "as_conditional.ipw",
+    "estimand.ipw",
+    "coef.ipw_pooled",
+    "vcov.ipw_pooled",
+    "confint.ipw_pooled",
+    "nobs.ipw_pooled",
+    "df.residual.ipw_pooled",
+    "weights.ipw_pooled",
+    "print.ipw_pooled",
+    "as.data.frame.ipw_pooled",
+    "as_marginal.ipw_pooled",
+    "as_conditional.ipw_pooled",
+    "estimand.ipw_pooled"
   )
   defined <- vapply(specs, defined_in_balancing, logical(1))
   expect_identical(
@@ -1083,7 +1097,7 @@ test_that("balancing registers no S3 method on class ipw", {
   # A method under a generic this list does not name would still be recorded in
   # the table belonging to that generic's package, so every table the ipw
   # methods live in is read whole rather than only at the expected names.
-  pattern <- "\\.ipw(_model)?$"
+  pattern <- "\\.ipw(_model|_pooled)?$"
   sources <- c(
     registered_sources(baseenv(), pattern),
     registered_sources(asNamespace("stats"), pattern),

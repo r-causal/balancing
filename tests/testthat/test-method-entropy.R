@@ -124,7 +124,7 @@ test_that("entropy balancing balances a binary ate", {
     estimand = "ate"
   )
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 })
 
 test_that("entropy balancing balances a binary att", {
@@ -137,7 +137,7 @@ test_that("entropy balancing balances a binary att", {
     estimand = "att"
   )
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 })
 
 test_that("entropy balancing balances a binary atc", {
@@ -150,7 +150,7 @@ test_that("entropy balancing balances a binary atc", {
     estimand = "atc"
   )
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 })
 
 test_that("entropy balancing balances a factor covariate for a binary ate", {
@@ -181,7 +181,7 @@ test_that("entropy balancing balances a factor covariate for a binary ate", {
     )
     expect_true(fit@converged)
     expect_balanced(fit, data)
-    expect_true(all(stats::weights(fit) >= 0))
+    expect_all(stats::weights(fit), function(value) value >= 0)
 
     w <- as.numeric(stats::weights(fit))
     for (level in levels(data$x3)) {
@@ -219,7 +219,7 @@ test_that("entropy balancing balances a factor covariate for a binary att", {
     estimand = "att"
   )
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 
   w <- as.numeric(stats::weights(fit))
   treated <- data$exposure == 1
@@ -280,7 +280,7 @@ test_that("a covariate set of several factors fits under the defaults", {
   )
 
   expect_true(fit@converged)
-  expect_true(all(is.finite(as.numeric(stats::weights(fit)))))
+  expect_all(as.numeric(stats::weights(fit)), is.finite)
   expect_balanced(fit, data)
 })
 
@@ -327,7 +327,7 @@ test_that("entropy balancing balances a categorical ate", {
     estimand = "ate"
   )
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 })
 
 test_that("entropy balancing balances a categorical att", {
@@ -338,10 +338,10 @@ test_that("entropy balancing balances a categorical att", {
     c(x1, x2),
     method = bw_entropy(),
     estimand = "att",
-    focal_level = "b"
+    .focal_level = "b"
   )
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 })
 
 # ---- Statistical promises: continuous -------------------------------------
@@ -356,7 +356,7 @@ test_that("entropy balancing balances a continuous ate", {
     estimand = "ate"
   )
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 })
 
 test_that("a continuous fit preserves an indicator covariate's marginal", {
@@ -381,7 +381,7 @@ test_that("a continuous fit preserves an indicator covariate's marginal", {
   # The stratum keeps its share of the total weight rather than being annihilated.
   expect_equal(sum(w[data$g == 1]), sum(data$g == 1), tolerance = 1e-4)
   expect_balanced(fit, data)
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
 })
 
 test_that("a continuous fit holds the base-measure marginals under sampling weights", {
@@ -819,6 +819,30 @@ test_that("non-finite weights from both entropy solvers name them in the error",
   expect_match(conditionMessage(condition), "BFGS")
 })
 
+test_that("non-finite continuous entropy weights name both solvers in the error", {
+  # An exposure that repeats a covariate makes the exact continuous problem
+  # infeasible. The exposure crosses that covariate into a column of squares,
+  # whose weighted mean is positive under any positive weights and so can never
+  # reach the zero target the cross constraints carry. The duals run off to the
+  # range where the exponential tilt overflows, so the Newton solve and the
+  # hybrid retry both return non-finite weights. The continuous path has to
+  # refuse that solve the way the discrete path does, naming the solvers that
+  # ran rather than failing on the arithmetic downstream.
+  data <- sim_continuous()
+  data$exposure <- data$x1
+
+  condition <- expect_error(
+    balance(data, exposure, c(x1, x2), method = bw_entropy(), estimand = "ate"),
+    class = "balancing_convergence_error"
+  )
+  expect_match(
+    conditionMessage(condition),
+    "Neither solver produced finite weights"
+  )
+  expect_match(conditionMessage(condition), "Newton")
+  expect_match(conditionMessage(condition), "BFGS")
+})
+
 # ---- distribution_moments (continuous) ------------------------------------
 
 test_that("distribution_moments holds the exposure variance", {
@@ -880,6 +904,99 @@ test_that("distribution_moments is raised to the constraint moments with an aler
   )
 })
 
+test_that("a covariate left out of the constraint set keeps its marginal rows", {
+  # The marginal rows belong to the covariates, not to the constraint set, so
+  # `moments` must not reach them from either side. Excluding x1 from the
+  # constraint set drops x1's product column and nothing else: its weighted mean
+  # and second central moment stay at the sample values `distribution_moments`
+  # pins, exactly as x2's and the exposure's do. Reading the marginal columns off
+  # the constraint matrix dropped x1's marginal rows along with its product
+  # column, and its weighted variance then floated to wherever the tilt put it.
+  data <- sim_continuous(n = 350)
+  central_moment <- function(values, weights, order) {
+    center <- stats::weighted.mean(values, weights)
+    sum(weights * (values - center)^order) / sum(weights)
+  }
+  uniform <- rep(1, nrow(data))
+
+  # The constraint sets differ in what they ask of the product columns and agree
+  # in what they leave to the marginals, so the marginals must come out the same
+  # under both. The second is the case that failed: x1 has no constraint column
+  # to read a marginal off.
+  constraint_sets <- list(
+    balance_terms(moments = 1L),
+    balance_terms(moments = c(x1 = 0L, x2 = 1L))
+  )
+
+  for (constraints in constraint_sets) {
+    fit <- balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(distribution_moments = 2L),
+      estimand = "ate",
+      constraints = constraints
+    )
+    w <- as.numeric(stats::weights(fit))
+    for (column in c("exposure", "x1", "x2")) {
+      values <- data[[column]]
+      expect_equal(
+        stats::weighted.mean(values, w),
+        mean(values),
+        tolerance = 1e-8
+      )
+      expect_equal(
+        central_moment(values, w, 2),
+        central_moment(values, uniform, 2),
+        tolerance = 1e-8
+      )
+    }
+  }
+})
+
+test_that("an interaction column carries a correlation row and no marginal row", {
+  # The marginal rows are built from the covariates alone, so an interaction
+  # contributes the association the constraint set named and nothing more: the
+  # fit drives the weighted exposure-product correlation to zero while the
+  # product's own weighted mean is free to move off the sample value. Pinning it
+  # as well would hold a joint distribution the constraint set never named, and
+  # would depart from the energy design this follows. The covariate marginals
+  # are the control: they are pinned in the same fit.
+  data <- sim_continuous(n = 350)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate",
+    constraints = balance_terms(moments = 1L, interactions = TRUE)
+  )
+  w <- as.numeric(stats::weights(fit))
+
+  for (column in c("exposure", "x1", "x2")) {
+    values <- data[[column]]
+    expect_equal(
+      stats::weighted.mean(values, w),
+      mean(values),
+      tolerance = 1e-8
+    )
+  }
+
+  product <- data$x1 * data$x2
+  expect_lt(
+    abs(stats::cov.wt(
+      cbind(data$exposure, product),
+      wt = w,
+      cor = TRUE
+    )$cor[1, 2]),
+    1e-8
+  )
+  # Measured at 0.31 sample standard deviations, so the threshold states "moved
+  # materially" rather than pinning a value the solver path decides.
+  shift <- abs(stats::weighted.mean(product, w) - mean(product))
+  expect_gt(shift / stats::sd(product), 0.05)
+})
+
 # ---- Continuous with tolerance --------------------------------------------
 
 test_that("a continuous tolerance relaxes correlations but holds the marginals", {
@@ -910,6 +1027,91 @@ test_that("a continuous tolerance relaxes correlations but holds the marginals",
   )
 })
 
+# ---- The solver's tolerance box -------------------------------------------
+
+# `solver_box()` converts a standardized-scale tolerance to the raw scale its
+# constraint row is written on by multiplying it by the column's standard
+# deviation, taken under the sampling weights when they vary and unweighted
+# otherwise. The weighted branch reads the whole matrix in one pass of column
+# arithmetic rather than a column at a time, and the two are the same arithmetic
+# in the same order, so this pins identity rather than agreement to a tolerance.
+# A tolerance would let a genuine change of accumulation order through, and a
+# changed box is a changed fit.
+#
+# The fixture carries a constant column so the guard that leaves a column with no
+# spread at its own tolerance is exercised on both branches.
+solver_box_fixture <- function() {
+  withr::with_seed(404, {
+    n <- 300L
+    z <- cbind(
+      stats::rnorm(n),
+      stats::runif(n, -2, 3),
+      rep(0.98, n),
+      as.numeric(stats::rbinom(n, 1L, 0.4)),
+      1e6 + stats::rnorm(n)
+    )
+    list(z = z, sampling_weights = stats::runif(n, 0.3, 2.5))
+  })
+}
+
+test_that("solver_box() reproduces the per-column weighted scale", {
+  fixture <- solver_box_fixture()
+  z <- fixture$z
+  w <- fixture$sampling_weights
+  tolerances <- seq_len(ncol(z)) / 100
+
+  column_sd <- apply(z, 2, weighted_scale, w = w)
+  column_sd[column_is_constant(z) | column_sd == 0] <- 1
+
+  expect_identical(
+    solver_box(z, tolerances, w),
+    tolerances * column_sd
+  )
+})
+
+# A column holding one value repeated has no spread to convert a
+# standardized-scale tolerance against, so its box is the tolerance itself. It
+# does not arrive that way on its own: the weighted center divides a sum of
+# products by a sum of weights and need not give the repeated value back
+# exactly, so the centered column carries a rounding residual instead of zeros
+# and the scale reports that residual as the column's spread. The constant 0.98
+# column below came out with a standard deviation of order 1e-16 under these
+# weights, which shrank its box by fourteen orders of magnitude and constrained
+# the fit against rounding. Reading the values rather than the computed scale is
+# the guard `standardize_columns()` already carries, and the two have to agree
+# on which columns have no spread or the box and the balance table disagree
+# about the same column.
+test_that("solver_box() leaves a constant column at its raw tolerance", {
+  fixture <- solver_box_fixture()
+  z <- fixture$z
+  w <- fixture$sampling_weights
+  tolerances <- seq_len(ncol(z)) / 100
+  constant <- 3L
+
+  expect_all(z[, constant], function(value) value == 0.98)
+  expect_identical(
+    solver_box(z, tolerances, w)[[constant]],
+    tolerances[[constant]]
+  )
+  expect_identical(
+    solver_box(z, tolerances)[[constant]],
+    tolerances[[constant]]
+  )
+})
+
+test_that("solver_box() reads uniform sampling weights on the unweighted scale", {
+  fixture <- solver_box_fixture()
+  z <- fixture$z
+  tolerances <- seq_len(ncol(z)) / 100
+
+  column_sd <- apply(z, 2, stats::sd)
+  column_sd[column_is_constant(z) | column_sd == 0] <- 1
+  expected <- tolerances * column_sd
+
+  expect_identical(solver_box(z, tolerances), expected)
+  expect_identical(solver_box(z, tolerances, rep(1, nrow(z))), expected)
+})
+
 # ---- Property tests under sampling and base weights -----------------------
 
 test_that("entropy balancing balances a binary ate under sampling weights", {
@@ -927,7 +1129,7 @@ test_that("entropy balancing balances a binary ate under sampling weights", {
   # Balance holds against the sampling-weighted pooled reference, which
   # expect_balanced() derives from the fit's own sampling weights.
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 })
 
 test_that("entropy balancing balances a binary att under sampling weights", {
@@ -959,7 +1161,7 @@ test_that("entropy balancing balances a binary ate under base weights", {
   # The base measure moves the pooled target; expect_balanced() reads the base
   # weights from the fitted method.
   expect_balanced(fit, data)
-  expect_true(all(stats::weights(fit) >= 0))
+  expect_all(stats::weights(fit), function(value) value >= 0)
 })
 
 test_that("entropy balancing balances a binary atu under base weights", {

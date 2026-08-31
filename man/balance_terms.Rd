@@ -14,7 +14,9 @@ balance_terms(
 }
 \arguments{
 \item{moments}{The highest covariate power to balance. A single whole number
-or a named integer vector; \code{NULL} (the default) resolves to first moments.}
+or a named integer vector; \code{NULL} (the default) resolves to first moments.
+For a continuous exposure each power is held at zero weighted correlation
+with the exposure instead.}
 
 \item{interactions}{Whether to add pairwise interactions of the base columns.
 These expand the constraint set the weights must balance, adding the
@@ -65,6 +67,16 @@ their source covariate's tolerance. \code{0} requests exact balance. A positive
 value selects the inexact problem for entropy balancing and is the central
 tuning parameter for stable balancing weights.
 }
+
+For a continuous exposure there are no groups to equate, so a constraint
+column is instead held within \code{tolerance} of zero weighted correlation with
+the exposure. On the continuous energy path this is what \code{moments} and
+\code{interactions} request, and there the correlation is held exactly whatever
+\code{tolerance} says, for the reason \code{\link[=bw_energy]{bw_energy()}} records. The marginal
+distribution of the exposure and of the covariates is a separate matter,
+held by \code{distribution_moments} in \code{\link[=bw_energy]{bw_energy()}} and \code{\link[=bw_entropy]{bw_entropy()}}; asking
+for correlation constraints does not add marginal rows, and raising
+\code{distribution_moments} adds no correlation constraint.
 
 A factor covariate contributes one indicator per level rather than the
 reference coding a model formula would use. Those indicators sum to the

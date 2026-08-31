@@ -13,7 +13,7 @@ balance(
   ...,
   constraints = NULL,
   exposure_type = c("auto", "binary", "categorical", "continuous"),
-  focal_level = NULL,
+  .focal_level = NULL,
   sampling_weights = NULL
 )
 }
@@ -40,7 +40,7 @@ default.}
 \item{exposure_type}{One of \code{"auto"} (the default), \code{"binary"},
 \code{"categorical"}, or \code{"continuous"}.}
 
-\item{focal_level}{The focal exposure level for \code{"att"} and \code{"atc"}. Inferred
+\item{.focal_level}{The focal exposure level for \code{"att"} and \code{"atc"}. Inferred
 for a binary exposure; required for a categorical exposure.}
 
 \item{sampling_weights}{Sampling weights, given as a bare column name or an
@@ -62,7 +62,7 @@ informational message, which \code{options(balancing.quiet = TRUE)} suppresses. 
 estimand vocabulary matches propensity: \code{"atc"} is accepted as a synonym for
 the untreated target and stored as \code{"atu"}. \code{"att"} and \code{"atc"} reweight
 toward a focal exposure level, inferred for a binary exposure and required
-through \code{focal_level} for a categorical exposure. Continuous exposures permit
+through \code{.focal_level} for a categorical exposure. Continuous exposures permit
 only \code{"ate"}.
 
 Constraints default to first-moment balance. Pass a \code{\link[=balance_terms]{balance_terms()}}
@@ -76,6 +76,21 @@ informational alert naming the term. The dropped level is the last one, and
 balancing the levels that remain balances it too. The factor stays in
 \verb{@covariates}, and \verb{@balance_table} reports the surviving levels rather than
 the full set.
+
+A fit can be interrupted between solver iterations, so a long solve stops at
+the next iteration rather than at the end of the fit. On Unix the poll reads
+R's interrupt flag directly and does not service R's event loop, so a
+\code{\link[=setTimeLimit]{setTimeLimit()}} set around the call fires when the call returns rather than
+partway through the solve.
+
+A \code{difftime} covariate balances as the number it stores, in the unit its own
+column declares. Nothing rescales it and nothing reinterprets the unit, so its
+constraints, its recipe, and its balance table match those of the same
+durations supplied as bare numbers. A \code{Date} or \code{POSIXt} covariate balances
+the same way, as the number \code{as.numeric()} gives it: days since 1970-01-01 for
+a date, seconds since then for a date-time. Both date-time representations
+are read that way, so a \code{POSIXlt} column balances exactly as the \code{POSIXct}
+column holding the same instants does.
 }
 \examples{
 n <- 200

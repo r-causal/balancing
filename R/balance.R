@@ -18,7 +18,7 @@
 #' estimand vocabulary matches propensity: `"atc"` is accepted as a synonym for
 #' the untreated target and stored as `"atu"`. `"att"` and `"atc"` reweight
 #' toward a focal exposure level, inferred for a binary exposure and required
-#' through `focal_level` for a categorical exposure. Continuous exposures permit
+#' through `.focal_level` for a categorical exposure. Continuous exposures permit
 #' only `"ate"`.
 #'
 #' Constraints default to first-moment balance. Pass a [balance_terms()]
@@ -32,6 +32,21 @@
 #' balancing the levels that remain balances it too. The factor stays in
 #' `@covariates`, and `@balance_table` reports the surviving levels rather than
 #' the full set.
+#'
+#' A fit can be interrupted between solver iterations, so a long solve stops at
+#' the next iteration rather than at the end of the fit. On Unix the poll reads
+#' R's interrupt flag directly and does not service R's event loop, so a
+#' [setTimeLimit()] set around the call fires when the call returns rather than
+#' partway through the solve.
+#'
+#' A `difftime` covariate balances as the number it stores, in the unit its own
+#' column declares. Nothing rescales it and nothing reinterprets the unit, so its
+#' constraints, its recipe, and its balance table match those of the same
+#' durations supplied as bare numbers. A `Date` or `POSIXt` covariate balances
+#' the same way, as the number `as.numeric()` gives it: days since 1970-01-01 for
+#' a date, seconds since then for a date-time. Both date-time representations
+#' are read that way, so a `POSIXlt` column balances exactly as the `POSIXct`
+#' column holding the same instants does.
 #'
 #' @param .data A data frame.
 #' @param .exposure The exposure column, selected with data-masking. Exactly one
@@ -47,7 +62,7 @@
 #'   default.
 #' @param exposure_type One of `"auto"` (the default), `"binary"`,
 #'   `"categorical"`, or `"continuous"`.
-#' @param focal_level The focal exposure level for `"att"` and `"atc"`. Inferred
+#' @param .focal_level The focal exposure level for `"att"` and `"atc"`. Inferred
 #'   for a binary exposure; required for a categorical exposure.
 #' @param sampling_weights Sampling weights, given as a bare column name or an
 #'   external numeric vector, or `NULL`.
@@ -77,7 +92,7 @@ balance <- function(
   ...,
   constraints = NULL,
   exposure_type = c("auto", "binary", "categorical", "continuous"),
-  focal_level = NULL,
+  .focal_level = NULL,
   sampling_weights = NULL
 ) {
   the_call <- match.call()
@@ -169,7 +184,7 @@ balance <- function(
     estimand,
     exposure_type,
     levels,
-    focal_level
+    .focal_level
   )
 
   constraints <- constraints %||% default_constraints(method)
@@ -182,6 +197,15 @@ balance <- function(
   # rescaled to the weighted scale in `solver_box()` regardless of the column
   # scale, so both are unaffected. Either way the balance table reports on the
   # weighted scale.
+  #
+  # The `NULL` this leaves for every other method is the value the constraint
+  # build was given rather than a stand-in for absent weights, which is why the
+  # prepared list carries it alongside the uniform fill-in the rest of a fit
+  # reads. Two fits need this one: the continuous energy and entropy marginals
+  # build columns of their own to the scale the constraint matrix is on, and no
+  # other fit reads it. Handing them the fill-in would put their columns on a
+  # different scale, since `stats::sd()` and `weighted_scale()` agree on a
+  # uniform vector only to rounding.
   constraint_sampling_weights <- if (
     S7::S7_inherits(method, quadratic_program_method)
   ) {
@@ -222,6 +246,10 @@ balance <- function(
     estimand = estimand,
     focal_level = focal_level,
     sampling_weights = sampling_weights_value %||% rep(1, n),
+    # The null-able sampling weights the constraint columns were built under,
+    # for the fits that build columns of their own to the same scale. The
+    # resolution above says why they cannot read the uniform fill-in instead.
+    constraint_sampling_weights = constraint_sampling_weights,
     n = n,
     constraints = constraints,
     tolerances = column_tolerances(built$recipe)
@@ -270,7 +298,9 @@ balance <- function(
     tolerance = 0,
     reference = base_measure,
     constraint_target = fit$constraint_target %||% "pooled",
-    sampling_weights = sampling_weights_value
+    sampling_weights = sampling_weights_value,
+    matrix = built$matrix,
+    enforced_tolerance = fit$enforced_tolerance
   )
 
   # A fit warns when a constraint sits outside its tolerance box, judged on the
@@ -319,7 +349,10 @@ balance <- function(
 # measured. That case reports the assessment as the thing that failed, since no
 # tolerance the caller could raise would answer it. Requiring every exposure level
 # to carry base-measure mass removes the reachable cause, so this is the guard
-# behind that rather than a case a fit reaches.
+# behind that rather than a case a fit reaches. The imbalance prints to significant
+# digits rather than to a fixed number of decimals because a tolerance can sit far
+# below the fourth decimal, and a fixed-decimal format would then round the value
+# that triggered the warning down to a zero that contradicts it.
 warn_balance_exceeded <- function(worst, call = rlang::caller_env()) {
   if (!is.finite(worst)) {
     warn(
@@ -336,13 +369,70 @@ warn_balance_exceeded <- function(worst, call = rlang::caller_env()) {
   warn(
     c(
       "The achieved balance exceeds the requested tolerance.",
-      x = "The largest imbalance is {formatC(worst, format = 'f', digits = 4)}.",
+      x = "The largest imbalance is {formatC(worst, format = 'g', digits = 3)}.",
       i = "Raise {.arg tolerance} in {.fn balance_terms}, lower the moments, or drop interactions."
     ),
     warning_class = "balancing_balance_warning",
     call = call
   )
   invisible()
+}
+
+# The tolerance a quadratic-program method asks of its backend. A method that
+# leaves the property NULL takes the core default, which the solver applies as
+# both its absolute and its relative tolerance.
+qp_default_tolerance <- 1e-8
+
+# A tolerance the quadratic programs reach on problems where the core default
+# does not. The energy objective matrix is indefinite, and on a small sample the
+# negative curvature it carries puts the alternating-direction residual floor
+# above the core default, so a fit asking for more than the iteration can deliver
+# spends its whole budget and returns an iterate that has left the optimum. This
+# value is the one the sweeps in that regime reach, and it is what the
+# non-convergence advice names.
+qp_reachable_tolerance <- 1e-6
+
+resolved_qp_tolerance <- function(method) {
+  tolerance <- method@convergence_tolerance
+  if (is.null(tolerance)) qp_default_tolerance else tolerance
+}
+
+# The non-convergence advice for the quadratic-program family, which fails its
+# criterion for a reason the estimating-equation family does not share. A descent
+# method that spends its iteration cap stopped short of the answer and is helped
+# by a larger cap; an alternating-direction iteration on an indefinite form that
+# spends its cap has usually passed the residual floor of its problem, past which
+# each further iteration moves away from the optimum rather than toward it. So
+# the advice leads with the tolerance, names a value the problem can usually
+# reach when the fit asked for something tighter, and keeps the cap for last.
+#
+# Only the indefinite forms carry that floor, so only they call the cap a last
+# resort. A positive-semidefinite form keeps descending toward its tolerance for
+# as long as the cap allows, and a run that spent the cap there really did stop
+# short, so the cap is named as an ordinary lever.
+#
+# The weights caveat is about a solve that met no tolerance at all rather than
+# about one that missed the tolerance asked for. An energy fit that could not
+# reach its tolerance reports the iterate of a re-solve at a reachable one and
+# still calls itself unconverged, and telling that caller the weights are
+# worthless would contradict the advice above it.
+quadratic_program_convergence_bullets <- function(method) {
+  loosen <- if (resolved_qp_tolerance(method) < qp_reachable_tolerance) {
+    "Loosen {.arg convergence_tolerance} in {.fn {class(method)[1]}}, which the problem can usually reach at {.val {qp_reachable_tolerance}}."
+  } else {
+    "Loosen {.arg convergence_tolerance} in {.fn {class(method)[1]}}."
+  }
+  cap <- if (has_indefinite_objective(method)) {
+    "Raising {.arg max_iterations} is the last resort, and helps only a solve that stopped short of the residual floor rather than past it."
+  } else {
+    "Raising {.arg max_iterations} is the other lever, since this objective descends toward its tolerance for as long as the cap allows."
+  }
+  c(
+    "The solver did not reach its convergence tolerance.",
+    i = loosen,
+    x = "The weights of a solve that met no tolerance at all should not be relied on.",
+    i = cap
+  )
 }
 
 # Raise or warn on the solver outcome. The quadratic-program family reports a
@@ -357,9 +447,9 @@ warn_balance_exceeded <- function(worst, call = rlang::caller_env()) {
 #
 # Which knob a failure names is chosen by the status, so every status a backend
 # can assign is routed here. Only a status that genuinely means the solve ran out
-# of iterations falls through to the closing warning, whose advice is to raise the
-# cap; a solve that broke down numerically or stalled would not be helped by more
-# iterations, so it reports the conditioning of the problem instead.
+# of iterations falls through to the closing warning; a solve that broke down
+# numerically or stalled would not be helped by either knob, so it reports the
+# conditioning of the problem instead.
 check_solver_status <- function(fit, method, call = rlang::caller_env()) {
   if (!is.null(fit$status)) {
     if (isTRUE(fit$converged)) {
@@ -414,10 +504,14 @@ check_solver_status <- function(fit, method, call = rlang::caller_env()) {
   }
   if (!isTRUE(fit$converged)) {
     tried <- solver_labels(fit$solvers_tried)
-    bullets <- c(
-      "The solver did not reach its convergence tolerance.",
-      i = "Increase {.arg max_iterations} or loosen {.arg convergence_tolerance} in {.fn {class(method)[1]}}."
-    )
+    bullets <- if (S7::S7_inherits(method, quadratic_program_method)) {
+      quadratic_program_convergence_bullets(method)
+    } else {
+      c(
+        "The solver did not reach its convergence tolerance.",
+        i = "Increase {.arg max_iterations} or loosen {.arg convergence_tolerance} in {.fn {class(method)[1]}}."
+      )
+    }
     if (length(tried) > 1L) {
       bullets[[1L]] <- "Neither solver reached its convergence tolerance."
       bullets <- append(bullets, c(x = "The fit tried {tried}."), after = 1L)
@@ -503,6 +597,20 @@ method(requires_constraints, quadratic_program_method) <- function(method) {
 tunes_weight_penalty <- new_generic("tunes_weight_penalty", "method")
 
 method(tunes_weight_penalty, balance_method) <- function(method) {
+  FALSE
+}
+
+# Whether a method assembles an indefinite quadratic form, which decides whether
+# the non-convergence advice may speak of a residual floor. Energy balancing and
+# the characteristic function distance energy kernel build their objective from
+# the negative pairwise distance, which is conditionally positive semidefinite
+# alone and indefinite as a quadratic form; every other objective the package
+# assembles is positive semidefinite. The distinction is a property of the
+# objective rather than of the family, so it is dispatched on the method and the
+# kernel rather than read off the quadratic-program parent.
+has_indefinite_objective <- new_generic("has_indefinite_objective", "method")
+
+method(has_indefinite_objective, balance_method) <- function(method) {
   FALSE
 }
 
@@ -617,7 +725,7 @@ constrained_covariates <- function(recipe, covariates) {
 
 # Resolve the focal exposure level for att and atc. A binary exposure infers the
 # treated level (the second level) for att and the control level (the first) for
-# atc; a categorical exposure requires an explicit focal_level. The average
+# atc; a categorical exposure requires an explicit `.focal_level`. The average
 # treatment effect and the overlap estimand reweight every group rather than hold
 # one fixed, so they carry no focal level.
 resolve_focal_level <- function(
@@ -637,7 +745,7 @@ resolve_focal_level <- function(
     if (!is.null(focal_level)) {
       warn(
         c(
-          "{.arg focal_level} applies to the {.val att} and {.val atc} estimands and is ignored.",
+          "{.arg .focal_level} applies to the {.val att} and {.val atc} estimands and is ignored.",
           i = "The {.val {estimand}} estimand reweights every exposure group rather than holding one fixed."
         ),
         warning_class = "balancing_ignored_argument_warning",
@@ -659,7 +767,7 @@ resolve_focal_level <- function(
     if (is.null(focal_level)) {
       abort(
         c(
-          "{.arg focal_level} is required for the {.val {estimand}} estimand with a categorical exposure.",
+          "{.arg .focal_level} is required for the {.val {estimand}} estimand with a categorical exposure.",
           i = "Supply the exposure level to target, one of {.val {levels}}."
         ),
         error_class = "balancing_estimand_error",
@@ -672,7 +780,7 @@ resolve_focal_level <- function(
   if (!resolved %in% levels) {
     abort(
       c(
-        "{.arg focal_level} must be an exposure level.",
+        "{.arg .focal_level} must be an exposure level.",
         x = "{.val {resolved}} is not one of {.val {levels}}."
       ),
       error_class = "balancing_estimand_error",

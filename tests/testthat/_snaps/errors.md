@@ -82,13 +82,13 @@
       ! Inverse probability tilting does not support a "continuous" exposure.
       i Supported exposure types are "binary" and "categorical".
 
-# balancing_estimand_error: a categorical att without focal_level
+# balancing_estimand_error: a categorical att without .focal_level
 
     Code
       balance(data, exposure, c(x1, x2), method = bw_entropy(), estimand = "att")
     Condition <balancing_estimand_error>
       Error in `balance()`:
-      ! `focal_level` is required for the "att" estimand with a categorical exposure.
+      ! `.focal_level` is required for the "att" estimand with a categorical exposure.
       i Supply the exposure level to target, one of "a", "b", and "c".
 
 # causalgenerics_forced_exposure_type: forced type contradicts data
@@ -171,7 +171,7 @@
 
     Code
       balance(data, exposure, c(x1, x2), method = bw_entropy(), estimand = "att",
-      focal_level = 1)
+      .focal_level = 1)
     Condition <balancing_estimand_error>
       Error in `balance()`:
       ! Balancing needs an exposure with at least two levels.

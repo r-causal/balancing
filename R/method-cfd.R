@@ -113,10 +113,15 @@ snap_smoothness <- function(smoothness) {
 #' @param weight_penalty The L2 penalty on the weights, which stabilizes the
 #'   quadratic program.
 #' @param min_weight The smallest permitted weight.
-#' @param convergence_tolerance The quadratic-program solver tolerance, or `NULL`
-#'   for the core default.
-#' @param max_iterations The maximum solver iterations, or `NULL` for the core
-#'   default.
+#' @param convergence_tolerance The quadratic-program solver tolerance, or
+#'   `NULL` for the resolved default of `1e-8`, which the solver applies as both
+#'   its absolute and its relative tolerance. Under the alternating-direction
+#'   backend, which the other kernels take by default and which the `"energy"`
+#'   kernel always takes because its quadratic form is indefinite, a tolerance
+#'   below what the problem can reach spends the full iteration cap and then
+#'   warns.
+#' @param max_iterations The maximum solver iterations, or `NULL` for the
+#'   resolved default of 200000.
 #' @param ... Reserved for future extensions; must be empty. Tuning parameters
 #'   must be passed by name.
 #'
@@ -286,6 +291,12 @@ method(supports_estimating_equations, bw_cfd) <- function(
 # raising it.
 method(tunes_weight_penalty, bw_cfd) <- function(method) {
   TRUE
+}
+
+# Only the energy kernel assembles an indefinite quadratic form here; the
+# distance-based and spectral kernels are positive semidefinite.
+method(has_indefinite_objective, bw_cfd) <- function(method) {
+  identical(method@kernel, "energy")
 }
 
 # Assemble the Rust option list. The worker-thread count and the quadratic-program
@@ -461,7 +472,14 @@ method(fit_method, bw_cfd) <- function(method, prepared) {
   }
 
   duals <- energy_duals_frame(result$duals, nvar, n_group_rows)
-  assemble_cfd(result, method, prepared, duals, approximate = !enforce)
+  assemble_cfd(
+    result,
+    method,
+    prepared,
+    duals,
+    approximate = !enforce,
+    enforced_tolerance = if (enforce) NULL else 0
+  )
 }
 
 # Renormalize each exposure group to its estimand target total, map the solver
@@ -478,7 +496,14 @@ method(fit_method, bw_cfd) <- function(method, prepared) {
 # balance when no moment constraints are enforced, so the fit is flagged
 # approximate in that case and the balance warning does not fire against a
 # tolerance the fit does not target.
-assemble_cfd <- function(result, method, prepared, duals, approximate) {
+assemble_cfd <- function(
+  result,
+  method,
+  prepared,
+  duals,
+  approximate,
+  enforced_tolerance = NULL
+) {
   s <- prepared$sampling_weights
   estimand <- prepared$estimand
   focal <- prepared$focal_level
@@ -523,6 +548,15 @@ assemble_cfd <- function(result, method, prepared, duals, approximate) {
     status = result$status,
     estimating_equations = NULL,
     approximate = approximate,
+    # The tolerance the fit held its rows at, where that is the method's own
+    # value rather than the one the specification asked for, so the balance
+    # table reports what the program enforced. A fit that added no constraint
+    # rows is the case: a tolerance reached no row of the program, so what it
+    # enforced is zero, and reporting the requested band instead would print a
+    # box nothing was placed in. A fit that did add rows holds them inside the
+    # requested band, so it leaves this `NULL` and the table reads the
+    # per-column tolerances the specification named.
+    enforced_tolerance = enforced_tolerance,
     groups = groups
   )
 }

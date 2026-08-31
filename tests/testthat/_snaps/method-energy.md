@@ -5,15 +5,15 @@
       constraints = balance_terms(tolerance = 0.1))
     Condition <balancing_ignored_argument_warning>
       Warning in `method(fit_method, balancing::bw_energy)`:
-      `tolerance` relaxes added moment constraints, but this fit has none to relax.
-      i Drop `tolerance` from `balance_terms()`, or add moment constraints with `moments`, `quantiles`, or `interactions` for a discrete exposure.
+      `tolerance` relaxes added constraints, but this fit has none to relax.
+      i Drop `tolerance` from `balance_terms()`, or add constraints with `moments` or `interactions`, or with `quantiles` for a discrete exposure.
     Output
       -- Energy balancing ------------------------------------------------------------
       Exposure: "exposure" (binary)
       Estimand: "ate"
       Observations: 150
       Solver: converged in <n> iterations
-      Constraints: 2 terms (tolerance 0.1)
+      Constraints: 2 terms (tolerance 0)
       Largest imbalance: 0.0437 (standardized mean difference)
 
 # a continuous tolerance warns and is ignored
@@ -23,16 +23,16 @@
       constraints = balance_terms(tolerance = 0.1))
     Condition <balancing_ignored_argument_warning>
       Warning in `method(fit_method, balancing::bw_energy)`:
-      `tolerance` relaxes added moment constraints, but this fit has none to relax.
-      i Drop `tolerance` from `balance_terms()`, or add moment constraints with `moments`, `quantiles`, or `interactions` for a discrete exposure.
+      `tolerance` relaxes added constraints, but this fit has none to relax.
+      i Drop `tolerance` from `balance_terms()`, or add constraints with `moments` or `interactions`, or with `quantiles` for a discrete exposure.
     Output
       -- Energy balancing ------------------------------------------------------------
       Exposure: "exposure" (continuous)
       Estimand: "ate"
       Observations: 500
       Solver: converged in <n> iterations
-      Constraints: 2 terms (tolerance 0.1)
-      Largest imbalance: 0.1882 (correlation)
+      Constraints: 2 terms (tolerance 0)
+      Largest imbalance: 0.188 (correlation)
 
 # an infeasible constraint set raises balancing_infeasible_error
 

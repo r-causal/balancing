@@ -294,7 +294,7 @@ test_that("a focal estimand standardizes its mean rows over the focal group", {
     c(x1, x2),
     method = bw_entropy(),
     estimand = "att",
-    focal_level = "1"
+    .focal_level = "1"
   )
   w <- as.numeric(stats::weights(fit))
   outcome_mod <- fit_level_means_outcome(
@@ -362,7 +362,7 @@ test_that("each binary contrast is the transform of the means above it", {
 
   # A counterfactual risk is a probability, so both means lie strictly inside
   # the unit interval and every transform below is defined.
-  expect_true(all(mu > 0 & mu < 1))
+  expect_all(mu, function(value) value > 0 & value < 1)
 
   expect_equal(effects[["rd"]], mu[["1"]] - mu[["0"]], tolerance = 1e-8)
   expect_equal(
@@ -396,10 +396,10 @@ test_that("every binary mean row carries usable inference", {
 
   means <- level_mean_rows(ipw(fit, outcome_mod)$estimates)
 
-  expect_true(all(is.finite(means$std.err)))
-  expect_true(all(means$std.err > 0))
-  expect_true(all(means$ci.lower < means$estimate))
-  expect_true(all(means$estimate < means$ci.upper))
+  expect_finite_column(means, "std.err")
+  expect_column_all(means, "std.err", function(x) x > 0)
+  expect_column_all(means, "ci.lower", function(x) x < means$estimate)
+  expect_column_all(means, "estimate", function(x) x < means$ci.upper)
   expect_equal(means$z, means$estimate / means$std.err, tolerance = 1e-12)
 
   # The interval is the normal approximation the rest of the table is built on.
@@ -649,6 +649,56 @@ test_that("the categorical mean rows match a g-computation plug-in", {
   )
 })
 
+test_that("a categorical focal estimand standardizes its mean rows over the focal group", {
+  data <- level_means_categorical_fixture()
+  # The focal level is neither the reference level nor the last one, so a mean
+  # block standardized over the wrong group could not pass by coincidence of
+  # position.
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_ipt(),
+    estimand = "att",
+    .focal_level = "b"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_level_means_outcome(
+    y ~ exposure + x1,
+    data,
+    w,
+    stats::binomial()
+  )
+
+  estimates <- ipw(fit, outcome_mod)$estimates
+  values <- level_mean_values(data$exposure)
+  tilt <- as.numeric(data$exposure == "b")
+
+  focal <- vapply(
+    values,
+    function(value) {
+      level_mean_plugin(outcome_mod, data, "exposure", value, tilt = tilt)
+    },
+    numeric(1)
+  )
+  pooled <- vapply(
+    values,
+    function(value) level_mean_plugin(outcome_mod, data, "exposure", value),
+    numeric(1)
+  )
+
+  expect_equal(
+    level_mean_rows(estimates)$estimate,
+    focal,
+    tolerance = 1e-8
+  )
+
+  # The two standardizations disagree on this fixture, so the assertion above
+  # is a check on the population averaged over rather than on the predictions
+  # alone.
+  expect_false(isTRUE(all.equal(focal, pooled)))
+})
+
 test_that("each categorical contrast is the transform of the two means it names", {
   data <- level_means_categorical_fixture()
   fit <- balance(
@@ -848,8 +898,8 @@ test_that("a .by fit gives every mean row a usable standard error", {
   result <- ipw(fit, outcome_mod, .by = modifier)
   means <- level_mean_rows(result$estimates)
 
-  expect_true(all(is.finite(means$std.err)))
-  expect_true(all(means$std.err > 0))
+  expect_finite_column(means, "std.err")
+  expect_column_all(means, "std.err", function(x) x > 0)
 
   # The stratum means are parameters of the same stacked system, so their
   # standard errors are the diagonal of the sandwich the rest of the table is

@@ -14,60 +14,8 @@
 
 # ---- Fixtures --------------------------------------------------------------
 
-# A binary-exposure fixture whose effect differs across the levels of a
-# two-level modifier. The modifier confounds the exposure as well as modifying
-# its effect, so a fit that balances it has real work to do, and it rides along
-# as a numeric indicator, `modifier_hi`, because that is the parameterization
-# the weight parameters stay identified in.
-#
-# The modifier declares its levels in reverse alphabetical order on purpose. The
-# reference subgroup every contrast of subgroups is measured against is the
-# modifier's first level, which is `"lo"` here and would be `"hi"` for an
-# implementation that sorted the levels itself.
-ipw_by_fixture <- function(n = 400) {
-  withr::with_seed(808, {
-    x1 <- stats::rnorm(n)
-    x2 <- stats::rnorm(n)
-    modifier <- factor(
-      sample(c("lo", "hi"), n, replace = TRUE),
-      levels = c("lo", "hi")
-    )
-    modifier_hi <- as.numeric(modifier == "hi")
-    exposure <- stats::rbinom(
-      n,
-      1L,
-      stats::plogis(0.7 * x1 - 0.5 * x2 + 0.6 * modifier_hi)
-    )
-    y <- stats::rbinom(
-      n,
-      1L,
-      stats::plogis(
-        -0.6 +
-          0.2 * exposure +
-          0.5 * x1 +
-          0.3 * modifier_hi +
-          1.4 * exposure * modifier_hi
-      )
-    )
-    y_cont <- 1 +
-      0.2 * exposure +
-      0.5 * x1 -
-      0.3 * x2 +
-      1.2 * exposure * modifier_hi +
-      stats::rnorm(n)
-    data.frame(
-      exposure = exposure,
-      x1 = x1,
-      x2 = x2,
-      modifier = modifier,
-      modifier_hi = modifier_hi,
-      y = y,
-      y_cont = y_cont
-    )
-  })
-}
-
-# A three-level categorical exposure crossed with the same two-level modifier.
+# A three-level categorical exposure crossed with the two-level modifier of
+# `ipw_by_fixture()` in helper-dgp.R.
 # The exposure comes from the shared `sim_categorical()` process; the modifier
 # and the outcome are drawn here under their own seed, with the interaction
 # concentrated on the `"c"` level so the two subgroups disagree about one
@@ -269,7 +217,7 @@ test_that("a .by fit reports the whole sample, each stratum, then their contrast
     )
   )
   expect_identical(nrow(estimates), 15L)
-  expect_true(all(is.finite(estimates$estimate)))
+  expect_finite_column(estimates, "estimate")
 
   # A block of means is never split by the contrasts built from it: the
   # whole-sample pair leads the table and the stratum pairs sit together after
@@ -769,10 +717,10 @@ test_that("a .by fit reports a usable standard error for every row", {
   estimates <- result$estimates
 
   expect_identical(nrow(estimates), 15L)
-  expect_true(all(is.finite(estimates$std.err)))
-  expect_true(all(estimates$std.err > 0))
-  expect_true(all(estimates$ci.lower < estimates$estimate))
-  expect_true(all(estimates$ci.upper > estimates$estimate))
+  expect_finite_column(estimates, "std.err")
+  expect_column_all(estimates, "std.err", function(x) x > 0)
+  expect_column_all(estimates, "ci.lower", function(x) x < estimates$estimate)
+  expect_column_all(estimates, "ci.upper", function(x) x > estimates$estimate)
   expect_equal(
     unname(sqrt(diag(stats::vcov(result)))),
     estimates$std.err,
@@ -950,6 +898,33 @@ test_that("a .by att fit couples its subgroups through the focal tilt", {
     covariance["rd 1 vs 0 modifier = lo", "rd 1 vs 0 modifier = hi"],
     pooled["rd 1 vs 0 modifier = lo", "rd 1 vs 0 modifier = hi"]
   )))
+})
+
+# The six blocks the stack is assembled from are only all present under a
+# request: an ungrouped fit leaves the last two absent. The assembly of those
+# blocks into the stacked matrix claims agreement with `rbind()` to the bit, and
+# this is the route that states the claim over a full stack. What the
+# expectation compares is the assembled matrix itself, at every evaluation the
+# finite difference asks the closure for.
+
+test_that("a .by fit stacks its psi blocks as rbind would", {
+  data <- ipw_by_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, modifier_hi),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_by_outcome(
+    y ~ exposure * modifier,
+    data,
+    w,
+    stats::binomial()
+  )
+
+  expect_stacked_psi_matches_rbind(ipw(fit, outcome_mod, .by = modifier))
 })
 
 # ---- Labels ----------------------------------------------------------------
@@ -1913,5 +1888,193 @@ test_that("balancing_ipw_by_interaction_warning: no term reads both columns", {
 
   expect_balancing_warning(
     invisible(ipw(fit, outcome_mod, .by = modifier))
+  )
+})
+
+# ---- The analytic contrast block ------------------------------------------
+
+# A request appends two more deterministic blocks to the stack: each stratum's
+# contrasts, written from that stratum's means, and each non-reference stratum's
+# contrasts against the reference stratum's, written from the stratum contrast
+# parameters. Both are constant across units, so both are candidates for an
+# analytic bread row alongside the whole-sample contrasts, and a grouped fit is
+# where the saving is largest.
+#
+# The reference system differences every one of those rows, which is what the
+# package does today, and the reported system has to stay identical to it to the
+# bit. The evaluation count beside it is red until they leave the differenced
+# system.
+
+test_that("a .by fit reports the fully differenced stacked system", {
+  data <- ipw_by_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, modifier_hi),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_by_outcome(
+    y ~ exposure * modifier,
+    data,
+    w,
+    stats::binomial()
+  )
+
+  frame <- stats::model.frame(outcome_mod)
+  by <- ipw_resolve_by(
+    rlang::quo(modifier),
+    frame = frame,
+    exposure = frame[["exposure"]],
+    exposure_levels = fit@exposure_levels,
+    exposure_name = "exposure",
+    outcome_mod = outcome_mod
+  )
+  reference <- ipw_reference_stack(
+    container = estimating_equations(fit),
+    outcome_mod = outcome_mod,
+    frame = frame,
+    exposure_name = "exposure",
+    levels = fit@exposure_levels,
+    by = by
+  )
+
+  expect_ipw_matches_reference_stack(
+    ipw(fit, outcome_mod, .by = modifier),
+    reference,
+    keys = c(
+      "mu0",
+      "mu1",
+      "rd",
+      "log(rr)",
+      "log(or)",
+      "mu0_modifier = lo",
+      "mu1_modifier = lo",
+      "mu0_modifier = hi",
+      "mu1_modifier = hi",
+      "rd_modifier = lo",
+      "log(rr)_modifier = lo",
+      "rd_modifier = hi",
+      "log(rr)_modifier = hi",
+      "rd_modifier = hi vs modifier = lo",
+      "log(rr)_modifier = hi vs modifier = lo"
+    )
+  )
+})
+
+test_that("a .by fit differences no contrast row", {
+  data <- ipw_by_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, modifier_hi),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_by_outcome(
+    y ~ exposure * modifier,
+    data,
+    w,
+    stats::binomial()
+  )
+
+  frame <- stats::model.frame(outcome_mod)
+  by <- ipw_resolve_by(
+    rlang::quo(modifier),
+    frame = frame,
+    exposure = frame[["exposure"]],
+    exposure_levels = fit@exposure_levels,
+    exposure_name = "exposure",
+    outcome_mod = outcome_mod
+  )
+  reference <- ipw_reference_stack(
+    container = estimating_equations(fit),
+    outcome_mod = outcome_mod,
+    frame = frame,
+    exposure_name = "exposure",
+    levels = fit@exposure_levels,
+    by = by
+  )
+
+  expect_stacked_evaluations(
+    ipw(fit, outcome_mod, .by = modifier),
+    2L * (reference$width - reference$deterministic) + 1L
+  )
+})
+
+# The two cases above hold the ate surface of an entropy fit. What they cannot
+# see is whether the analytic block still agrees once the rows around it change
+# shape: a focal estimand standardizes every mean over the treated units alone,
+# and non-uniform sampling weights enter the tilt and the reported weight scale
+# both. Neither reaches the deterministic rows directly, since those rows read
+# mean and contrast parameters and nothing else, and that is exactly why the
+# case is worth pinning. An implementation that let the tilt leak into the
+# rows it fills in analytically would still agree with the reference on the ate
+# surface and disagree here.
+
+test_that("a focal .by fit under sampling weights matches the differenced system", {
+  data <- ipw_by_fixture()
+  sampling <- withr::with_seed(2718, stats::runif(nrow(data), 0.4, 2.6))
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, modifier_hi),
+    method = bw_ipt(),
+    estimand = "att",
+    sampling_weights = sampling
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_by_outcome(
+    y ~ exposure * modifier,
+    data,
+    w,
+    stats::binomial()
+  )
+
+  frame <- stats::model.frame(outcome_mod)
+  by <- ipw_resolve_by(
+    rlang::quo(modifier),
+    frame = frame,
+    exposure = frame[["exposure"]],
+    exposure_levels = fit@exposure_levels,
+    exposure_name = "exposure",
+    outcome_mod = outcome_mod
+  )
+  reference <- ipw_reference_stack(
+    container = estimating_equations(fit),
+    outcome_mod = outcome_mod,
+    frame = frame,
+    exposure_name = "exposure",
+    levels = fit@exposure_levels,
+    by = by,
+    sampling_weights = fit@sampling_weights,
+    focal_level = fit@focal_level
+  )
+
+  expect_stacked_evaluations(
+    expect_ipw_matches_reference_stack(
+      ipw(fit, outcome_mod, .by = modifier),
+      reference,
+      keys = c(
+        "mu0",
+        "mu1",
+        "rd",
+        "log(rr)",
+        "log(or)",
+        "mu0_modifier = lo",
+        "mu1_modifier = lo",
+        "mu0_modifier = hi",
+        "mu1_modifier = hi",
+        "rd_modifier = lo",
+        "log(rr)_modifier = lo",
+        "rd_modifier = hi",
+        "log(rr)_modifier = hi",
+        "rd_modifier = hi vs modifier = lo",
+        "log(rr)_modifier = hi vs modifier = lo"
+      )
+    ),
+    2L * (reference$width - reference$deterministic) + 1L
   )
 })

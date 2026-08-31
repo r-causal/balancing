@@ -19,10 +19,11 @@ must be passed by name.}
 \code{"cloglog"}.}
 
 \item{convergence_tolerance}{The solver convergence tolerance on the tilting
-moment.}
+moment. \code{1e-10} is both this argument's default and the value the solver
+resolves for \code{NULL}.}
 
-\item{max_iterations}{The maximum solver iterations, or \code{NULL} for the core
-default.}
+\item{max_iterations}{The maximum solver iterations, or \code{NULL} for the
+resolved default of 1000.}
 }
 \value{
 An \code{bw_ipt} specification, a \link{balance_method}.

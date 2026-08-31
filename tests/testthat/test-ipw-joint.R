@@ -27,45 +27,8 @@
 
 # ---- Fixtures --------------------------------------------------------------
 
-# Two binary treatments, the second depending on the first and both on a
-# covariate, with an outcome carrying a real interaction between them. A binary
-# and a gaussian outcome are drawn so each reported scale has something to read,
-# and a modifier is drawn for the `.by` refusal.
-ipw_joint_fixture <- function(n = 700) {
-  withr::with_seed(4210, {
-    x1 <- stats::rnorm(n)
-    a <- stats::rbinom(n, 1L, stats::plogis(0.3 * x1))
-    e <- stats::rbinom(n, 1L, stats::plogis(-0.2 + 0.5 * x1 - 0.4 * a))
-    y <- stats::rbinom(
-      n,
-      1L,
-      stats::plogis(-0.5 + 0.7 * a + 0.5 * e + 0.6 * x1 + 0.9 * a * e)
-    )
-    y_cont <- 1 +
-      0.6 * a +
-      0.4 * e +
-      0.5 * x1 +
-      0.8 * a * e +
-      stats::rnorm(n)
-    data <- data.frame(
-      x1 = x1,
-      y = y,
-      y_cont = y_cont,
-      a = factor(a, levels = c(0L, 1L)),
-      e = factor(e, levels = c(0L, 1L)),
-      modifier = factor(
-        ifelse(x1 > 0, "hi", "lo"),
-        levels = c("lo", "hi")
-      )
-    )
-    # Assigned rather than built inside `data.frame()`, which would coerce the
-    # crossing away before anything could read it.
-    data$joint <- causalgenerics::joint_exposure(a = data$a, e = data$e)
-    data
-  })
-}
-
-# The same two treatments crossed under one name, assembled from the parts
+# The two treatments of `ipw_joint_fixture()` in helper-dgp.R crossed under one
+# name, assembled from the parts
 # rather than declared through `causalgenerics::joint_exposure()`, which now
 # refuses two components sharing a name.
 #
@@ -138,7 +101,7 @@ fit_joint_weights <- function(data, estimand = "ate", focal_level = NULL) {
     c(x1),
     method = bw_ipt(),
     estimand = estimand,
-    focal_level = focal_level
+    .focal_level = focal_level
   )
 }
 
@@ -256,7 +219,7 @@ test_that("the fixture declares the crossing the joint surface is written in", {
 
   # Every cell is populated, which is what a crossing needs to be identified and
   # what the four mean rows each stand for.
-  expect_true(all(table(data$joint) > 0L))
+  expect_all(table(data$joint), function(value) value > 0L)
 })
 
 # A declared column is a factor over the cells, so weighting it is weighting
@@ -342,7 +305,7 @@ test_that("a declared crossing reports cell means, simple effects, and their int
     )
   )
   expect_identical(nrow(estimates), 14L)
-  expect_true(all(is.finite(estimates$estimate)))
+  expect_finite_column(estimates, "estimate")
 })
 
 # The whole point of the declaration is that the cells stop being the vocabulary
@@ -657,10 +620,10 @@ test_that("a declared crossing reports a usable standard error for every row", {
   estimates <- result$estimates
 
   expect_identical(nrow(estimates), 14L)
-  expect_true(all(is.finite(estimates$std.err)))
-  expect_true(all(estimates$std.err > 0))
-  expect_true(all(estimates$ci.lower < estimates$estimate))
-  expect_true(all(estimates$ci.upper > estimates$estimate))
+  expect_finite_column(estimates, "std.err")
+  expect_column_all(estimates, "std.err", function(x) x > 0)
+  expect_column_all(estimates, "ci.lower", function(x) x < estimates$estimate)
+  expect_column_all(estimates, "ci.upper", function(x) x > estimates$estimate)
   expect_equal(
     unname(sqrt(diag(stats::vcov(result)))),
     estimates$std.err,
@@ -714,6 +677,26 @@ test_that("a declared crossing's covariance couples the rows it reports", {
     covariance[interaction, interaction],
     covariance[at_zero, at_zero] + covariance[at_one, at_one]
   )))
+})
+
+# A declared crossing takes the contrast block over rather than sitting beside
+# it, so the assembly of the stacked matrix meets a block of a shape no other
+# exposure produces. What the expectation compares is the assembled matrix
+# against the `rbind()` of the same blocks, at every evaluation the finite
+# difference asks the closure for.
+
+test_that("a declared crossing stacks its psi blocks as rbind would", {
+  data <- ipw_joint_fixture()
+  fit <- fit_joint_weights(data)
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_joint_outcome(
+    y ~ joint + x1,
+    data,
+    w,
+    stats::binomial()
+  )
+
+  expect_stacked_psi_matches_rbind(joint_ipw(fit, outcome_mod))
 })
 
 # ---- Labels ----------------------------------------------------------------
@@ -884,7 +867,7 @@ test_that("a declared crossing refuses two treatments under one name", {
     c("a", "a")
   )
   expect_identical(anyDuplicated(levels(data$joint)), 0L)
-  expect_true(all(table(data$joint) > 0L))
+  expect_all(table(data$joint), function(value) value > 0L)
 
   fit <- fit_joint_weights(data)
   w <- as.numeric(stats::weights(fit))
@@ -1027,4 +1010,90 @@ test_that("a continuous component cannot be declared at all", {
   expect_true(causalgenerics::is_joint_exposure(
     causalgenerics::joint_exposure(a = data$a, dose = coarse)
   ))
+})
+
+# ---- The analytic contrast block ------------------------------------------
+
+# A declared crossing replaces the vs-reference contrast block with the simple
+# effects and the interaction, and those rows are deterministic on the same
+# terms: a simple effect is a contrast of two mean parameters and an interaction
+# row is the difference of two simple-effect parameters, so both are constant
+# across units and both have bread rows that are known without differencing
+# anything. This is the widest contrast block any surface reports, so it is the
+# one an analytic bread block saves the most on.
+#
+# The reference system differences every one of those rows, which is what the
+# package does today, and the reported system has to stay identical to it to the
+# bit. The evaluation count beside it is red until they leave the differenced
+# system.
+
+test_that("a declared crossing reports the fully differenced stacked system", {
+  data <- ipw_joint_fixture()
+  fit <- fit_joint_weights(data)
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_joint_outcome(y ~ joint + x1, data, w, stats::binomial())
+
+  frame <- stats::model.frame(outcome_mod)
+  joint <- ipw_joint_plan(
+    frame[["joint"]],
+    fit@exposure_levels,
+    is_gaussian_outcome(outcome_mod)
+  )
+  frame[["joint"]] <- ipw_joint_bare(frame[["joint"]])
+  reference <- ipw_reference_stack(
+    container = estimating_equations(fit),
+    outcome_mod = outcome_mod,
+    frame = frame,
+    exposure_name = "joint",
+    levels = fit@exposure_levels,
+    categorical = TRUE,
+    joint = joint
+  )
+
+  expect_ipw_matches_reference_stack(
+    expect_joint_quiet(ipw(fit, outcome_mod)),
+    reference,
+    keys = c(
+      paste0("mu_", joint_cells),
+      "rd_a: 1 vs 0 e = 0",
+      "log(rr)_a: 1 vs 0 e = 0",
+      "rd_a: 1 vs 0 e = 1",
+      "log(rr)_a: 1 vs 0 e = 1",
+      "rd_e: 1 vs 0 a = 0",
+      "log(rr)_e: 1 vs 0 a = 0",
+      "rd_e: 1 vs 0 a = 1",
+      "log(rr)_e: 1 vs 0 a = 1",
+      "rd_a: 1 vs 0 e = 1 vs e = 0",
+      "log(rr)_a: 1 vs 0 e = 1 vs e = 0"
+    )
+  )
+})
+
+test_that("a declared crossing differences no contrast row", {
+  data <- ipw_joint_fixture()
+  fit <- fit_joint_weights(data)
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_joint_outcome(y ~ joint + x1, data, w, stats::binomial())
+
+  frame <- stats::model.frame(outcome_mod)
+  joint <- ipw_joint_plan(
+    frame[["joint"]],
+    fit@exposure_levels,
+    is_gaussian_outcome(outcome_mod)
+  )
+  frame[["joint"]] <- ipw_joint_bare(frame[["joint"]])
+  reference <- ipw_reference_stack(
+    container = estimating_equations(fit),
+    outcome_mod = outcome_mod,
+    frame = frame,
+    exposure_name = "joint",
+    levels = fit@exposure_levels,
+    categorical = TRUE,
+    joint = joint
+  )
+
+  expect_stacked_evaluations(
+    expect_joint_quiet(ipw(fit, outcome_mod)),
+    2L * (reference$width - reference$deterministic) + 1L
+  )
 })

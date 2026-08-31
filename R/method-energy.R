@@ -35,19 +35,54 @@
 #' `dimension_adjustment` reweights the covariate energy distance by the
 #' covariate dimensionality.
 #'
+#' The two knobs a continuous fit carries are separate. `moments` in
+#' [balance_terms()] adds a constraint that holds the weighted correlation of
+#' the exposure with each covariate power within its tolerance, which defaults
+#' to zero, and `distribution_moments` pins the marginal moments of the
+#' exposure and of the covariates. Neither sets the other: a fit that wants
+#' both asks for both. The correlation rows are held within the tolerance
+#' [balance_terms()] carries, and reaching that band takes more than one solve.
+#' The quadratic program bounds a linearized correlation whose exposure and
+#' covariate scales are fixed at the sample, and the spread of energy weights
+#' shrinks both weighted standard deviations, so a single solve at the requested
+#' band overshoots it: a band of `0.05` lands between 0.070 and 0.086 at 200 to
+#' 1000 observations. The fit therefore tightens the bound it hands the program
+#' and re-solves, up to eight passes, until the reported correlation sits inside
+#' the band. A band of `0.05` took two passes at 350 and at 1000 observations, so
+#' it costs about two solves against the one the same fit at exact balance takes,
+#' exact balance having nothing to tighten. A band the passes cannot reach is
+#' reported at its last iterate, and the balance warning judges it as it judges
+#' any other fit.
+#'
+#' Without those rows the continuous objective targets distributional
+#' independence between the exposure and the covariates rather than zero
+#' correlations, and it does not drive the correlations to zero. A residual
+#' weighted correlation of roughly 0.1 to 0.3 is ordinary at a few hundred to a
+#' few thousand observations. What holds it up is `weight_penalty`, which trades that
+#' residual against effective sample size: at its default of `1e-4` the penalty
+#' term is about three quarters of the objective at 1000 observations, leaving a
+#' largest correlation near 0.22 to 0.25 at an effective sample size near 71
+#' percent, while a penalty of zero brings the correlation down to 0.05 to 0.07
+#' and the effective sample size down to about 20 percent. Ask for
+#' `balance_terms(moments = 1)` to remove the correlation outright, at a cost in
+#' effective sample size of its own.
+#'
 #' Energy balancing belongs to the quadratic-program family, which has no
 #' estimating equations, so a fit produces no estimating-equations container and
-#' the tolerance in [balance_terms()] relaxes any added moment constraints rather
-#' than selecting an inexact solver. A tolerance supplied without moment
-#' constraints has nothing to relax, so it is warned and ignored.
+#' the tolerance in [balance_terms()] relaxes the constraints a fit added rather
+#' than selecting an inexact solver. A tolerance supplied without those
+#' constraints has nothing to relax, so it is warned and ignored, and the balance
+#' table reports the tolerance the fit enforced, which is zero.
 #'
 #' @param distance The covariate distance definition the energy objective is
-#'   built on, one of `"scaled_euclidean"` (each covariate divided by its
-#'   standard deviation), `"mahalanobis"`, or `"euclidean"`.
+#'   built on, one of `"scaled_euclidean"` (each covariate centered at its
+#'   weighted mean and divided by its weighted standard deviation),
+#'   `"mahalanobis"`, or `"euclidean"`.
 #' @param improved Whether to add the between-group energy distance of the
 #'   improved variant for the average treatment effect with a discrete exposure.
 #' @param weight_penalty The L2 penalty on the weights, which stabilizes the
-#'   quadratic program.
+#'   quadratic program. For a continuous exposure it is also what sets the
+#'   residual exposure-covariate correlation, as the details section explains.
 #' @param min_weight The smallest permitted weight. The reported weights average
 #'   one within each exposure group, so a floor approaching one leaves almost no
 #'   room above it: the weight spread shrinks in proportion to the headroom
@@ -58,16 +93,32 @@
 #'   refuses the same floor as infeasible instead.
 #' @param distribution_moments For a continuous exposure, the number of exposure
 #'   and covariate marginal moments held equal to the sample under the base
-#'   measure, or `NULL` for the constraint moments. Raised automatically when
-#'   smaller than the constraint moments. Energy balancing carries no base
-#'   weights, so the base measure is the sampling weights, and without them the
-#'   marginals are held equal to the unweighted sample.
+#'   measure, or `NULL` for the first moments. This is the only route to those
+#'   rows: the `moments` in [balance_terms()] asks for exposure-covariate
+#'   correlation constraints instead and leaves the marginals here. Energy balancing carries no base weights, so the base
+#'   measure is the sampling weights, and without them the marginals are held
+#'   equal to the unweighted sample.
 #' @param dimension_adjustment For a continuous exposure, whether to weight the
 #'   covariate energy distance by the covariate dimensionality adjustment.
-#' @param convergence_tolerance The quadratic-program solver tolerance, or `NULL`
-#'   for the core default.
-#' @param max_iterations The maximum solver iterations, or `NULL` for the core
-#'   default.
+#' @param convergence_tolerance The quadratic-program solver tolerance, which
+#'   the solver applies as both its absolute and its relative tolerance, or
+#'   `NULL` for the family default of `1e-8`. Energy balancing defaults to
+#'   `1e-6` rather than to that family default because its quadratic form is
+#'   indefinite: on a small sample the alternating-direction residual floors
+#'   above `1e-8`, and a run that keeps going past that floor walks away from
+#'   the optimum instead of stalling at it. The energy objective always solves
+#'   through the alternating-direction backend, whatever `balancing.qp_backend`
+#'   names, so there is no backend to choose here: a tolerance below what the
+#'   problem can reach spends the full iteration cap, then warns and reports the
+#'   iterate of a re-solve at a tolerance the problem does reach, provided that
+#'   re-solve converges within the same `max_iterations`. When it does not, the
+#'   fit reports the iterate of the original solve.
+#' @param max_iterations The maximum solver iterations, or `NULL` for the
+#'   resolved default of 200000. The re-solve above is given the same cap, and
+#'   when it converges the reported `@iterations` sums the two solves, so an
+#'   energy fit that could not reach its tolerance can report more iterations
+#'   than this. The refinement passes of a continuous fit with a positive
+#'   tolerance are summed the same way, each pass being a solve of its own.
 #' @param ... Reserved for future extensions; must be empty. Tuning parameters
 #'   must be passed by name.
 #'
@@ -111,7 +162,7 @@ bw_energy <- new_class(
     min_weight = 1e-8,
     distribution_moments = NULL,
     dimension_adjustment = TRUE,
-    convergence_tolerance = NULL,
+    convergence_tolerance = 1e-6,
     max_iterations = NULL
   ) {
     check_method_dots(...)
@@ -213,6 +264,12 @@ method(tunes_weight_penalty, bw_energy) <- function(method) {
   TRUE
 }
 
+# The energy objective is built from the negative pairwise distance, so its
+# quadratic form is indefinite.
+method(has_indefinite_objective, bw_energy) <- function(method) {
+  TRUE
+}
+
 # Assemble the Rust option list, dropping the tuning parameters left at the core
 # default so the quadratic-program solver applies its own. The worker-thread
 # count and the quadratic-program backend are resolved on the R side and passed
@@ -226,6 +283,38 @@ energy_options <- function(method, backend) {
     options$max_iterations <- as.integer(method@max_iterations)
   }
   options
+}
+
+# Solve, and on a run that spent its iteration cap solve once more at a
+# tolerance the objective can reach. The energy quadratic form is indefinite, so
+# the alternating-direction iteration is a contraction only until its residuals
+# reach the floor of the problem; a tolerance below that floor keeps the run
+# going, and the iterate it carries at the cap has left the optimum rather than
+# stopped short of it. Renormalizing that iterate per group gives it the shape of
+# a real answer, so it must not be what the fit reports. The retry costs one
+# extra solve, and only on a fit that already failed. The fit still reports
+# itself as unconverged, because the tolerance the caller asked for was not met,
+# and the convergence warning that follows names the tolerance to ask for
+# instead. A run that ends on any other terminal status is diagnosed by
+# check_solver_status() and is not retried, and neither is a fit whose tolerance
+# is already at or above the reachable one, where the retry would repeat the
+# solve that just failed.
+solve_energy_with_fallback <- function(method, options, solve) {
+  result <- solve(options)
+  reached_cap <- !isTRUE(result$converged) &&
+    identical(result$status, "max_iter")
+  if (!reached_cap || resolved_qp_tolerance(method) >= qp_reachable_tolerance) {
+    return(result)
+  }
+  options$convergence_tolerance <- qp_reachable_tolerance
+  retry <- solve(options)
+  if (!isTRUE(retry$converged)) {
+    return(result)
+  }
+  retry$converged <- FALSE
+  retry$status <- result$status
+  retry$iterations <- result$iterations + retry$iterations
+  retry
 }
 
 # Whether the constraint set requests moment, quantile, or interaction balance,
@@ -251,9 +340,13 @@ has_positive_tolerance <- function(constraints) {
 # indicator column per level, since each level is a coordinate of the covariate
 # distance. The Rust core forms the pairwise distance from these columns under
 # the named distance definition.
+#
+# The column is read through the same accessor the constraint builder uses, so a
+# duration reaches the distance as the number it stores rather than falling to
+# the categorical branch and becoming one indicator per distinct duration.
 distance_covariates <- function(data, covariates) {
   columns <- lapply(covariates, function(covariate) {
-    values <- data[[covariate]]
+    values <- covariate_values(data, covariate)
     if (is.numeric(values) || is.logical(values)) {
       matrix(as.numeric(values), ncol = 1)
     } else {
@@ -269,16 +362,17 @@ distance_covariates <- function(data, covariates) {
   do.call(cbind, columns)
 }
 
-# The tolerance in a balance_terms() specification relaxes added moment
-# constraints; with none present it has nothing to act on, so warn and proceed
-# with the pure energy objective. A continuous fit holds its distribution moments
-# exactly as identifying conditions and never adds relaxable constraints, so any
-# positive tolerance is ignored there as well.
+# The tolerance in a balance_terms() specification relaxes added constraints;
+# with none present it has nothing to act on, so warn and proceed with the pure
+# objective. Both `moments` and `interactions` add constraints for either
+# exposure type: moment rows for a discrete exposure, exposure-covariate
+# correlation rows on the continuous energy path. Only `quantiles` is confined to
+# a discrete exposure, so it is the only one the advice qualifies.
 warn_ignored_tolerance <- function(call = rlang::caller_env()) {
   warn(
     c(
-      "{.arg tolerance} relaxes added moment constraints, but this fit has none to relax.",
-      i = "Drop {.arg tolerance} from {.fn balance_terms}, or add moment constraints with {.arg moments}, {.arg quantiles}, or {.arg interactions} for a discrete exposure."
+      "{.arg tolerance} relaxes added constraints, but this fit has none to relax.",
+      i = "Drop {.arg tolerance} from {.fn balance_terms}, or add constraints with {.arg moments} or {.arg interactions}, or with {.arg quantiles} for a discrete exposure."
     ),
     warning_class = "balancing_ignored_argument_warning",
     call = call
@@ -316,16 +410,14 @@ resolve_energy_backend <- function(call = rlang::caller_env()) {
 
 method(fit_method, bw_energy) <- function(method, prepared) {
   backend <- resolve_energy_backend()
-  if (identical(prepared$exposure_type, "continuous")) {
-    if (has_positive_tolerance(prepared$constraints)) {
-      warn_ignored_tolerance()
-    }
-    return(fit_energy_continuous(method, prepared, backend))
-  }
-
   enforce <- requests_moments(prepared$constraints)
+
   if (!enforce && has_positive_tolerance(prepared$constraints)) {
     warn_ignored_tolerance()
+  }
+
+  if (identical(prepared$exposure_type, "continuous")) {
+    return(fit_energy_continuous(method, prepared, enforce, backend))
   }
 
   fit_energy_discrete(method, prepared, enforce, backend)
@@ -383,20 +475,22 @@ fit_energy_discrete <- function(method, prepared, enforce, backend) {
       nvar <- n - length(groups[[focal]])
       n_group_levels <- 1L
     }
-    result <- solve_energy(
-      covs,
-      treat,
-      s,
-      method@distance,
-      core_estimand,
-      method@improved,
-      moment_covs,
-      targets,
-      tols,
-      method@min_weight,
-      method@weight_penalty,
-      options
-    )
+    result <- solve_energy_with_fallback(method, options, function(opts) {
+      solve_energy(
+        covs,
+        treat,
+        s,
+        method@distance,
+        core_estimand,
+        method@improved,
+        moment_covs,
+        targets,
+        tols,
+        method@min_weight,
+        method@weight_penalty,
+        opts
+      )
+    })
   } else {
     treat_idx <- match(key, levels) - 1L
     if (identical(estimand, "ate")) {
@@ -410,25 +504,34 @@ fit_energy_discrete <- function(method, prepared, enforce, backend) {
       nvar <- n - length(groups[[focal]])
       n_group_levels <- length(levels) - 1L
     }
-    result <- solve_energy_multi(
-      covs,
-      as.integer(treat_idx),
-      as.integer(focal_idx),
-      s,
-      method@distance,
-      core_estimand,
-      method@improved,
-      moment_covs,
-      targets,
-      tols,
-      method@min_weight,
-      method@weight_penalty,
-      options
-    )
+    result <- solve_energy_with_fallback(method, options, function(opts) {
+      solve_energy_multi(
+        covs,
+        as.integer(treat_idx),
+        as.integer(focal_idx),
+        s,
+        method@distance,
+        core_estimand,
+        method@improved,
+        moment_covs,
+        targets,
+        tols,
+        method@min_weight,
+        method@weight_penalty,
+        opts
+      )
+    })
   }
 
   duals <- energy_duals_frame(result$duals, nvar, n_group_levels)
-  assemble_energy(result, method, prepared, duals, approximate = !enforce)
+  assemble_energy(
+    result,
+    method,
+    prepared,
+    duals,
+    approximate = !enforce,
+    enforced_tolerance = if (enforce) NULL else 0
+  )
 }
 
 # Shift each distribution-moment column to its mean under the base measure. The
@@ -446,7 +549,101 @@ center_on_measure <- function(columns, measure) {
   sweep(columns, 2, centers, "-")
 }
 
-fit_energy_continuous <- function(method, prepared, backend) {
+# The first-moment marginal columns of a continuous fit: one indicator per level
+# of a factor covariate, the covariate itself where it is already an indicator,
+# and the standardized first power of a numeric covariate. Returns the columns
+# alongside the highest marginal power each covariate reached, which
+# higher_covariate_marginals() continues from.
+#
+# They are built from the covariates rather than read off the constraint recipe
+# because a covariate's marginal distribution is not what the constraint set
+# selects. Reading them off the recipe left `moments` a second route to the
+# marginals: `balance_terms(moments = c(x1 = 0))` drops x1's constraint record,
+# and with it x1's marginal row, so a fit asked to leave x1 out of the
+# correlation rows stopped holding x1's own distribution as well.
+#
+# The columns cross the boundary on the same scale the constraint matrix uses,
+# so they are built through the same records and the same rebuild, and the
+# constant and aliased columns are dropped exactly as the constraint build drops
+# them. A factor's indicators sum to the constant every method carries, so one
+# of them is redundant against the fit's own total-sum row. The drops are silent
+# here: the constraint build has already reported whatever it dropped, and these
+# rows are the fit's own bookkeeping rather than a set the caller named.
+marginal_distribution_columns <- function(data, covariates, sampling_weights) {
+  center_fn <- if (is.null(sampling_weights)) {
+    mean
+  } else {
+    function(x) weighted_center(x, sampling_weights)
+  }
+  scale_fn <- if (is.null(sampling_weights)) {
+    stats::sd
+  } else {
+    function(x) weighted_scale(x, sampling_weights)
+  }
+
+  records <- list()
+  for (cov in covariates) {
+    v <- covariate_values(data, cov)
+    if (is.factor(v) || is.character(v)) {
+      levels <- if (is.factor(v)) {
+        levels(v)
+      } else {
+        sort(unique(as.character(v)))
+      }
+      for (level in levels) {
+        records[[length(records) + 1L]] <- new_recipe_record(
+          term = paste0(cov, "_", level),
+          kind = "moment",
+          type = "indicator",
+          source = cov,
+          level = level
+        )
+      }
+    } else if (is.logical(v) || is_binary_numeric(v)) {
+      records[[length(records) + 1L]] <- new_recipe_record(
+        term = cov,
+        kind = "moment",
+        type = "indicator",
+        source = cov,
+        level = NA_character_
+      )
+    } else {
+      base_center <- center_fn(v)
+      raw <- v - base_center
+      scale <- scale_fn(raw)
+      if (scale == 0) {
+        scale <- 1
+      }
+      records[[length(records) + 1L]] <- new_recipe_record(
+        term = cov,
+        kind = "moment",
+        type = "numeric",
+        source = cov,
+        power = 1L,
+        base_center = base_center,
+        center = center_fn(raw),
+        scale = scale
+      )
+    }
+  }
+
+  columns <- rebuild_constraint_matrix(records, data)
+  for (drop in list(constant_columns, aliased_columns)) {
+    dropped <- drop(columns)
+    if (length(dropped) > 0) {
+      keep <- setdiff(seq_along(records), dropped)
+      records <- records[keep]
+      columns <- columns[, keep, drop = FALSE]
+    }
+  }
+
+  list(
+    columns = columns,
+    moments = covariate_constraint_moments(records, covariates)
+  )
+}
+
+fit_energy_continuous <- function(method, prepared, enforce, backend) {
   n <- prepared$n
   s <- prepared$sampling_weights
   covs <- distance_covariates(prepared$data, prepared$covariates)
@@ -462,57 +659,145 @@ fit_energy_continuous <- function(method, prepared, backend) {
   # The distribution-moment constraints hold the weighted exposure and covariate
   # marginals equal to the sample under the base measure. Every one of those rows
   # takes the same measure, so a fit under informative sampling holds the
-  # exposure and the covariates to one population rather than two. They are
-  # raised to at least the constraint moments, with an alert when the requested
-  # value is smaller. The weighted distance covariance the objective minimizes is
-  # what drives the exposure-covariate association toward zero, so no separate
-  # correlation constraint is added in the default fit.
-  covariate_moments <- covariate_constraint_moments(
-    prepared$recipe,
-    prepared$covariates
-  )
-  constraint_moments <- max(1L, max(covariate_moments, 0L))
-  moments <- resolve_distribution_moments(
-    method@distribution_moments,
-    constraint_moments
+  # exposure and the covariates to one population rather than two.
+  # `distribution_moments` is the only argument that sets how many of them there
+  # are: the constraint set a caller passes to balance_terms() asks for
+  # exposure-covariate correlation rows here, and the marginal rows are built
+  # from the covariates and `distribution_moments` alone.
+  moments <- method@distribution_moments %||% 1L
+  marginals <- marginal_distribution_columns(
+    prepared$data,
+    prepared$covariates,
+    prepared$constraint_sampling_weights
   )
 
   d_treat <- center_on_measure(moment_columns(exposure, moments), measure)
   extra_covariate_marginals <- higher_covariate_marginals(
     prepared$data,
-    covariate_moments,
+    marginals$moments,
     moments
   )
   d_covs <- center_on_measure(
-    do.call(cbind, c(list(z), extra_covariate_marginals)),
+    do.call(
+      cbind,
+      c(list(marginals$columns), extra_covariate_marginals)
+    ),
     measure
   )
 
-  bal_covs <- matrix(numeric(0), nrow = n, ncol = 0)
-  bal_tols <- numeric(0)
+  # The correlation rows hold the weighted correlation of the exposure with each
+  # constraint column inside that column's tolerance, which is what `moments` and
+  # `interactions` in balance_terms() ask for on a continuous exposure. The core
+  # standardizes the exposure on the base measure itself and the first
+  # distribution row pins its weighted mean there, so a row driven to zero is a
+  # weighted covariance of zero rather than one offset by the gap between the two
+  # exposure means, and a column whose own weighted mean is not pinned is covered
+  # as well. Without a requested constraint set the weighted distance covariance
+  # the objective minimizes is what drives the association toward zero, and no
+  # correlation row is added.
+  target <- if (enforce) {
+    prepared$tolerances
+  } else {
+    numeric(0)
+  }
+  bal_covs <- if (enforce) {
+    z
+  } else {
+    matrix(numeric(0), nrow = n, ncol = 0)
+  }
 
   options <- energy_options(method, backend)
 
-  result <- solve_energy_cont(
-    covs,
-    exposure,
-    s,
-    method@distance,
-    method@dimension_adjustment,
-    method@min_weight,
-    method@weight_penalty,
-    d_covs,
-    d_treat,
-    bal_covs,
-    bal_tols,
-    options
-  )
+  # The row the quadratic program bounds is a linearized correlation whose
+  # exposure and covariate scales are fixed at the sampling-weight sample.
+  # Reweighting to meet the bound shrinks both weighted standard deviations, so
+  # the true weighted Pearson correlation the fit is judged on runs above the
+  # bound by the product of the two shrinkage ratios: a single solve at a
+  # tolerance of 0.05 lands between 0.070 and 0.086 at 200 to 1000 observations.
+  # The bound handed to the program is therefore tightened over a few passes
+  # until the reported correlation sits inside the requested band, the same
+  # refinement fit_sbw_continuous() runs against the same statistic. Each pass
+  # rescales a binding column's bound toward its target, never above it, so the
+  # loop tightens monotonically, and it stops once every column is inside the
+  # band the balance table judges it against. A band the passes cannot reach is
+  # kept at the last iterate that converged and reported: the table then judges
+  # it out of balance and the fit warns through the ordinary balance warning.
+  #
+  # Exact balance and a fit with no correlation rows have nothing to tighten and
+  # take a single pass. Each pass costs a whole solve, and the reported
+  # iterations sum every one of them.
+  effective <- target
+  iterations <- 0L
+  result <- NULL
+  last_converged <- NULL
+  for (pass in seq_len(correlation_refinement_passes)) {
+    result <- solve_energy_with_fallback(method, options, function(opts) {
+      solve_energy_cont(
+        covs,
+        exposure,
+        s,
+        method@distance,
+        method@dimension_adjustment,
+        method@min_weight,
+        method@weight_penalty,
+        d_covs,
+        d_treat,
+        bal_covs,
+        effective,
+        opts
+      )
+    })
+    iterations <- iterations + as.integer(result$iterations)
+    if (!isTRUE(result$converged)) {
+      # A tightened pass that certifies infeasibility means the requested
+      # correlation band is unreachable, which surfaces honestly as the
+      # infeasible condition. A pass that merely ran out of iterations falls
+      # back to the last converged iterate, which the balance warning then
+      # judges, rather than reporting the unsettled iterate a tightened bound
+      # left behind.
+      if (
+        !identical(result$status, "primal_infeasible") &&
+          !is.null(last_converged)
+      ) {
+        result <- last_converged
+      }
+      break
+    }
+    # A fit with nothing to tighten leaves before the measurement as well as
+    # before the second solve, so the default fit pays for no correlation it
+    # would not have computed.
+    if (!any(target > 0)) {
+      break
+    }
+    last_converged <- result
+    # cov.wt normalizes internally, so the composed sampling weights, not their
+    # renormalized copy, carry the reweighting the reported statistic reflects.
+    composed <- as.numeric(result$weights) * s
+    achieved <- weighted_exposure_correlations(exposure, z, composed)
+    binding <- target > 0 & achieved > target + balance_margin(target)
+    if (!any(binding)) {
+      break
+    }
+    ratio <- ifelse(achieved > 0, target / achieved, 1)
+    effective[binding] <- pmin(
+      target[binding],
+      effective[binding] * ratio[binding] * correlation_refinement_safety
+    )
+  }
+  result$iterations <- iterations
 
   # The continuous solve carries one total-sum row followed by the distribution
   # rows; the box rows bound each of the n units.
   n_structural_leading <- 1L
   duals <- energy_duals_frame(result$duals, n, n_structural_leading)
-  assemble_energy(result, method, prepared, duals, approximate = TRUE)
+  assemble_energy(
+    result,
+    method,
+    prepared,
+    duals,
+    approximate = !enforce,
+    enforced_tolerance = if (enforce) NULL else 0
+  )
 }
 
 # The solver's dual variables for the structural constraint rows, dropping the
@@ -549,7 +834,14 @@ energy_duals_frame <- function(duals, nvar, n_group_rows) {
 # scaled to the focal total, which leaves the focal group at its base weight. A
 # continuous fit is a single group scaled to the sampling-weight total. The
 # quadratic-program family carries no estimating equations.
-assemble_energy <- function(result, method, prepared, duals, approximate) {
+assemble_energy <- function(
+  result,
+  method,
+  prepared,
+  duals,
+  approximate,
+  enforced_tolerance = NULL
+) {
   s <- prepared$sampling_weights
   estimand <- prepared$estimand
   focal <- prepared$focal_level
@@ -597,6 +889,15 @@ assemble_energy <- function(result, method, prepared, duals, approximate) {
     # are enforced, so the balance warning must not fire against a tolerance the
     # fit does not target.
     approximate = approximate,
+    # The tolerance the fit held its rows at, where that is the method's own
+    # value rather than the one the specification asked for, so the balance
+    # table reports what the program enforced. A fit that added no constraint
+    # rows is the case: a tolerance reached no row of the program, so what it
+    # enforced is zero, and reporting the requested band instead would print a
+    # box nothing was placed in. A fit that did add rows holds them inside the
+    # requested band, so it leaves this `NULL` and the table reads the
+    # per-column tolerances the specification named.
+    enforced_tolerance = enforced_tolerance,
     groups = groups
   )
 }

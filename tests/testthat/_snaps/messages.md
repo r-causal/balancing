@@ -14,7 +14,7 @@
       Observations: 500
       Solver: did not converge in <n> iterations
       Constraints: 2 terms (tolerance 0)
-      Largest imbalance: 0.0000 (standardized mean difference)
+      Largest imbalance: <1e-7 (standardized mean difference)
 
 # balancing_balance_warning: achieved balance exceeds the tolerance
 
@@ -24,7 +24,7 @@
     Condition <balancing_balance_warning>
       Warning in `balance()`:
       The achieved balance exceeds the requested tolerance.
-      x The largest imbalance is 0.1751.
+      x The largest imbalance is 0.175.
       i Raise `tolerance` in `balance_terms()`, lower the moments, or drop interactions.
     Output
       -- Entropy balancing -----------------------------------------------------------
@@ -33,7 +33,7 @@
       Observations: 500
       Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0.1)
-      Largest imbalance: 0.1751 (correlation)
+      Largest imbalance: 0.175 (correlation)
 
 # balancing_ignored_argument_warning: two_step without over_identified
 
@@ -51,7 +51,7 @@
       Observations: 500
       Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
-      Largest imbalance: 0.0000 (standardized mean difference)
+      Largest imbalance: <1e-7 (standardized mean difference)
 
 # balancing_ignored_argument_warning: over_identified for a categorical exposure
 
@@ -69,7 +69,7 @@
       Observations: 500
       Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
-      Largest imbalance: 0.0000 (standardized mean difference)
+      Largest imbalance: <1e-7 (standardized mean difference)
 
 # balancing_ignored_argument_warning: over_identified for a continuous exposure
 
@@ -87,7 +87,7 @@
       Observations: 500
       Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
-      Largest imbalance: 0.0000 (correlation)
+      Largest imbalance: <1e-7 (correlation)
 
 # balancing_ignored_argument_warning: link for a continuous exposure
 
@@ -104,7 +104,7 @@
       Observations: 500
       Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
-      Largest imbalance: 0.0000 (correlation)
+      Largest imbalance: <1e-7 (correlation)
 
 # balancing_ignored_argument_warning: every argument a categorical fit ignores
 
@@ -125,7 +125,7 @@
       Observations: 500
       Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
-      Largest imbalance: 0.0000 (standardized mean difference)
+      Largest imbalance: <1e-7 (standardized mean difference)
 
 # balancing_ignored_argument_warning: a clarabel pin the energy kernel cannot honor
 
@@ -164,14 +164,14 @@
       Constraints: 2 terms (tolerance 0)
       Largest imbalance: 0.0118 (standardized mean difference)
 
-# balancing_ignored_argument_warning: focal_level with a pooled estimand
+# balancing_ignored_argument_warning: .focal_level with a pooled estimand
 
     Code
       balance(data, exposure, c(x1, x2), method = bw_entropy(), estimand = "ate",
-      focal_level = 1)
+      .focal_level = 1)
     Condition <balancing_ignored_argument_warning>
       Warning in `balance()`:
-      `focal_level` applies to the "att" and "atc" estimands and is ignored.
+      `.focal_level` applies to the "att" and "atc" estimands and is ignored.
       i The "ate" estimand reweights every exposure group rather than holding one fixed.
     Output
       -- Entropy balancing -----------------------------------------------------------
@@ -180,7 +180,7 @@
       Observations: 500
       Solver: converged in <n> iterations
       Constraints: 2 terms (tolerance 0)
-      Largest imbalance: 0.0000 (standardized mean difference)
+      Largest imbalance: <1e-7 (standardized mean difference)
 
 # balancing_class_downgrade_warning: mismatched estimands
 

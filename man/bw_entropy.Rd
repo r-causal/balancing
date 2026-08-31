@@ -34,10 +34,15 @@ and responds to this value across its range. A positive tolerance selects
 the inexact problem, solved by FISTA against the relative change in the
 loss; that criterion is the weaker of the two, so the value is tightened to
 at most \code{1e-14} to hold the achieved balance inside the requested box, and
-anything above \code{1e-14} is inert there.}
+anything above \code{1e-14} is inert there. \code{1e-10} is both this argument's
+default and the value the solver resolves for \code{NULL}.}
 
-\item{max_iterations}{The maximum solver iterations, or \code{NULL} for the core
-default.}
+\item{max_iterations}{The maximum solver iterations, or \code{NULL} for the
+resolved default of 1000. When the L-BFGS then Newton hybrid runs, either
+as the automatic retry of a Newton solve that came back short or because
+\code{options(balancing.entropy_solver = "lbfgs_then_newton")} asked for it, the
+cap applies to each phase separately and the reported iteration count is
+the sum of the two, so such a fit can report more iterations than the cap.}
 }
 \value{
 An \code{bw_entropy} specification, a \link{balance_method}.

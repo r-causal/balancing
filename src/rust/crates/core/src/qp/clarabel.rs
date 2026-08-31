@@ -64,7 +64,7 @@ impl QpBackend for Clarabel {
         // own dimension check accepts it. With constraint rows still present it
         // returns an infeasibility certificate against rows no variable can satisfy;
         // with no rows either, the KKT system is empty and its factorization indexes
-        // the first entry of nothing. OSQP's data validation refuses the same spec,
+        // the first entry of nothing. The OSQP backend refuses the same spec,
         // and every method turns that refusal into a degenerate result carrying a
         // failure status, so refusing it here keeps the two backends interchangeable
         // and keeps the R layer raising one condition rather than two.
@@ -430,7 +430,7 @@ mod tests {
 
     #[test]
     fn a_spec_with_no_decision_variables_is_refused_by_both_backends() {
-        // OSQP's data validation refuses a spec with no variables, and the methods
+        // The OSQP backend refuses a spec with no variables, and the methods
         // turn that refusal into a degenerate result carrying a failure status.
         // Clarabel's own dimension check accepts it, so without a guard the same
         // spec would reach the R layer as an infeasibility certificate under one

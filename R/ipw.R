@@ -867,8 +867,10 @@ method(causalgenerics_ipw, balancing) <- function(
     # One description of the reported surface serves both the reading the
     # result declares and the rows it stores, so the branch below and the
     # estimates table cannot disagree about how many columns the exposure
-    # entered through.
-    identity <- msm_coefficient_identity(outcome_mod, exposure_name)
+    # entered through. It is the same description the sandwich named the stacked
+    # parameters from, taken from what that call returned rather than worked out
+    # again, which extends the agreement to those names.
+    identity <- variance_system$surface
 
     # An exposure entering through several columns leaves the marginal reading
     # without a surface: a curve has a different slope at every dose, so no
@@ -1030,7 +1032,11 @@ method(causalgenerics_ipw, balancing) <- function(
     ),
     estimates = estimates,
     se_method = "mestimation",
-    fit = variance_system,
+    # The surface a continuous stack also returns was consumed above, in naming
+    # the rows this result reports, and is no part of the fitted variance system
+    # a caller reads off `fit`, so only the two elements every route produces
+    # are stored.
+    fit = variance_system[c("theta", "vcov")],
     effects = effects,
     readings = readings
   )
@@ -1404,6 +1410,9 @@ validate_ipw_outcome_model <- function(
   # An offset carrying the exposure spoils both exposure types, so the check runs
   # before the branch rather than inside it.
   validate_ipw_exposure_offset(outcome_mod, exposure_name, call = call)
+  # An aliased coefficient spoils both exposure types as well, since the stack
+  # reads the whole coefficient vector back whichever route builds it.
+  validate_ipw_outcome_coefficients(outcome_mod, call = call)
   if (continuous_exposure) {
     validate_ipw_exposure_terms(outcome_mod, exposure_name, call = call)
     # The link names the reported effect, so a link no effect name describes is
@@ -1623,6 +1632,38 @@ validate_ipw_exposure_offset <- function(
       i = "An offset is held at its observed value while the exposure is fixed to each level, so the marginal means would read one exposure in the design and another in the offset.",
       i = "For a continuous exposure the same offset leaves the exposure coefficient something other than the effect of a one-unit change.",
       i = "An offset that does not read the exposure, such as the person-time offset of a rate model, is supported."
+    ),
+    error_class = "balancing_ipw_input_error",
+    call = call,
+    .envir = environment()
+  )
+}
+
+# A design matrix whose columns are linearly dependent leaves the fit with a
+# missing coefficient for every column the pivoting dropped, and the fit itself
+# reports those coefficients rather than refusing: the columns it kept are
+# estimable and their predictions are unaffected. The stack has no such
+# latitude. It reads the whole coefficient vector back as the outcome block's
+# starting parameters, so a missing entry enters as a non-finite theta, every
+# stacked estimating function it touches comes back non-finite, and the variance
+# engine refuses the system under a class of its own from a frame the caller
+# never wrote. That refusal names neither the outcome model nor the column that
+# caused it, and the caller can only see the model they passed, so the aliasing
+# is read off the coefficients here and the redundant columns are named.
+validate_ipw_outcome_coefficients <- function(
+  outcome_mod,
+  call = rlang::caller_env()
+) {
+  coefficients <- stats::coef(outcome_mod)
+  if (!anyNA(coefficients)) {
+    return(invisible(NULL))
+  }
+  aliased <- names(coefficients)[is.na(coefficients)]
+  abort(
+    c(
+      "{.arg outcome_mod} must have an estimate for every coefficient.",
+      x = "{cli::qty(aliased)}It is rank deficient, so the coefficient{?s} {.val {aliased}} {?is/are} not estimable.",
+      i = "{cli::qty(aliased)}Drop the aliased term{?s} from {.arg outcome_mod} and fit it again before calling {.fun ipw}."
     ),
     error_class = "balancing_ipw_input_error",
     call = call,

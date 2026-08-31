@@ -72,6 +72,46 @@ group_target_sums <- function(s, groups, focal_level = NULL) {
   targets
 }
 
+# A solve that diverged returns weights that are not finite, which leaves the
+# total a renormalization divides by as a missing value. That is a failed solve
+# rather than a reporting-scale question, so it is refused with a classed error
+# instead of steering a comparison with a missing value. Both exposure paths
+# refuse it here so the failure reads the same either way. `solvers` names the
+# solvers that produced the weights, so a fit that fell back from one solver to
+# another reports both rather than an anonymous single failure. `level` names
+# the exposure level whose total failed, which only a grouped fit has; the
+# continuous path normalizes the sample as a whole and passes none.
+check_finite_weight_total <- function(
+  total,
+  solvers = NULL,
+  level = NULL,
+  call = rlang::caller_env()
+) {
+  if (is.finite(total)) {
+    return(invisible(NULL))
+  }
+  tried <- solver_labels(solvers)
+  detail <- if (is.null(level)) {
+    "The weights do not sum to a finite total."
+  } else {
+    "The weights for exposure level {.val {level}} do not sum to a finite total."
+  }
+  bullets <- c(
+    "The solver did not produce finite weights.",
+    x = detail,
+    i = "Check the covariates for collinearity or for a column the exposure determines."
+  )
+  if (length(tried) > 1L) {
+    bullets[[1L]] <- "Neither solver produced finite weights."
+    bullets <- append(bullets, c(x = "The fit tried {tried}."), after = 1L)
+  }
+  abort(
+    bullets,
+    error_class = "balancing_convergence_error",
+    call = call
+  )
+}
+
 # Move each exposure group's weights onto its reported total. The solvers
 # normalize on their own internal convention and the reported convention places
 # each group's sampling-weighted total at `targets`, so the correction is one
@@ -80,13 +120,6 @@ group_target_sums <- function(s, groups, focal_level = NULL) {
 # scale to move to and is left alone. The arguments are the weights together
 # with the groups and targets rather than a fitted object, so a caller
 # re-evaluating the weights at other parameters can apply the same convention.
-#
-# A solve that diverged returns weights that are not finite, which leaves the
-# group total this divides by as a missing value. That is a failed solve rather
-# than a reporting-scale question, so it is refused here with a classed error
-# instead of steering the comparison below with a missing value. `solvers` names
-# the solvers that produced the weights, so a fit that fell back from one solver
-# to another reports both rather than an anonymous single failure.
 renormalize_group_weights <- function(
   w,
   s,
@@ -95,26 +128,15 @@ renormalize_group_weights <- function(
   solvers = NULL,
   call = rlang::caller_env()
 ) {
-  tried <- solver_labels(solvers)
   for (level in names(groups)) {
     idx <- groups[[level]]
     current <- sum(s[idx] * w[idx])
-    if (!is.finite(current)) {
-      bullets <- c(
-        "The solver did not produce finite weights.",
-        x = "The weights for exposure level {.val {level}} do not sum to a finite total.",
-        i = "Check the covariates for collinearity or for a column the exposure determines."
-      )
-      if (length(tried) > 1L) {
-        bullets[[1L]] <- "Neither solver produced finite weights."
-        bullets <- append(bullets, c(x = "The fit tried {tried}."), after = 1L)
-      }
-      abort(
-        bullets,
-        error_class = "balancing_convergence_error",
-        call = call
-      )
-    }
+    check_finite_weight_total(
+      current,
+      solvers = solvers,
+      level = level,
+      call = call
+    )
     if (current > 0) {
       w[idx] <- w[idx] * (targets[[level]] / current)
     }
@@ -256,6 +278,13 @@ check_tolerance <- function(tolerance, call = rlang::caller_env()) {
 # CRAN run never spawns more than the checker permits. The count is computed on
 # the R side and passed to the core, which re-checks OMP_THREAD_LIMIT as a
 # backstop.
+#
+# That list is the whole of it: RAYON_NUM_THREADS is not read anywhere. The core
+# never installs a rayon global pool, and every parallel region runs inside a
+# pool built with an explicit `num_threads()` (crates/core/src/threads.rs), which
+# is the setting rayon consults the environment variable in place of. So the
+# variable that would size a default rayon pool has no path to one here, and a
+# user who sets it and sees no change is seeing the documented behavior.
 resolve_threads <- function(threads = NULL) {
   if (!is.null(threads)) {
     return(max(1L, as.integer(threads)))
@@ -271,7 +300,7 @@ automatic_threads <- function() {
   if (nzchar(Sys.getenv("_R_CHECK_LIMIT_CORES_"))) {
     return(2L)
   }
-  physical <- parallel::detectCores(logical = FALSE)
+  physical <- physical_cores()
   if (is.na(physical) || physical < 1L) {
     physical <- 1L
   }
@@ -281,6 +310,32 @@ automatic_threads <- function() {
     env_thread_cap("OMP_NUM_THREADS")
   )
   max(1L, as.integer(min(caps)))
+}
+
+# Session state the package computes once and reads many times. It holds only
+# values that cannot change while the session runs, so nothing invalidates an
+# entry except a test that wants to observe the computation.
+.balancing_cache <- new.env(parent = emptyenv())
+
+# The number of physical cores, read once per session. `parallel::detectCores()`
+# asks the operating system, which on macOS means launching `sysctl`: measured at
+# 13 milliseconds, half of what a five-hundred-row entropy fit takes in total,
+# and paid again on every fit that does not name its own thread count. The answer
+# is a property of the machine rather than of the fit, so the first reading is
+# recorded and every later one is answered from the record.
+physical_cores <- function() {
+  if (is.null(.balancing_cache$physical_cores)) {
+    .balancing_cache$physical_cores <- parallel::detectCores(logical = FALSE)
+  }
+  .balancing_cache$physical_cores
+}
+
+# Discard the recorded core count so the next reading asks the operating system
+# again. Nothing in a fit calls this; it exists for the tests that mock
+# `parallel::detectCores()` and need the record not to answer in its place.
+reset_physical_cores <- function() {
+  .balancing_cache$physical_cores <- NULL
+  invisible(NULL)
 }
 
 # Resolve the solver for the exact entropy problem. The default is Newton, the

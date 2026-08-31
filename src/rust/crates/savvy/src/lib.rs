@@ -29,8 +29,8 @@ use savvy::{
 
 use convert::{
     parse_binary_estimand, parse_cbps_estimand, parse_cbps_multi_estimand, parse_cfd_options,
-    parse_distance, parse_entropy_options, parse_ipt_options, parse_kernel, parse_kernel_options,
-    parse_link, parse_multi_estimand, parse_qp_options, parse_sbw_norm, parse_sbw_options,
+    parse_distance, parse_entropy_options, parse_kernel, parse_kernel_options, parse_link,
+    parse_multi_estimand, parse_qp_options, parse_sbw_norm, parse_sbw_options, parse_score_options,
     parse_smoothness, real_matrix, real_vector, require_binary_treat, require_dense_levels,
     require_finite,
 };
@@ -762,7 +762,7 @@ fn solve_ipt(
 ) -> savvy::Result<savvy::Sexp> {
     let n = s_weights.len();
     let p = covs.len().checked_div(n).unwrap_or(0);
-    let opts = parse_ipt_options(options)?;
+    let opts = parse_score_options(options)?;
     let link = parse_link(link)?;
     let estimand = parse_binary_estimand(estimand)?;
 
@@ -821,7 +821,7 @@ fn solve_ipt_multi(
 ) -> savvy::Result<savvy::Sexp> {
     let n = s_weights.len();
     let p = covs.len().checked_div(n).unwrap_or(0);
-    let opts = parse_ipt_options(options)?;
+    let opts = parse_score_options(options)?;
     let link = parse_link(link)?;
 
     if n == 0 || covs.len() != n * p {
@@ -1075,7 +1075,7 @@ fn solve_cbps(
     let n = s_weights.len();
     let p_mod = covs_mod.len().checked_div(n).unwrap_or(0);
     let p_bal = covs_bal.len().checked_div(n).unwrap_or(0);
-    let opts = parse_ipt_options(options)?;
+    let opts = parse_score_options(options)?;
     let link = parse_link(link)?;
     let estimand = parse_cbps_estimand(estimand)?;
 
@@ -1276,7 +1276,7 @@ fn solve_cbps_multi(
 ) -> savvy::Result<savvy::Sexp> {
     let n = s_weights.len();
     let p = covs.len().checked_div(n).unwrap_or(0);
-    let opts = parse_ipt_options(options)?;
+    let opts = parse_score_options(options)?;
     let link = parse_link(link)?;
     let estimand = parse_cbps_multi_estimand(estimand)?;
 
@@ -1340,7 +1340,7 @@ fn solve_cbps_cont(
 ) -> savvy::Result<savvy::Sexp> {
     let n = s_weights.len();
     let p = covs.len().checked_div(n).unwrap_or(0);
-    let opts = parse_ipt_options(options)?;
+    let opts = parse_score_options(options)?;
 
     if n == 0 || covs.len() != n * p {
         return Err(savvy::Error::new(format!(

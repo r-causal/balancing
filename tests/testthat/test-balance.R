@@ -58,7 +58,7 @@ test_that("everything() excludes the exposure from its own covariates", {
 
   expect_identical(fit@covariates, c("x1", "x2", "x3"))
   expect_false("exposure" %in% fit@balance_table$term)
-  expect_true(all(is.finite(as.numeric(stats::weights(fit)))))
+  expect_all(as.numeric(stats::weights(fit)), is.finite)
 })
 
 test_that("a covariate selection naming only the exposure is a classed error", {
@@ -193,7 +193,7 @@ test_that("a binary factor with an unused level fits an estimating-equation meth
   data$exposure <- factor(data$exposure, levels = c(0, 1, 2))
   fit <- balance(data, exposure, c(x1, x2), method = bw_entropy())
   expect_equal(fit@exposure_levels, c("0", "1"))
-  expect_true(all(is.finite(as.numeric(stats::weights(fit)))))
+  expect_all(as.numeric(stats::weights(fit)), is.finite)
 })
 
 test_that("a binary factor with an unused level fits a quadratic-program method", {
@@ -215,7 +215,7 @@ test_that("a binary factor with an unused level fits a quadratic-program method"
     function(idx) sum(w[idx])^2 / sum(w[idx]^2),
     numeric(1)
   )
-  expect_true(all(is.finite(group_ess)))
+  expect_all(group_ess, is.finite)
 })
 
 test_that("a categorical factor with an unused level fits an estimating-equation method", {
@@ -228,7 +228,7 @@ test_that("a categorical factor with an unused level fits an estimating-equation
   )
   fit <- balance(data, exposure, c(x1, x2), method = bw_ipt())
   expect_false("zzz" %in% fit@exposure_levels)
-  expect_true(all(is.finite(as.numeric(stats::weights(fit)))))
+  expect_all(as.numeric(stats::weights(fit)), is.finite)
 })
 
 test_that("a categorical factor with an unused level keeps a finite effective sample size", {
@@ -248,7 +248,7 @@ test_that("a categorical factor with an unused level keeps a finite effective sa
     function(idx) sum(w[idx])^2 / sum(w[idx]^2),
     numeric(1)
   )
-  expect_true(all(is.finite(group_ess)))
+  expect_all(group_ess, is.finite)
 })
 
 test_that("dropping an unused exposure level announces itself", {
@@ -494,13 +494,39 @@ test_that("a focal estimand needs a level outside the focal group", {
       c(x1, x2),
       method = bw_entropy(),
       estimand = "att",
-      focal_level = 1
+      .focal_level = 1
     ),
     class = "balancing_estimand_error"
   )
 })
 
-test_that("a binary att infers the treated level without focal_level", {
+# ---- The public focal-level argument ---------------------------------------
+
+# The user-facing argument is `.focal_level`, which is the name propensity's
+# weight constructors use for the same quantity, while the property it resolves
+# to on the fit keeps the bare name. The package is unreleased, so the old
+# argument name is not accepted anywhere: `balance()` closes its dots, and a
+# name it does not have is refused there rather than absorbed in silence.
+test_that("balance() takes .focal_level rather than focal_level", {
+  arguments <- names(formals(balance))
+  expect_true(".focal_level" %in% arguments)
+  expect_false("focal_level" %in% arguments)
+
+  data <- sim_categorical(n = 200)
+  expect_error(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_entropy(),
+      estimand = "att",
+      focal_level = "b"
+    ),
+    class = "rlib_error_dots_nonempty"
+  )
+})
+
+test_that("a binary att infers the treated level without .focal_level", {
   data <- sim_binary(n = 200)
   fit <- balance(
     data,
@@ -512,7 +538,7 @@ test_that("a binary att infers the treated level without focal_level", {
   expect_identical(fit@focal_level, "1")
 })
 
-test_that("a categorical att requires focal_level", {
+test_that("a categorical att requires .focal_level", {
   data <- sim_categorical(n = 200)
   expect_error(
     balance(
@@ -526,7 +552,7 @@ test_that("a categorical att requires focal_level", {
   )
 })
 
-test_that("a categorical att honors a supplied focal_level", {
+test_that("a categorical att honors a supplied .focal_level", {
   data <- sim_categorical(n = 200)
   fit <- balance(
     data,
@@ -534,7 +560,7 @@ test_that("a categorical att honors a supplied focal_level", {
     c(x1, x2),
     method = bw_entropy(),
     estimand = "att",
-    focal_level = "b"
+    .focal_level = "b"
   )
   expect_identical(fit@focal_level, "b")
 })
@@ -546,7 +572,7 @@ test_that("a categorical att honors a supplied focal_level", {
 # reach the check that the supplied one is an exposure level at all. A level that
 # does not exist used to be accepted in silence, which reads as a fit that
 # targeted it.
-test_that("focal_level with the average treatment effect warns and is ignored", {
+test_that(".focal_level with the average treatment effect warns and is ignored", {
   data <- sim_binary(n = 200)
   expect_warning(
     fit <- balance(
@@ -555,14 +581,14 @@ test_that("focal_level with the average treatment effect warns and is ignored", 
       c(x1, x2),
       method = bw_entropy(),
       estimand = "ate",
-      focal_level = 1
+      .focal_level = 1
     ),
     class = "balancing_ignored_argument_warning"
   )
   expect_null(fit@focal_level)
 })
 
-test_that("a focal_level that is not an exposure level still warns", {
+test_that("a .focal_level that is not an exposure level still warns", {
   data <- sim_binary(n = 200)
   expect_warning(
     balance(
@@ -571,13 +597,13 @@ test_that("a focal_level that is not an exposure level still warns", {
       c(x1, x2),
       method = bw_entropy(),
       estimand = "ate",
-      focal_level = "nonesuch"
+      .focal_level = "nonesuch"
     ),
     class = "balancing_ignored_argument_warning"
   )
 })
 
-test_that("focal_level with the overlap estimand warns and is ignored", {
+test_that(".focal_level with the overlap estimand warns and is ignored", {
   data <- sim_binary(n = 200)
   expect_warning(
     fit <- balance(
@@ -586,14 +612,14 @@ test_that("focal_level with the overlap estimand warns and is ignored", {
       c(x1, x2),
       method = bw_cbps(),
       estimand = "ato",
-      focal_level = 0
+      .focal_level = 0
     ),
     class = "balancing_ignored_argument_warning"
   )
   expect_null(fit@focal_level)
 })
 
-test_that("a pooled estimand without focal_level is silent", {
+test_that("a pooled estimand without .focal_level is silent", {
   data <- sim_binary(n = 200)
   expect_no_warning(
     balance(data, exposure, c(x1, x2), method = bw_entropy(), estimand = "ate")
@@ -603,7 +629,7 @@ test_that("a pooled estimand without focal_level is silent", {
   )
 })
 
-test_that("a focal estimand with focal_level does not warn", {
+test_that("a focal estimand with .focal_level does not warn", {
   data <- sim_categorical(n = 200)
   expect_no_warning(
     balance(
@@ -612,7 +638,7 @@ test_that("a focal estimand with focal_level does not warn", {
       c(x1, x2),
       method = bw_entropy(),
       estimand = "att",
-      focal_level = "b"
+      .focal_level = "b"
     )
   )
 })
@@ -649,7 +675,7 @@ test_that("a single-level exposure is refused for every estimand", {
       c(x1, x2),
       method = bw_entropy(),
       estimand = "att",
-      focal_level = 1
+      .focal_level = 1
     ),
     class = "balancing_estimand_error"
   )
@@ -919,8 +945,8 @@ test_that("partly zero sampling weights that leave every group mass still fit", 
     method = bw_entropy(),
     sampling_weights = sampling
   )
-  expect_true(all(is.finite(as.numeric(stats::weights(fit)))))
-  expect_true(all(is.finite(fit@balance_table$weighted)))
+  expect_all(as.numeric(stats::weights(fit)), is.finite)
+  expect_finite_column(fit@balance_table, "weighted")
 })
 
 # The base-weight length mismatch belongs to the entropy fit, which names the
@@ -1032,7 +1058,7 @@ test_that("a constant covariate leaves a continuous-exposure fit intact", {
   # The constant column is dropped before the fit, so the balance table reports
   # only the covariates that carry information and every verdict resolves.
   expect_false("fixed" %in% fit@balance_table$term)
-  expect_true(all(is.finite(fit@balance_table$weighted)))
+  expect_finite_column(fit@balance_table, "weighted")
   expect_true(all(fit@balance_table$within_tolerance))
 })
 
@@ -1042,7 +1068,7 @@ test_that("a single-level factor leaves a continuous-exposure fit intact", {
   fit <- balance(data, exposure, c(x1, x2, f), method = bw_entropy())
 
   expect_false("f_a" %in% fit@balance_table$term)
-  expect_true(all(is.finite(fit@balance_table$weighted)))
+  expect_finite_column(fit@balance_table, "weighted")
   expect_true(all(fit@balance_table$within_tolerance))
 })
 
@@ -1052,7 +1078,7 @@ test_that("a single-level factor leaves a binary-exposure fit intact", {
   fit <- balance(data, exposure, c(x1, x2, f), method = bw_entropy())
 
   expect_false("f_a" %in% fit@balance_table$term)
-  expect_true(all(fit@balance_table$within_tolerance))
+  expect_column_all(fit@balance_table, "within_tolerance", function(x) x)
 })
 
 test_that("a constant covariate leaves a binary-exposure fit and ipw() intact", {
@@ -1062,7 +1088,7 @@ test_that("a constant covariate leaves a binary-exposure fit and ipw() intact", 
   fit <- balance(data, exposure, c(x1, x2, fixed), method = bw_entropy())
 
   expect_false("fixed" %in% fit@balance_table$term)
-  expect_true(all(fit@balance_table$within_tolerance))
+  expect_column_all(fit@balance_table, "within_tolerance", function(x) x)
 
   data$.wts <- as.numeric(stats::weights(fit))
   outcome_model <- suppressWarnings(stats::glm(
@@ -1071,8 +1097,8 @@ test_that("a constant covariate leaves a binary-exposure fit and ipw() intact", 
     weights = .wts
   ))
   result <- ipw(fit, outcome_model)
-  expect_true(all(is.finite(result$estimates$estimate)))
-  expect_true(all(is.finite(result$estimates$std.err)))
+  expect_finite_column(result$estimates, "estimate")
+  expect_finite_column(result$estimates, "std.err")
 })
 
 # ---- What @covariates records ----------------------------------------------
@@ -1350,5 +1376,199 @@ test_that("a one-row data frame is a classed error", {
   # observations that arrived or the minimum they fell short of.
   for (cnd in list(energy, sbw)) {
     expect_match(conditionMessage(cnd), "\\b(1|one|2|two)\\b")
+  }
+})
+
+# ---- difftime covariates ---------------------------------------------------
+
+# A duration column carries its number in a plain numeric vector with a `units`
+# attribute, so the arithmetic the constraint expansion performs on a numeric
+# covariate is defined for it apart from `^`, which base R refuses for the class.
+# The contract is that such a column balances exactly as the same durations
+# stored as bare numbers in the column's own unit would: the fit reads the
+# number, not the unit, so no rescaling and no reinterpretation happens on the
+# way in. The covariate is a product of the two continuous confounders so that it
+# is neither constant nor an affine function of anything else in the selection,
+# which would send it to the aliasing drop before the arithmetic is reached.
+test_that("a difftime covariate balances as its numeric value does", {
+  data <- sim_binary(n = 200)
+  data$dt <- as.difftime(
+    3600 * data$x1 * data$x2 + 7 * 3600,
+    units = "secs"
+  )
+  numeric_data <- data
+  numeric_data$dt <- as.numeric(numeric_data$dt)
+
+  fit <- balance(data, exposure, c(x1, x2, dt), method = bw_entropy())
+  numeric_fit <- balance(
+    numeric_data,
+    exposure,
+    c(x1, x2, dt),
+    method = bw_entropy()
+  )
+
+  expect_identical(fit@covariates, c("x1", "x2", "dt"))
+  expect_true("dt" %in% fit@balance_table$term)
+  expect_identical(
+    fit@balance_table[fit@balance_table$term == "dt", ],
+    numeric_fit@balance_table[numeric_fit@balance_table$term == "dt", ]
+  )
+  expect_identical(fit@balance_table, numeric_fit@balance_table)
+  expect_identical(
+    as.numeric(stats::weights(fit)),
+    as.numeric(stats::weights(numeric_fit))
+  )
+})
+
+# The kernel-distance methods do not read their covariates through the constraint
+# builder: they cross the raw columns into a distance matrix. A duration read
+# there as a categorical column becomes one indicator per distinct value, which
+# is a different fit rather than a differently scaled one, so the contract needs
+# checking on that path too. Both fits are seeded because the conditional
+# feature-density draws are random; the quadratic program itself reproduces
+# bit for bit run to run.
+test_that("a difftime covariate crosses the kernel distance as its number", {
+  data <- sim_binary(n = 200)
+  data$dt <- as.difftime(
+    3600 * data$x1 * data$x2 + 7 * 3600,
+    units = "secs"
+  )
+  numeric_data <- data
+  numeric_data$dt <- as.numeric(numeric_data$dt)
+
+  for (method in list(bw_energy(), bw_cfd())) {
+    fit <- withr::with_seed(
+      2024,
+      balance(data, exposure, c(x1, x2, dt), method = method)
+    )
+    numeric_fit <- withr::with_seed(
+      2024,
+      balance(numeric_data, exposure, c(x1, x2, dt), method = method)
+    )
+
+    expect_identical(fit@covariates, c("x1", "x2", "dt"))
+    expect_identical(fit@balance_table, numeric_fit@balance_table)
+    expect_identical(
+      as.numeric(stats::weights(fit)),
+      as.numeric(stats::weights(numeric_fit))
+    )
+  }
+})
+
+# ---- Date and POSIXct covariates -------------------------------------------
+
+# A date and a date-time reach the fit as the numbers they store, days since
+# 1970-01-01 and seconds since then, the same contract a duration carries. Both
+# the constraint route and the kernel-distance route are pinned, because the two
+# read the column through the same accessor for different reasons: the constraint
+# expansion needs a number it can raise to a power, and the distance needs a
+# number rather than one indicator per distinct instant. The offset is what makes
+# the date-time case worth its own fixture, since a stamp near 1.7e9 with hours
+# of spread is a column whose standardization constants sit nine orders of
+# magnitude above its own spread.
+test_that("a Date covariate balances as the number it stores", {
+  data <- sim_binary(n = 200)
+  data$day <- as.Date("2020-01-01") + 30 * data$x1 * data$x2
+  numeric_data <- data
+  numeric_data$day <- as.numeric(numeric_data$day)
+
+  for (method in list(bw_entropy(), bw_energy())) {
+    fit <- withr::with_seed(
+      2024,
+      balance(data, exposure, c(x1, x2, day), method = method)
+    )
+    numeric_fit <- withr::with_seed(
+      2024,
+      balance(numeric_data, exposure, c(x1, x2, day), method = method)
+    )
+
+    expect_identical(fit@covariates, c("x1", "x2", "day"))
+    expect_true("day" %in% fit@balance_table$term)
+    expect_equal(
+      fit@balance_table[fit@balance_table$term == "day", ],
+      numeric_fit@balance_table[numeric_fit@balance_table$term == "day", ],
+      tolerance = 1e-8
+    )
+    expect_equal(
+      as.numeric(stats::weights(fit)),
+      as.numeric(stats::weights(numeric_fit)),
+      tolerance = 1e-8
+    )
+  }
+})
+
+test_that("a POSIXct covariate balances as the number it stores", {
+  data <- sim_binary(n = 200)
+  data$stamp <- as.POSIXct(
+    1.7e9 + 3600 * data$x1 * data$x2,
+    origin = "1970-01-01",
+    tz = "UTC"
+  )
+  numeric_data <- data
+  numeric_data$stamp <- as.numeric(numeric_data$stamp)
+
+  for (method in list(bw_entropy(), bw_energy())) {
+    fit <- withr::with_seed(
+      2024,
+      balance(data, exposure, c(x1, x2, stamp), method = method)
+    )
+    numeric_fit <- withr::with_seed(
+      2024,
+      balance(numeric_data, exposure, c(x1, x2, stamp), method = method)
+    )
+
+    expect_identical(fit@covariates, c("x1", "x2", "stamp"))
+    expect_true("stamp" %in% fit@balance_table$term)
+    expect_equal(
+      fit@balance_table[fit@balance_table$term == "stamp", ],
+      numeric_fit@balance_table[numeric_fit@balance_table$term == "stamp", ],
+      tolerance = 1e-8
+    )
+    expect_equal(
+      as.numeric(stats::weights(fit)),
+      as.numeric(stats::weights(numeric_fit)),
+      tolerance = 1e-8
+    )
+  }
+})
+
+# A POSIXlt date-time stores the same instant as a POSIXct one, split into
+# calendar components rather than held as a count of seconds, and `as.numeric()`
+# gives both the same seconds since 1970-01-01. Only the class differs, so the
+# two must reach the fit as the same column. Before the coercion read the shared
+# `POSIXt` class, a POSIXlt covariate met base R's own error from raising a
+# difftime to a power, which names neither the covariate nor the class that
+# could not be read.
+test_that("a POSIXlt covariate balances as the POSIXct one it stores", {
+  data <- sim_binary(n = 200)
+  stamp <- as.POSIXct(
+    1.7e9 + 3600 * data$x1 * data$x2,
+    origin = "1970-01-01",
+    tz = "UTC"
+  )
+  lt_data <- data
+  lt_data$stamp <- as.POSIXlt(stamp)
+  ct_data <- data
+  ct_data$stamp <- stamp
+
+  for (method in list(bw_entropy(), bw_energy())) {
+    lt_fit <- withr::with_seed(
+      2024,
+      balance(lt_data, exposure, c(x1, x2, stamp), method = method)
+    )
+    ct_fit <- withr::with_seed(
+      2024,
+      balance(ct_data, exposure, c(x1, x2, stamp), method = method)
+    )
+
+    expect_identical(lt_fit@covariates, c("x1", "x2", "stamp"))
+    expect_equal(
+      lt_fit@balance_table[lt_fit@balance_table$term == "stamp", ],
+      ct_fit@balance_table[ct_fit@balance_table$term == "stamp", ]
+    )
+    expect_equal(
+      as.numeric(stats::weights(lt_fit)),
+      as.numeric(stats::weights(ct_fit))
+    )
   }
 })

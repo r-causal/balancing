@@ -45,11 +45,16 @@ quadratic program.}
 
 \item{min_weight}{The smallest permitted weight.}
 
-\item{convergence_tolerance}{The quadratic-program solver tolerance, or \code{NULL}
-for the core default.}
+\item{convergence_tolerance}{The quadratic-program solver tolerance, or
+\code{NULL} for the resolved default of \code{1e-8}, which the solver applies as both
+its absolute and its relative tolerance. Under the alternating-direction
+backend, which the other kernels take by default and which the \code{"energy"}
+kernel always takes because its quadratic form is indefinite, a tolerance
+below what the problem can reach spends the full iteration cap and then
+warns.}
 
-\item{max_iterations}{The maximum solver iterations, or \code{NULL} for the core
-default.}
+\item{max_iterations}{The maximum solver iterations, or \code{NULL} for the
+resolved default of 200000.}
 }
 \value{
 A \code{bw_cfd} specification, a \link{balance_method}.

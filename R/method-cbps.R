@@ -82,9 +82,10 @@
 #'   `"cloglog"`. Binary and categorical exposures both fit a propensity model
 #'   and consume it. A continuous exposure fits none, so the setting is ignored,
 #'   with a warning, there.
-#' @param convergence_tolerance The solver convergence tolerance.
-#' @param max_iterations The maximum solver iterations, or `NULL` for the core
-#'   default.
+#' @param convergence_tolerance The solver convergence tolerance. `1e-10` is
+#'   both this argument's default and the value the solver resolves for `NULL`.
+#' @param max_iterations The maximum solver iterations, or `NULL` for the
+#'   resolved default of 1000.
 #' @param ... Reserved for future extensions; must be empty. Tuning parameters
 #'   must be passed by name.
 #'

@@ -222,7 +222,7 @@ expect_cfd_matches_oracle <- function(
     c(x1, x2),
     method = bw_cfd(kernel = kernel, weight_penalty = penalty),
     estimand = estimand,
-    focal_level = focal_level
+    .focal_level = focal_level
   )
   expect_true(fit@converged)
 
@@ -276,8 +276,8 @@ expect_cfd_matches_oracle <- function(
   # neither objective is read at an infeasible point.
   expect_lt(max(abs(qp$eq %*% oracle$x - 1)), 1e-6)
   expect_lt(max(abs(qp$eq %*% solver_weights - 1)), 1e-6)
-  expect_true(all(oracle$x >= min_weight - 1e-8))
-  expect_true(all(solver_weights >= min_weight - 1e-8))
+  expect_column_all(oracle, "x", function(value) value >= min_weight - 1e-8)
+  expect_all(solver_weights, function(value) value >= min_weight - 1e-8)
 
   # A strictly convex program has a unique minimizer, so the weight vectors agree,
   # not only the objective. The indefinite energy assembly is compared on the

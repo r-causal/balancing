@@ -164,7 +164,7 @@ test_that("a smoothness the constructor accepts always reaches the kernel", {
     estimand = "ate"
   )
   expect_identical(fit@method@smoothness, 1.5)
-  expect_true(all(is.finite(as.numeric(stats::weights(fit)))))
+  expect_all(as.numeric(stats::weights(fit)), is.finite)
 })
 
 test_that("bw_cfd() rejects a negative weight penalty", {
@@ -317,8 +317,8 @@ test_that("a binary ate normalizes each group to its size", {
     estimand = "ate"
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
-  expect_true(all(w >= 1e-8))
+  expect_all(w, function(value) value >= 0)
+  expect_all(w, function(value) value >= 1e-8)
   treated <- data$exposure == 1
   expect_equal(sum(w[treated]), sum(treated), tolerance = 1e-4)
   expect_equal(sum(w[!treated]), sum(!treated), tolerance = 1e-4)
@@ -343,7 +343,7 @@ test_that("a binary att targets the treated total in both groups", {
   n_treated <- sum(treated)
   expect_equal(sum(w[treated]), n_treated, tolerance = 1e-4)
   expect_equal(sum(w[!treated]), n_treated, tolerance = 1e-4)
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   expect_balanced(fit, data, tolerance = 0.1)
 })
 
@@ -357,8 +357,8 @@ test_that("a binary atc fit produces non-negative floored weights", {
     estimand = "atc"
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
-  expect_true(all(w >= 1e-8))
+  expect_all(w, function(value) value >= 0)
+  expect_all(w, function(value) value >= 1e-8)
   expect_balanced(fit, data, tolerance = 0.1)
 })
 
@@ -405,12 +405,12 @@ test_that("kernel balancing balances a factor covariate", {
     expect_true(fit@converged)
     expect_equal(sum(w[treated]), sum(treated), tolerance = 1e-4)
     expect_equal(sum(w[!treated]), control_target, tolerance = 1e-4)
-    expect_true(all(w >= 1e-8))
+    expect_all(w, function(value) value >= 1e-8)
 
     # Every level's gap closes by at least a factor of four and lands inside a
     # ceiling no unweighted level clears.
     weighted <- level_gaps(w)
-    expect_true(all(weighted < unweighted / 4))
+    expect_all(weighted, function(value) value < unweighted / 4)
     expect_lt(max(weighted), 0.01)
     expect_balanced(fit, data, tolerance = 0.1)
   }
@@ -476,7 +476,7 @@ test_that("the per-group effective sample size rises with the weight penalty", {
   curve <- lapply(penalties, ess_at)
 
   for (step in seq_len(length(curve) - 1L)) {
-    expect_true(all(curve[[step + 1L]] > curve[[step]]))
+    expect_all(curve[[step + 1L]], function(value) value > curve[[step]])
   }
 })
 
@@ -516,7 +516,7 @@ test_that("categorical ate kernel balancing produces valid weights", {
     estimand = "ate"
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   for (level in levels(data$exposure)) {
     idx <- data$exposure == level
     expect_equal(sum(w[idx]), sum(idx), tolerance = 1e-4)
@@ -532,10 +532,10 @@ test_that("categorical att kernel balancing produces valid weights", {
     c(x1, x2),
     method = bw_cfd(),
     estimand = "att",
-    focal_level = "b"
+    .focal_level = "b"
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   expect_balanced(fit, data, tolerance = 0.1)
 })
 
@@ -557,8 +557,8 @@ test_that("every kernel converges to valid, floored weights", {
     fit <- fit_of(method)
     w <- as.numeric(stats::weights(fit))
     expect_true(fit@converged)
-    expect_true(all(w >= 0))
-    expect_true(all(w >= 1e-8))
+    expect_all(w, function(value) value >= 0)
+    expect_all(w, function(value) value >= 1e-8)
   }
 })
 
@@ -753,6 +753,11 @@ test_that("moment constraints are satisfied within tolerance", {
 })
 
 test_that("a positive tolerance relaxes the moment constraints", {
+  # A fit that did place rows in the requested band holds them there and reports
+  # that band as the tolerance it enforced, leaving the enforced tolerance unset
+  # so the table reads the per-column values the specification named. That is the
+  # other side of the zero the ignored-tolerance spec below pins, and it is
+  # reached on kernel balancing's own path rather than only on energy's.
   data <- sim_binary()
   fit <- balance(
     data,
@@ -763,6 +768,11 @@ test_that("a positive tolerance relaxes the moment constraints", {
     constraints = balance_terms(moments = 1L, tolerance = 0.1)
   )
   expect_balanced(fit, data, tolerance = 0.1)
+  expect_column_all(
+    as.data.frame(fit@balance_table),
+    "tolerance",
+    function(value) value == 0.1
+  )
 })
 
 test_that("a tolerance without moment constraints warns and is ignored", {
@@ -792,6 +802,48 @@ test_that("a tolerance without moment constraints warns and is ignored", {
     as.numeric(stats::weights(fit)),
     as.numeric(stats::weights(reference)),
     tolerance = 1e-6
+  )
+})
+
+test_that("a fit that added no constraint rows reports the tolerance it enforced", {
+  # A tolerance with no moment constraints to relax reaches no row of the
+  # program, so the table must not report it as the fit's tolerance: the fit
+  # enforced nothing, which is a tolerance of zero. A fit that did add rows
+  # holds them inside the requested band and reports that band, which the
+  # relaxation spec above covers.
+  data <- sim_binary(n = 200)
+  expect_warning(
+    fit <- balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_cfd(),
+      estimand = "ate",
+      constraints = balance_terms(tolerance = 0.1)
+    ),
+    class = "balancing_ignored_argument_warning"
+  )
+  expect_column_all(
+    as.data.frame(fit@balance_table),
+    "tolerance",
+    function(value) value == 0
+  )
+})
+
+test_that("the ignored-tolerance warning records its class and printed tolerance", {
+  # The printed block reads its tolerance from the balance table, so it is the
+  # visible half of the same contract: a fit given a band it never placed a row
+  # in reports the zero it enforced.
+  data <- sim_binary(n = 150)
+  expect_balancing_warning(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_cfd(),
+      estimand = "ate",
+      constraints = balance_terms(tolerance = 0.1)
+    )
   )
 })
 
@@ -986,4 +1038,51 @@ test_that("a kernel balancing fit prints its summary block", {
     )
     fit
   })
+})
+
+# ---- Solver tolerance box -------------------------------------------------
+
+# The moment-constraint band a kernel balancing fit hands the solver is built by
+# `solver_box()` (R/method-entropy.R), which the CFD assembly calls directly at
+# R/method-cfd.R with the prepared matrix, the requested tolerances, and the
+# sampling weights. A tolerance is written on the standardized scale, so the box
+# converts it by the column's standard deviation, and a column holding one value
+# repeated has no spread to convert against: its box is the tolerance itself.
+#
+# It does not arrive that way on its own. The weighted center divides a sum of
+# products by a sum of weights and need not return the repeated value exactly,
+# so the centered column carries a rounding residual and the computed scale
+# reports that residual as the column's spread. Left alone, the constant 0.98
+# column below shrinks its own band by roughly fifteen orders of magnitude and
+# the fit is constrained against rounding. This pins the guard on the call the
+# CFD path makes rather than only on the entropy one.
+cfd_solver_box_fixture <- function() {
+  withr::with_seed(707, {
+    n <- 300L
+    z <- cbind(
+      stats::rnorm(n),
+      stats::runif(n, -2, 3),
+      rep(0.98, n),
+      as.numeric(stats::rbinom(n, 1L, 0.4))
+    )
+    list(z = z, sampling_weights = stats::runif(n, 0.3, 2.5))
+  })
+}
+
+test_that("the kernel balancing tolerance box leaves a constant column raw", {
+  fixture <- cfd_solver_box_fixture()
+  z <- fixture$z
+  w <- fixture$sampling_weights
+  tolerances <- seq_len(ncol(z)) / 100
+  constant <- 3L
+
+  expect_all(z[, constant], function(value) value == 0.98)
+  expect_identical(
+    solver_box(z, tolerances, w)[[constant]],
+    tolerances[[constant]]
+  )
+  expect_identical(
+    solver_box(z, tolerances)[[constant]],
+    tolerances[[constant]]
+  )
 })

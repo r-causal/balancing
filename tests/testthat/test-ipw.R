@@ -330,6 +330,23 @@ singular_stack <- function(n) {
   }
 }
 
+# The same system with one non-finite contribution in it, which is what deli
+# refuses before it differences anything. The row is otherwise ordinary, so the
+# refusal is about the value rather than about the shape of the return.
+nonfinite_stack <- function(n) {
+  values <- withr::with_seed(707, matrix(stats::rnorm(3L * n), nrow = 3L))
+  values <- values - rowMeans(values)
+  function(theta) {
+    rows <- rbind(
+      values[1L, ] - theta[[1L]],
+      values[2L, ] - theta[[2L]],
+      values[3L, ] - theta[[3L]]
+    )
+    rows[3L, 1L] <- Inf
+    rows
+  }
+}
+
 # ---- Estimating-equations container contract ------------------------------
 
 # These pin the container ipw() consumes. The dimension and column-sum
@@ -486,7 +503,7 @@ expect_weights_fn_contract <- function(fit, data) {
   # renormalized base weights, so the ratio is well defined here rather than
   # merely guarded.
   raw <- ee@weights_raw
-  expect_true(all(raw != 0))
+  expect_all(raw, function(value) value != 0)
   rescaled <- (reported / raw) * ee@weight_jacobian
 
   finite_diff <- vapply(
@@ -617,7 +634,7 @@ for (spec in list(
             c(x1, x2),
             method = eval(spec$method),
             estimand = spec$estimand,
-            focal_level = spec$focal,
+            .focal_level = spec$focal,
             sampling_weights = sampling
           )
           expect_weights_fn_contract(fit, data)
@@ -637,7 +654,7 @@ test_that("ipw() returns the binary-outcome effect rows for an entropy fit", {
     c(x1, x2),
     method = bw_entropy(),
     estimand = "att",
-    focal_level = "1"
+    .focal_level = "1"
   )
   w <- as.numeric(stats::weights(fit))
   outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
@@ -661,7 +678,7 @@ test_that("ipw() returns a difference row and its means for a continuous outcome
     c(x1, x2),
     method = bw_entropy(),
     estimand = "att",
-    focal_level = "1"
+    .focal_level = "1"
   )
   w <- as.numeric(stats::weights(fit))
   outcome_mod <- fit_outcome(y_cont ~ exposure, data, w, stats::gaussian())
@@ -824,8 +841,8 @@ test_that("ipw() standard errors are finite and positive", {
   result <- ipw(fit, outcome_mod)
   estimates <- as.data.frame(result)
 
-  expect_true(all(is.finite(estimates$std.error)))
-  expect_true(all(estimates$std.error > 0))
+  expect_finite_column(estimates, "std.error")
+  expect_column_all(estimates, "std.error", function(x) x > 0)
 })
 
 test_that("a shift-related covariate leaves the ipw() chain identified", {
@@ -871,8 +888,8 @@ test_that("a shift-related covariate leaves the ipw() chain identified", {
   estimates <- as.data.frame(ipw(fit, outcome_mod))
   reduced_estimates <- as.data.frame(ipw(reduced, reduced_mod))
 
-  expect_true(all(is.finite(estimates$std.error)))
-  expect_true(all(estimates$std.error > 0))
+  expect_finite_column(estimates, "std.error")
+  expect_column_all(estimates, "std.error", function(x) x > 0)
   expect_equal(estimates$estimate, reduced_estimates$estimate)
   expect_equal(estimates$std.error, reduced_estimates$std.error)
 })
@@ -939,8 +956,8 @@ test_that("a factor covariate leaves the ipw() sandwich finite", {
   estimates <- as.data.frame(expect_no_warning(ipw(fit, outcome_mod)))
   reduced_estimates <- as.data.frame(ipw(reduced, reduced_mod))
 
-  expect_true(all(is.finite(estimates$std.error)))
-  expect_true(all(estimates$std.error > 0))
+  expect_finite_column(estimates, "std.error")
+  expect_column_all(estimates, "std.error", function(x) x > 0)
   expect_equal(estimates$estimate, reduced_estimates$estimate, tolerance = 1e-6)
   expect_equal(
     estimates$std.error,
@@ -1039,7 +1056,7 @@ for (spec in list(
           c(x1, x2),
           method = eval(spec$method),
           estimand = spec$estimand,
-          focal_level = spec$focal
+          .focal_level = spec$focal
         )
         w <- as.numeric(stats::weights(fit))
         outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
@@ -1054,8 +1071,8 @@ for (spec in list(
           c("mean", "mean", "rd", "log(rr)", "log(or)")
         )
         expect_identical(estimates$contrast, c("0", "1", rep("1 vs 0", 3L)))
-        expect_true(all(is.finite(estimates$std.error)))
-        expect_true(all(estimates$std.error > 0))
+        expect_finite_column(estimates, "std.error")
+        expect_column_all(estimates, "std.error", function(x) x > 0)
         expect_equal(rd_se, oracle_se, tolerance = 1e-8)
       }
     )
@@ -1332,7 +1349,7 @@ adjusted_boot_rd_se <- function(
               c(x1, x2),
               method = eval(method),
               estimand = estimand,
-              focal_level = focal
+              .focal_level = focal
             )
             boot_w <- as.numeric(stats::weights(boot_fit))
             boot_mod <- fit_outcome(
@@ -1402,7 +1419,7 @@ for (spec in list(
           c(x1, x2),
           method = eval(spec$method),
           estimand = spec$estimand,
-          focal_level = spec$focal
+          .focal_level = spec$focal
         )
         w <- as.numeric(stats::weights(fit))
         binary_mod <- fit_outcome(
@@ -1494,10 +1511,10 @@ for (spec in list(
           expect_false(isTRUE(all.equal(pooled_means$mu1, binary_means$mu1)))
         }
 
-        expect_true(all(is.finite(binary_estimates$std.error)))
-        expect_true(all(binary_estimates$std.error > 0))
-        expect_true(all(is.finite(continuous_estimates$std.error)))
-        expect_true(all(continuous_estimates$std.error > 0))
+        expect_finite_column(binary_estimates, "std.error")
+        expect_column_all(binary_estimates, "std.error", function(x) x > 0)
+        expect_finite_column(continuous_estimates, "std.error")
+        expect_column_all(continuous_estimates, "std.error", function(x) x > 0)
       }
     )
   })
@@ -1576,8 +1593,8 @@ test_that("ipw() standardizes an adjusted model over the sampling weights", {
   expect_false(isTRUE(all.equal(means$mu0, unweighted$mu0)))
   expect_equal(result$fit$theta[["mu0"]], means$mu0, tolerance = 1e-8)
   expect_equal(result$fit$theta[["mu1"]], means$mu1, tolerance = 1e-8)
-  expect_true(all(is.finite(estimates$std.error)))
-  expect_true(all(estimates$std.error > 0))
+  expect_finite_column(estimates, "std.error")
+  expect_column_all(estimates, "std.error", function(x) x > 0)
 })
 
 # The whole family is compared against the independent oracle, across estimands
@@ -1644,7 +1661,7 @@ for (spec in list(
           c(x1, x2),
           method = eval(spec$method),
           estimand = spec$estimand,
-          focal_level = spec$focal
+          .focal_level = spec$focal
         )
         w <- as.numeric(stats::weights(fit))
         outcome_mod <- fit_outcome(
@@ -1727,7 +1744,7 @@ test_that("ipw() adjusted-model standard errors track a bootstrap for bw_ipt att
     c(x1, x2),
     method = bw_ipt(),
     estimand = "att",
-    focal_level = "1"
+    .focal_level = "1"
   )
   w <- as.numeric(stats::weights(fit))
   outcome_mod <- fit_outcome(y ~ exposure + x1 + x2, data, w, stats::binomial())
@@ -1802,7 +1819,7 @@ test_that("supporting adjusted outcome models leaves the marginal ones alone", {
     c(x1, x2),
     method = bw_ipt(),
     estimand = "att",
-    focal_level = "1"
+    .focal_level = "1"
   )
 
   for (fit in list(pooled, focal)) {
@@ -1929,7 +1946,7 @@ test_that("ipw() supports an interaction between the exposure and a covariate", 
     c(x1, x2),
     method = bw_ipt(),
     estimand = "att",
-    focal_level = "1"
+    .focal_level = "1"
   )
 
   for (spec in list(
@@ -1950,8 +1967,8 @@ test_that("ipw() supports an interaction between the exposure and a covariate", 
       means$mu1 - means$mu0,
       tolerance = 1e-8
     )
-    expect_true(all(is.finite(estimates$std.error)))
-    expect_true(all(estimates$std.error > 0))
+    expect_finite_column(estimates, "std.error")
+    expect_column_all(estimates, "std.error", function(x) x > 0)
   }
 })
 
@@ -2037,12 +2054,12 @@ test_that("the categorical estimates table keeps the shared column contract", {
     )
   )
   expect_identical(nrow(estimates), 9L)
-  expect_true(all(is.finite(estimates$estimate)))
-  expect_true(all(is.finite(estimates$std.err)))
-  expect_true(all(estimates$ci.lower < estimates$estimate))
-  expect_true(all(estimates$ci.upper > estimates$estimate))
-  expect_true(all(estimates$conf.level == 0.95))
-  expect_true(all(estimates$p.value >= 0 & estimates$p.value <= 1))
+  expect_finite_column(estimates, "estimate")
+  expect_finite_column(estimates, "std.err")
+  expect_column_all(estimates, "ci.lower", function(x) x < estimates$estimate)
+  expect_column_all(estimates, "ci.upper", function(x) x > estimates$estimate)
+  expect_column_all(estimates, "conf.level", function(x) x == 0.95)
+  expect_column_all(estimates, "p.value", function(x) x >= 0 & x <= 1)
   expect_equal(
     estimates$z,
     estimates$estimate / estimates$std.err,
@@ -3409,7 +3426,7 @@ test_that("a categorical att standardizes an adjusted model over the focal group
     c(x1, x2),
     method = bw_ipt(),
     estimand = "att",
-    focal_level = "b"
+    .focal_level = "b"
   )
   w <- as.numeric(stats::weights(fit))
   outcome_mod <- fit_outcome(y ~ exposure + x1, data, w, stats::binomial())
@@ -3433,8 +3450,8 @@ test_that("a categorical att standardizes an adjusted model over the focal group
   # move the means. Without that the test would pass on an implementation that
   # ignored the estimand entirely.
   expect_false(isTRUE(all.equal(unname(focal), unname(pooled))))
-  expect_true(all(is.finite(estimates$std.error)))
-  expect_true(all(estimates$std.error > 0))
+  expect_finite_column(estimates, "std.error")
+  expect_column_all(estimates, "std.error", function(x) x > 0)
 })
 
 # The standard errors are checked three ways: they are finite and positive
@@ -3458,8 +3475,8 @@ test_that("categorical standard errors are finite and positive", {
   for (formula in list(y ~ exposure, y ~ exposure + x1, y ~ exposure * x1)) {
     outcome_mod <- fit_outcome(formula, data, w, stats::binomial())
     estimates <- as.data.frame(ipw(fit, outcome_mod))
-    expect_true(all(is.finite(estimates$std.error)))
-    expect_true(all(estimates$std.error > 0))
+    expect_finite_column(estimates, "std.error")
+    expect_column_all(estimates, "std.error", function(x) x > 0)
   }
 })
 
@@ -3643,7 +3660,7 @@ for (spec in list(
         c(x1, x2),
         method = eval(spec$method),
         estimand = spec$estimand,
-        focal_level = spec$focal
+        .focal_level = spec$focal
       )
       w <- as.numeric(stats::weights(fit))
       outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
@@ -3670,8 +3687,8 @@ for (spec in list(
         unname(means),
         tolerance = 1e-8
       )
-      expect_true(all(is.finite(estimates$std.error)))
-      expect_true(all(estimates$std.error > 0))
+      expect_finite_column(estimates, "std.error")
+      expect_column_all(estimates, "std.error", function(x) x > 0)
     })
   })
 }
@@ -3816,8 +3833,8 @@ test_that("ipw() respects conf_level", {
   wide_width <- wide$ci.upper - wide$ci.lower
   narrow_width <- narrow$ci.upper - narrow$ci.lower
 
-  expect_true(all(narrow$conf.level == 0.80))
-  expect_true(all(narrow_width < wide_width))
+  expect_column_all(narrow, "conf.level", function(x) x == 0.80)
+  expect_all(narrow_width, function(value) value < wide_width)
 })
 
 test_that("ipw() rejects an estimand that contradicts the fit", {
@@ -3947,6 +3964,71 @@ test_that("ipw() rejects a supplied data frame without two exposure levels", {
     ipw(fit, outcome_mod, .data = one_level),
     class = "balancing_ipw_input_error"
   )
+})
+
+# A design matrix whose columns are linearly dependent leaves the fit with an
+# `NA` coefficient for every column the pivoting dropped. The stack reads those
+# coefficients back to build the outcome score, so an aliased column makes every
+# stacked estimating function non-finite and the variance engine refuses the
+# whole sandwich. That refusal names neither the outcome model nor the column
+# that caused it, and the caller can only see the fit they passed, so the
+# preflight has to read the aliasing off the coefficients and say which column
+# is redundant.
+
+test_that("ipw() rejects an outcome model with an aliased exposure coefficient", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(
+    y ~ exposure + I(2 * exposure),
+    data,
+    w,
+    stats::binomial()
+  )
+
+  cnd <- expect_error(
+    ipw(fit, outcome_mod),
+    class = "balancing_ipw_input_error"
+  )
+  message <- condition_line(cnd)
+  expect_match(message, "I(2 * exposure)", fixed = TRUE)
+  expect_match(message, "rank[- ]deficient")
+
+  expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
+})
+
+test_that("ipw() rejects an outcome model with an aliased covariate coefficient", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(
+    y ~ exposure + x1 + I(2 * x1),
+    data,
+    w,
+    stats::binomial()
+  )
+
+  cnd <- expect_error(
+    ipw(fit, outcome_mod),
+    class = "balancing_ipw_input_error"
+  )
+  message <- condition_line(cnd)
+  expect_match(message, "I(2 * x1)", fixed = TRUE)
+  expect_match(message, "rank[- ]deficient")
+
+  expect_snapshot(error = TRUE, cnd_class = TRUE, stop(cnd))
 })
 
 # ---- Weight consistency between the fit and the outcome model -------------
@@ -4288,8 +4370,8 @@ test_that("ipw() standard errors with an offset come from the variance engine", 
     sampling_weights = fit@sampling_weights
   )
 
-  expect_true(all(is.finite(estimates$std.error)))
-  expect_true(all(estimates$std.error > 0))
+  expect_finite_column(estimates, "std.error")
+  expect_column_all(estimates, "std.error", function(x) x > 0)
   expect_equal(
     estimates$std.error,
     unname(sqrt(diag(engine$vcov))[
@@ -4826,7 +4908,7 @@ test_that("the categorical att cbps psi_fn reproduces the stored psi", {
     c(x1, x2),
     method = bw_cbps(),
     estimand = "att",
-    focal_level = "b"
+    .focal_level = "b"
   )
   ee <- estimating_equations(fit)
   expect_equal(ee@psi_fn(ee@parameters), ee@psi, tolerance = 1e-10)
@@ -5161,7 +5243,7 @@ for (spec in list(
           c(x1, x2),
           method = eval(spec$method),
           estimand = spec$estimand,
-          focal_level = spec$focal
+          .focal_level = spec$focal
         )
         w <- as.numeric(stats::weights(fit))
         outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
@@ -5416,7 +5498,7 @@ test_that("the stacked variance tolerates a deficiency the weights are flat alon
     sampling_weights = fit@sampling_weights
   )
 
-  expect_true(all(is.finite(sqrt(diag(tolerated$vcov)[keys]))))
+  expect_all(sqrt(diag(tolerated$vcov)[keys]), is.finite)
   expect_equal(
     unname(sqrt(diag(tolerated$vcov)[keys])),
     unname(sqrt(diag(plain$vcov)[keys]))
@@ -5648,6 +5730,52 @@ test_that("stacked_covariance() keeps the generic bullets for a full-rank fit bl
   expect_match(message, "singular there", fixed = TRUE)
   expect_match(message, "bootstrap workflow", fixed = TRUE)
   expect_no_match(message, "rank", fixed = TRUE)
+})
+
+# ---- Translating a non-finite estimating function -------------------------
+
+# deli refuses a stack whose estimating functions are not finite at the
+# parameters, with a class of its own and a message written about
+# `stacked_equations`, an argument the caller never passed and a frame they
+# never wrote. Every other condition this route can raise is translated into the
+# package's own vocabulary before it reaches them, and this one is translated the
+# same way: the balancing class, the package's account of what went wrong, and
+# deli's condition chained underneath so the original reading is still there for
+# anyone who wants it.
+
+test_that("stacked_covariance() translates a non-finite estimating function", {
+  n <- 40L
+  theta <- c(theta_w1 = 0, theta_w2 = 0, theta_w3 = 0)
+  refuse <- function() {
+    stacked_covariance(
+      nonfinite_stack(n),
+      theta,
+      n,
+      jacobian = diag(c(2, 1, 0.5))
+    )
+  }
+
+  cnd <- rlang::catch_cnd(refuse(), classes = "error")
+  expect_s3_class(cnd, "balancing_ipw_unsupported_error")
+  expect_false(inherits(cnd, "deli_psi_return_error"))
+  expect_s3_class(cnd$parent, "deli_psi_return_error")
+
+  message <- condition_line(cnd)
+  expect_match(message, "not finite", fixed = TRUE)
+  expect_match(message, "bootstrap workflow", fixed = TRUE)
+})
+
+test_that("the non-finite refusal reads as the package's own", {
+  n <- 40L
+  theta <- c(theta_w1 = 0, theta_w2 = 0, theta_w3 = 0)
+  expect_balancing_error(
+    stacked_covariance(
+      nonfinite_stack(n),
+      theta,
+      n,
+      jacobian = diag(c(2, 1, 0.5))
+    )
+  )
 })
 
 # The same pair reached the way a caller reaches it. A container carrying one
@@ -6254,8 +6382,143 @@ test_that("the deli sandwich carries a unit-varying offset into the means", {
 
   binary_se <- sqrt(diag(binary_result$vcov))
   continuous_se <- sqrt(diag(continuous_result$vcov))
-  expect_true(all(is.finite(binary_se)))
-  expect_true(all(binary_se > 0))
-  expect_true(all(is.finite(continuous_se)))
-  expect_true(all(continuous_se > 0))
+  expect_all(binary_se, is.finite)
+  expect_all(binary_se, function(value) value > 0)
+  expect_all(continuous_se, is.finite)
+  expect_all(continuous_se, function(value) value > 0)
+})
+
+# ---- The analytic contrast block ------------------------------------------
+
+# The contrast rows of the stacked system are deterministic functions of the
+# marginal means, so nothing about them has to be discovered by differencing:
+# their meat is zero at the solution and their bread rows are minus one on their
+# own diagonal, the derivative of the contrast with respect to each mean beside
+# it, and zero everywhere else. Filling them in analytically saves two closure
+# evaluations per contrast, and each of those evaluations crosses into the
+# method's own weight hook over the whole sample.
+#
+# What must not move is the answer. These specs pin the answer independently of
+# the code that produces it: `ipw_reference_stack()` writes the whole system out
+# in this suite and differences every row of it, which is what the package does
+# today, and the reported system has to stay identical to it to the bit.
+# Alongside each of them sits the evaluation count an analytic block reaches,
+# which is red until the contrast rows leave the differenced system.
+
+test_that("a binary fit reports the fully differenced stacked system", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  reference <- ipw_reference_stack(
+    container = estimating_equations(fit),
+    outcome_mod = outcome_mod,
+    frame = stats::model.frame(outcome_mod),
+    exposure_name = "exposure",
+    levels = fit@exposure_levels
+  )
+
+  expect_ipw_matches_reference_stack(
+    ipw(fit, outcome_mod),
+    reference,
+    keys = c("mu0", "mu1", "rd", "log(rr)", "log(or)")
+  )
+})
+
+test_that("a binary fit differences no contrast row", {
+  data <- ipw_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  reference <- ipw_reference_stack(
+    container = estimating_equations(fit),
+    outcome_mod = outcome_mod,
+    frame = stats::model.frame(outcome_mod),
+    exposure_name = "exposure",
+    levels = fit@exposure_levels
+  )
+
+  expect_stacked_evaluations(
+    ipw(fit, outcome_mod),
+    2L * (reference$width - reference$deterministic) + 1L
+  )
+})
+
+test_that("a categorical fit reports the fully differenced stacked system", {
+  data <- ipw_categorical_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  reference <- ipw_reference_stack(
+    container = estimating_equations(fit),
+    outcome_mod = outcome_mod,
+    frame = stats::model.frame(outcome_mod),
+    exposure_name = "exposure",
+    levels = fit@exposure_levels,
+    categorical = TRUE
+  )
+
+  expect_ipw_matches_reference_stack(
+    ipw(fit, outcome_mod),
+    reference,
+    keys = c(
+      "mu_a",
+      "mu_b",
+      "mu_c",
+      "rd_b",
+      "log(rr)_b",
+      "log(or)_b",
+      "rd_c",
+      "log(rr)_c",
+      "log(or)_c"
+    )
+  )
+})
+
+test_that("a categorical fit differences no contrast row", {
+  data <- ipw_categorical_fixture()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+
+  reference <- ipw_reference_stack(
+    container = estimating_equations(fit),
+    outcome_mod = outcome_mod,
+    frame = stats::model.frame(outcome_mod),
+    exposure_name = "exposure",
+    levels = fit@exposure_levels,
+    categorical = TRUE
+  )
+
+  expect_stacked_evaluations(
+    ipw(fit, outcome_mod),
+    2L * (reference$width - reference$deterministic) + 1L
+  )
 })

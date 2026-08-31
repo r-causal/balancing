@@ -18,11 +18,15 @@ quadratic_program_method(
 )
 }
 \arguments{
-\item{convergence_tolerance}{The solver convergence tolerance, or \code{NULL} for
-the core default.}
+\item{convergence_tolerance}{The solver convergence tolerance, or \code{NULL} to
+leave it to the solver. The value resolved for \code{NULL} differs by family:
+\code{1e-10} on the gradient for the estimating-equation methods, and \code{1e-8} as
+both the absolute and the relative tolerance for the quadratic-program
+methods.}
 
-\item{max_iterations}{The maximum solver iterations, or \code{NULL} for the core
-default.}
+\item{max_iterations}{The maximum solver iterations, or \code{NULL} to leave the
+cap to the solver. The value resolved for \code{NULL} is 1000 for the
+estimating-equation methods and 200000 for the quadratic-program methods.}
 
 \item{weight_penalty}{The L2 penalty on the weights.}
 

@@ -69,10 +69,16 @@
 #'   squared weights, minimum variance), `"l1"` (the sum of absolute deviations
 #'   from one), or `"linf"` (the largest absolute deviation from one).
 #' @param min_weight The smallest permitted weight.
-#' @param convergence_tolerance The quadratic-program solver tolerance, or `NULL`
-#'   for the core default.
-#' @param max_iterations The maximum solver iterations, or `NULL` for the core
-#'   default.
+#' @param convergence_tolerance The quadratic-program solver tolerance, or
+#'   `NULL` for the resolved default of `1e-8`, which the solver applies as both
+#'   its absolute and its relative tolerance. Under the default backend, a
+#'   tolerance below what the problem can reach spends the full iteration cap and
+#'   then warns.
+#' @param max_iterations The maximum solver iterations, or `NULL` for the
+#'   resolved default of 200000. A continuous fit with a positive tolerance
+#'   refines the bound it hands the solver over several passes, each a solve
+#'   given this same cap, and the reported `@iterations` sums them, so such a
+#'   fit can report more iterations than this.
 #' @param ... Reserved for future extensions; must be empty. Tuning parameters
 #'   must be passed by name.
 #'
@@ -375,33 +381,6 @@ fit_sbw_discrete <- function(method, prepared) {
   assemble_sbw(result, method, prepared, duals = duals)
 }
 
-# The largest number of correlation-refinement passes and the fraction of the
-# room to the target the effective tolerance is tightened to on each pass, held
-# just under one so a converged fit sits inside the band rather than on its edge.
-sbw_cont_max_passes <- 8L
-sbw_cont_safety <- 0.98
-
-# Absolute weighted exposure-covariate Pearson correlations under weights `w`, the
-# statistic the continuous fit is judged on and the quantity the balance table
-# reports, so the refinement loop measures the same thing the specs assert. A
-# column with no weighted spread has no correlation to report: it is met by every
-# weighting, so it reads as zero rather than carrying an undefined value into the
-# comparison that decides which tolerances still bind.
-sbw_weighted_correlations <- function(exposure, z, w) {
-  vapply(
-    seq_len(ncol(z)),
-    function(j) {
-      correlation <- stats::cov.wt(
-        cbind(exposure, z[, j]),
-        wt = w,
-        cor = TRUE
-      )$cor[1, 2]
-      if (is.finite(correlation)) abs(correlation) else 0
-    },
-    numeric(1)
-  )
-}
-
 fit_sbw_continuous <- function(method, prepared) {
   z <- prepared$matrix
   s <- prepared$sampling_weights
@@ -419,12 +398,14 @@ fit_sbw_continuous <- function(method, prepared) {
   # weighted Pearson correlation the specs check, on the reported weights (the
   # balancing weights composed with the sampling weights), and rescales each
   # column's effective tolerance toward its target, never above it, so the loop
-  # tightens monotonically and stops once every column is inside its band.
+  # tightens monotonically and stops once every column is inside its band. Each
+  # pass costs a whole solve, and the reported iterations sum every one of them.
   target <- prepared$tolerances
   effective <- target
+  iterations <- 0L
   result <- NULL
   last_converged <- NULL
-  for (pass in seq_len(sbw_cont_max_passes)) {
+  for (pass in seq_len(correlation_refinement_passes)) {
     result <- solve_sbw_cont(
       exposure,
       z,
@@ -434,6 +415,7 @@ fit_sbw_continuous <- function(method, prepared) {
       method@min_weight,
       options
     )
+    iterations <- iterations + as.integer(result$iterations)
     if (!isTRUE(result$converged)) {
       # A tightened pass that certifies infeasibility means the requested
       # correlation band is unreachable, which surfaces honestly as the infeasible
@@ -452,7 +434,7 @@ fit_sbw_continuous <- function(method, prepared) {
     # cov.wt normalizes internally, so the composed sampling weights, not their
     # renormalized copy, carry the reweighting the reported statistic reflects.
     composed <- as.numeric(result$weights) * s
-    achieved <- sbw_weighted_correlations(exposure, z, composed)
+    achieved <- weighted_exposure_correlations(exposure, z, composed)
     binding <- target > 0 & achieved > target + 1e-8
     if (!any(binding)) {
       break
@@ -460,9 +442,10 @@ fit_sbw_continuous <- function(method, prepared) {
     ratio <- ifelse(achieved > 0, target / achieved, 1)
     effective[binding] <- pmin(
       target[binding],
-      effective[binding] * ratio[binding] * sbw_cont_safety
+      effective[binding] * ratio[binding] * correlation_refinement_safety
     )
   }
+  result$iterations <- iterations
 
   # The continuous solve carries one total-sum row followed by the correlation
   # rows; the box rows bound each of the n units, and the absolute-deviation norms

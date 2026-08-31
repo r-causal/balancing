@@ -88,6 +88,25 @@ test_that("print() of a categorical ate fit lists every level", {
   expect_balancing_snapshot(print(fit))
 })
 
+# A factor covariate contributes one constraint per level, and the full set is
+# affine with the intercept, so the aliasing check drops the last level. The
+# print block is the record that a fit still describes itself correctly once a
+# constraint has gone: the term count is the surviving four, not the five the
+# formula named. The block does not carry the balance table, so the surviving
+# terms are asserted directly below it.
+test_that("print() of a fit whose factor lost a level is stable", {
+  data <- sim_binary()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2, x3),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  expect_balancing_snapshot(print(fit))
+  expect_identical(fit@balance_table$term, c("x1", "x2", "x3_a", "x3_b"))
+})
+
 # The quadratic-program family reports a solver backend and a minimum-weight
 # floor, so its print and summary blocks differ from the estimating-equation
 # family. The weight summary names the count of weights resting on the floor.
@@ -146,6 +165,80 @@ test_that("summary() of a cfd fit reports the weight floor count", {
   floor <- fit@method@min_weight
   at_floor <- sum(as.numeric(fit@weights) <= floor * (1 + 1e-6) + 1e-12)
   expect_gt(at_floor, 0)
+})
+
+# ---- The width of the largest-imbalance figure ------------------------------
+
+# The headline figure and the balance-exceeded warning report the same quantity
+# and render it the same way, to three significant digits. A fixed four decimal
+# places spends its width on leading zeros, so it loses the digits that
+# distinguish one small imbalance from another and collapses everything below
+# half a ten-thousandth to the same "0.0000". The two fixtures below are the
+# cases where the formats disagree: one imbalance a few thousandths wide, and
+# one the fit drove to zero. Both are read off the fit rather than written in,
+# because the low-order digits move with the platform's floating-point path.
+#
+# The `<1e-7` placeholder in helper-snapshot.R applies to recorded snapshots
+# only. These tests capture the printed block directly, so they see the value
+# the print method rendered.
+test_that("print() renders the largest imbalance to three significant digits", {
+  data <- sim_binary()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_cfd(),
+    estimand = "ate"
+  )
+  largest <- max(abs(fit@balance_table$weighted))
+  significant <- formatC(largest, format = "g", digits = 3)
+  fixed <- formatC(largest, format = "f", digits = 4)
+  # The fixture only says anything if the two formats disagree on it.
+  expect_false(identical(significant, fixed))
+
+  printed <- utils::capture.output(print(fit))
+  line <- grep("Largest imbalance", printed, value = TRUE, fixed = TRUE)
+  expect_length(line, 1L)
+  # The trailing space and parenthesis pin the whole rendered figure. Without
+  # them the fixed rendering is a prefix of the significant one, so a bare
+  # substring test would accept either.
+  expect_match(
+    line,
+    paste0("Largest imbalance: ", significant, " ("),
+    fixed = TRUE
+  )
+  expect_no_match(
+    line,
+    paste0("Largest imbalance: ", fixed, " ("),
+    fixed = TRUE
+  )
+})
+
+test_that("print() keeps a largest imbalance below the fourth decimal legible", {
+  data <- sim_binary()
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_entropy(),
+    estimand = "ate"
+  )
+  largest <- max(abs(fit@balance_table$weighted))
+  expect_lt(largest, 1e-8)
+
+  printed <- utils::capture.output(print(fit))
+  line <- grep("Largest imbalance", printed, value = TRUE, fixed = TRUE)
+  expect_length(line, 1L)
+  expect_match(
+    line,
+    paste0(
+      "Largest imbalance: ",
+      formatC(largest, format = "g", digits = 3),
+      " ("
+    ),
+    fixed = TRUE
+  )
+  expect_no_match(line, "Largest imbalance: 0.0000", fixed = TRUE)
 })
 
 # ---- An imbalance that was never measured ----------------------------------

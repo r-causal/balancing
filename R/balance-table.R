@@ -19,6 +19,55 @@ balance_margin <- function(tolerance) {
   1e-6 + 0.02 * tolerance
 }
 
+# The largest number of correlation-refinement passes a continuous
+# quadratic-program fit takes, and the fraction of the room to its target the
+# effective tolerance is tightened to on each pass, held just under one so a
+# converged fit sits inside the band rather than on its edge.
+#
+# Both continuous quadratic programs need this loop and they run the same one.
+# Each bounds a linearized correlation whose exposure and covariate scales are
+# fixed at the sample, so reweighting to meet the bound shrinks both weighted
+# standard deviations and the reported Pearson correlation runs above the bound.
+# The two stop against the same statistic, they rescale a binding column the
+# same way, and a pass that runs out of iterations falls back to the last
+# converged iterate in both, while a pass the backend certifies infeasible is
+# left to surface as the infeasible condition. They take the same cap for the
+# same reason: a pass costs a whole solve, and eight of them is where the
+# tightening has converged in every case measured.
+#
+# One thing does differ, and deliberately: the slack a column may exceed its
+# target by before the pass counts it as binding. Energy uses
+# `balance_margin()`, the same slack the balance table's verdict allows, so it
+# stops refining exactly when the table would stop complaining. Stable balancing
+# weights use a flat 1e-8, which is tighter than the verdict, so they keep
+# tightening through a band the table would already accept. Neither reports a
+# column the table judges out of balance; the tighter margin only buys passes.
+correlation_refinement_passes <- 8L
+correlation_refinement_safety <- 0.98
+
+# Absolute weighted exposure-covariate Pearson correlations under weights `w`,
+# the statistic a continuous fit is judged on and the quantity the balance table
+# reports, so a refinement loop measures the same thing the specs assert. A
+# column with no weighted spread has no correlation to report: it is met by
+# every weighting, so it reads as zero rather than carrying an undefined value
+# into the comparison that decides which tolerances still bind. The table itself
+# leaves that case missing instead, where it becomes a verdict of out of balance
+# rather than a row the loop would chase forever.
+weighted_exposure_correlations <- function(exposure, z, w) {
+  vapply(
+    seq_len(ncol(z)),
+    function(j) {
+      correlation <- stats::cov.wt(
+        cbind(exposure, z[, j]),
+        wt = w,
+        cor = TRUE
+      )$cor[1, 2]
+      if (is.finite(correlation)) abs(correlation) else 0
+    },
+    numeric(1)
+  )
+}
+
 # Build a bare tibble without a tibble dependency, matching how positively and
 # the tidyverse store display tables on result objects.
 new_balancing_tibble <- function(cols) {
@@ -34,21 +83,123 @@ new_balancing_tibble <- function(cols) {
 # mean differences against. Without sampling weights the weighted statistics reduce
 # to the unweighted ones. The re-standardization expect_balanced() applies uses the
 # same convention.
+#
+# The centers and scales are taken as column arithmetic over the whole matrix
+# rather than column by column, since the balance table is assembled once per fit
+# over as many columns as the fit has constraints. `colSums()` accumulates in the
+# same extended precision `sum()` does, so the weighted branch reproduces the
+# per-column `weighted_center()` and `weighted_scale()` values (R/utils.R) bit for
+# bit rather than merely approximating them: the reliability denominator and the
+# zero-scale guard are both carried over unchanged, the former as a single scalar
+# because it depends only on the weights.
+#
+# The unweighted scale takes its sum of squares about a corrected two-pass
+# center, the first column mean plus the mean of the residuals from it.
+# `stats::sd()` applies the same correction, but carries it entirely in long
+# double, whereas this reproduction rounds to double between the two passes. The
+# two therefore agree to rounding rather than exactly, occasionally differing by
+# a final unit in the last place. The correction still earns its pass: without it
+# the plain two-pass form matches `stats::sd()` only while a column's values are
+# comparable to their spread, and its error grows with the ratio of the column's
+# offset to that spread, whereas the corrected form tracks `stats::sd()` to
+# rounding at any offset. The reported centering stays on the plain column mean,
+# as before.
 standardize_columns <- function(m, sampling_weights = NULL) {
   if (is.null(sampling_weights)) {
     centers <- colMeans(m)
-    scales <- apply(m, 2, stats::sd)
+    centered <- sweep(m, 2, centers, "-")
+    corrected <- sweep(m, 2, centers + colMeans(centered), "-")
+    scales <- sqrt(colSums(corrected^2) / (nrow(m) - 1))
   } else {
-    centers <- apply(m, 2, weighted_center, w = sampling_weights)
-    scales <- apply(m, 2, weighted_scale, w = sampling_weights)
+    centers <- column_weighted_means(m, sampling_weights)
+    centered <- sweep(m, 2, centers, "-")
+    scales <- centered_column_scales(centered, sampling_weights)
   }
-  scales[scales == 0] <- 1
-  sweep(sweep(m, 2, centers, "-"), 2, scales, "/")
+  constant <- column_is_constant(m)
+  centered[, constant] <- 0
+  scales[constant | scales == 0] <- 1
+  sweep(centered, 2, scales, "/")
+}
+
+# Which columns hold one value repeated, read from the values rather than from
+# the scale computed above.
+#
+# A column with no spread is supposed to come out of the centering as zeros and
+# be left unscaled, and on the unweighted path with a well-behaved value it
+# does. It need not. Both centers round: the weighted one divides a sum of
+# products by a sum of weights, the unweighted one a sum by a count, and unless
+# the repeated value survives that arithmetic exactly the centered column holds a
+# rounding residual instead of a zero. The scale then reports the residual as the
+# column's spread and the column standardizes to arbitrary order-one values: a
+# constant 0.98 under non-uniform sampling weights comes out at 0.97 in every
+# row. The reported balance for such a column is then a report on the rounding.
+#
+# The reading is exact equality rather than a floor on the computed scale, and
+# that is the point. A floor has to be calibrated against a residual whose size
+# depends on the column's magnitude, on the sample size, and on whether the
+# platform's `long double` is wider than its `double`, and any floor wide enough
+# to cover the residual at five thousand rows is wide enough to flatten a column
+# offset far from its own spread, which is a column the corrected two-pass center
+# above exists to standardize correctly. Equality needs no calibration and
+# cannot reach a column that varies at all.
+#
+# The comparison is against the first row broadcast down the matrix, which reads
+# every column in one vectorized pass. The covariate columns carry no missing
+# values, which the fit validates before a constraint matrix is built, so the
+# missing-value branch below governs only the direct callers.
+#
+# A column carrying one is read as not constant. The comparison answers a
+# missing value with a missing value, and both consumers of this reading index
+# with it: `standardize_columns()` writes `centered[, constant] <- 0` and
+# `solver_box()` (R/method-entropy.R) writes `column_sd[...] <- 1`. A missing
+# subscript makes each of those a silent no-op, so which columns the guards
+# reached would depend on a value the guards say nothing about. Reading such a
+# column as varying makes that explicit and leaves the standardization behaving
+# as it did: the column keeps its computed center and scale, and the missing
+# value carries through them into the standardized column.
+#
+# A matrix with no rows is answered before the comparison, which has no first
+# row to read and would fail on the subscript with a base error. Nothing can be
+# constant over no rows, so every column reads as varying, and both consumers
+# then write into a zero-length selection and change nothing.
+column_is_constant <- function(m) {
+  if (nrow(m) == 0L) {
+    return(stats::setNames(rep(FALSE, ncol(m)), colnames(m)))
+  }
+  differences <- colSums(m != rep(m[1L, ], each = nrow(m)))
+  !is.na(differences) & differences == 0L
+}
+
+# Weighted mean of every column of a matrix, as one pass of column arithmetic.
+column_weighted_means <- function(z, w) {
+  colSums(z * w) / sum(w)
+}
+
+# Sampling-weighted standard deviation of every column of an already-centered
+# matrix, with the reliability denominator `weighted_scale()` (R/utils.R) uses.
+# The caller centers because both callers hold the centered matrix already: the
+# standardization sweeps by the centers it just took, and the solver's tolerance
+# box takes them for this alone.
+#
+# This is the same arithmetic in the same order as the per-column form, so it
+# reproduces it bit for bit rather than approximating it. `colSums()` accumulates
+# the way `sum()` does, and the products it accumulates are the same products.
+# What it saves is the per-column dispatch: on a 20000 by 30 matrix it takes 5.0
+# milliseconds where `apply(z, 2, weighted_scale, w = )` takes 7.0.
+centered_column_scales <- function(centered, w) {
+  total <- sum(w)
+  denominator <- total - sum(w * w) / total
+  variances <- if (denominator > 0) {
+    colSums(centered^2 * w) / denominator
+  } else {
+    rep(0, ncol(centered))
+  }
+  sqrt(pmax(variances, 0))
 }
 
 # Weighted mean of every column of `z` over the rows in `idx`.
 weighted_column_means <- function(z, idx, w) {
-  apply(z[idx, , drop = FALSE], 2, stats::weighted.mean, w = w[idx])
+  column_weighted_means(z[idx, , drop = FALSE], w[idx])
 }
 
 compute_balance_table <- function(
@@ -63,22 +214,41 @@ compute_balance_table <- function(
   tolerance,
   reference = NULL,
   constraint_target = c("pooled", "arms"),
-  sampling_weights = NULL
+  sampling_weights = NULL,
+  matrix = NULL,
+  enforced_tolerance = NULL
 ) {
   if (is.null(reference)) {
     reference <- rep(1, length(weights))
   }
   constraint_target <- match.arg(constraint_target)
-  matrix <- rebuild_constraint_matrix(recipe, data)
+  # A caller that already holds the constraint matrix passes it rather than
+  # letting the table rebuild one. Rebuilding costs about as much as the fit
+  # itself on a wide constraint set, and the recipe reproduces the matrix
+  # exactly, so the second build only repeats work. A caller holding nothing but
+  # the recipe, such as a diagnostic run against a stored result, leaves this
+  # NULL and gets the rebuild.
+  if (is.null(matrix)) {
+    matrix <- rebuild_constraint_matrix(recipe, data)
+  }
   z <- standardize_columns(matrix, sampling_weights)
   p <- ncol(z)
   terms <- vapply(recipe, function(term) term$term, character(1))
   kinds <- vapply(recipe, function(term) term$kind, character(1))
-  tolerances <- vapply(
-    recipe,
-    function(term) term$tolerance %||% tolerance,
-    numeric(1)
-  )
+  # A method that holds its rows at a value of its own reports that value rather
+  # than the one requested. An energy fit that added no constraint rows is the
+  # case: it enforced nothing, so a table reading the requested band would judge
+  # the fit against a box no row of the program was ever given, and would print
+  # that band as the fit's tolerance.
+  tolerances <- if (is.null(enforced_tolerance)) {
+    vapply(
+      recipe,
+      function(term) term$tolerance %||% tolerance,
+      numeric(1)
+    )
+  } else {
+    rep(enforced_tolerance, p)
+  }
 
   if (identical(exposure_type, "continuous")) {
     unweighted <- vapply(
@@ -154,7 +324,7 @@ compute_balance_table <- function(
     constraint_residual <- if (
       identical(estimand, "ate") && identical(constraint_target, "pooled")
     ) {
-      pooled_target <- apply(z, 2, stats::weighted.mean, w = reference)
+      pooled_target <- column_weighted_means(z, reference)
       per_arm <- lapply(names(groups), function(level) {
         abs(weighted_column_means(z, groups[[level]], weights) - pooled_target)
       })

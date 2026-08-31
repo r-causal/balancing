@@ -148,9 +148,9 @@ expect_basis_msm_accessors <- function(result, effect, outcome_mod) {
 
   testthat::expect_identical(estimates$effect, rep(effect, nrow(estimates)))
   testthat::expect_identical(anyDuplicated(labels), 0L)
-  testthat::expect_true(all(is.finite(estimates$std.err)))
-  testthat::expect_true(all(estimates$std.err > 0))
-  testthat::expect_true(all(estimates$ci.lower < estimates$ci.upper))
+  expect_finite_column(estimates, "std.err")
+  expect_column_all(estimates, "std.err", function(x) x > 0)
+  expect_column_all(estimates, "ci.lower", function(x) x < estimates$ci.upper)
 
   testthat::expect_identical(result$effects, "conditional")
   testthat::expect_identical(result$readings, "conditional")
@@ -175,14 +175,14 @@ expect_basis_msm_accessors <- function(result, effect, outcome_mod) {
   covariance <- stats::vcov(result)
   testthat::expect_equal(covariance, t(covariance), tolerance = 1e-12)
   off_diagonal <- covariance[upper.tri(covariance)]
-  testthat::expect_true(all(is.finite(off_diagonal)))
+  expect_all(off_diagonal, is.finite)
   testthat::expect_gt(max(abs(off_diagonal)), 1e-8)
 
   # The stacked parameter vector names the stored entries by the estimates
   # table's own labels, which is what lets the stored estimates and standard
   # errors be read back out of the variance system the result carries.
   theta <- result$fit$theta
-  testthat::expect_true(all(labels %in% names(theta)))
+  expect_all(labels, function(value) value %in% names(theta))
   testthat::expect_equal(
     unname(theta[labels]),
     estimates$estimate,
@@ -781,9 +781,9 @@ test_that("the basis standard errors account for having estimated the weights", 
       numeric(1)
     )
 
-    expect_true(all(is.finite(reported)))
-    expect_true(all(reported > 0))
-    expect_true(all(abs(reported / naive - 1) > 1e-6))
+    expect_all(reported, is.finite)
+    expect_all(reported, function(value) value > 0)
+    expect_all(abs(reported / naive - 1), function(value) value > 1e-6)
   }
 })
 
@@ -1220,4 +1220,40 @@ test_that("a basis fit reports the stacked variance system it was read from", {
     dimnames(result$fit$vcov),
     list(names(result$fit$theta), names(result$fit$theta))
   )
+})
+
+# The surface is the one description of what the exposure contributed to the
+# outcome design, and the sandwich has to work it out before it can name the
+# stacked parameters it returns. Handing it back is what keeps the caller from
+# deriving the same description a second time, so the two cannot disagree about
+# which columns carry the dose response or what their rows are called. Both
+# shapes are pinned, since a lone exposure column and a basis describe the
+# surface differently and only one of them is exercised by the naming above.
+
+test_that("the msm sandwich returns the coefficient surface it named from", {
+  data <- msm_basis_fixture()
+  fit <- msm_basis_fit(data)
+  w <- as.numeric(stats::weights(fit))
+  container <- estimating_equations(fit)
+
+  formulas <- list(
+    bare = y_cont ~ exposure,
+    basis = y_cont ~ poly(exposure, 2)
+  )
+
+  for (formula in formulas) {
+    outcome_mod <- fit_basis_msm(formula, data, w)
+    result <- ipw_deli_msm_sandwich(
+      container = container,
+      outcome_mod = outcome_mod,
+      exposure_name = "exposure",
+      sampling_weights = fit@sampling_weights
+    )
+
+    expect_true("surface" %in% names(result))
+    expect_identical(
+      result$surface,
+      msm_coefficient_identity(outcome_mod, "exposure")
+    )
+  }
 })

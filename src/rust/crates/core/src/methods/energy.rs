@@ -24,6 +24,7 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use crate::dist::{Distance, distance_matrix, pairwise};
 use crate::qp::osqp::Osqp;
 use crate::qp::{Convexity, QpBackend, QpOptions, QpSpec, QpStatus, objective};
+use crate::stats::weighted_variance;
 use crate::threads::get_pool;
 
 use super::qp_balance::{
@@ -420,31 +421,6 @@ pub struct EnergyContInputs<'a> {
     pub threads: usize,
     /// Quadratic-program tuning.
     pub qp: QpOptions,
-}
-
-/// Reliability-weighted variance of a single vector, the denominator matching the
-/// per-column variance used by the distance transforms.
-fn weighted_variance(x: &[f64], w: &[f64]) -> f64 {
-    let mut sw = 0.0;
-    let mut sw2 = 0.0;
-    let mut swx = 0.0;
-    let mut swxx = 0.0;
-    for (&xi, &wi) in x.iter().zip(w) {
-        sw += wi;
-        sw2 += wi * wi;
-        swx += wi * xi;
-        swxx += wi * xi * xi;
-    }
-    if sw <= 0.0 {
-        return 0.0;
-    }
-    let mean = swx / sw;
-    let denom = 1.0 - sw2 / (sw * sw);
-    if denom > 0.0 {
-        ((swxx / sw - mean * mean) / denom).max(0.0)
-    } else {
-        0.0
-    }
 }
 
 /// Double-center a symmetric distance matrix: `A_ij + grand - row_i - row_j`.
@@ -1118,5 +1094,82 @@ mod tests {
                 assert_eq!(a.to_bits(), b.to_bits());
             }
         }
+    }
+
+    /// A deterministic stream on the unit interval from a linear congruential
+    /// generator. The offset fixture below needs many values with no structure,
+    /// and generating them here keeps the numbers identical on every platform
+    /// without reaching for a random-number dependency.
+    fn lcg_unit(n: usize, seed: u64) -> Vec<f64> {
+        let mut state = seed;
+        (0..n)
+            .map(|_| {
+                state = state
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                (state >> 11) as f64 / 9_007_199_254_740_992.0
+            })
+            .collect()
+    }
+
+    /// Fifty exposure values at date-time scale and their non-uniform weights.
+    /// The column is `offset + spread * z` with the offset the magnitude
+    /// `as.numeric()` gives a POSIXct and the spread one hour, which is the shape
+    /// that makes a one-pass variance cancel: the mean is roughly half a million
+    /// standard deviations from zero. The offset is returned because the test
+    /// centers by it exactly.
+    fn offset_exposure() -> (Vec<f64>, Vec<f64>, f64) {
+        let n = 50;
+        let offset = 1.7e9;
+        let spread = 3600.0;
+        let z = lcg_unit(n, 20_250_828);
+        let weight_draws = lcg_unit(n, 987_654_321);
+        let x = z
+            .iter()
+            .map(|&zi| offset + spread * (2.0 * zi - 1.0))
+            .collect();
+        let w = weight_draws.iter().map(|&vi| 0.25 + 1.5 * vi).collect();
+        (x, w, offset)
+    }
+
+    /// Two-pass reliability-weighted variance: the weighted mean first, then the
+    /// weighted squared deviations from it. The deviations are formed at the
+    /// column's own scale rather than as a difference of two large sums, so this
+    /// stays accurate at any offset and is the reference `weighted_variance` has to
+    /// reproduce.
+    fn two_pass_variance(x: &[f64], w: &[f64]) -> f64 {
+        let sw: f64 = w.iter().sum();
+        let sw2: f64 = w.iter().map(|wi| wi * wi).sum();
+        let mean: f64 = x.iter().zip(w).map(|(&xi, &wi)| wi * xi).sum::<f64>() / sw;
+        let ss: f64 = x
+            .iter()
+            .zip(w)
+            .map(|(&xi, &wi)| {
+                let d = xi - mean;
+                wi * d * d
+            })
+            .sum();
+        (ss / sw) / (1.0 - sw2 / (sw * sw))
+    }
+
+    #[test]
+    fn the_exposure_sd_survives_a_date_time_offset() {
+        // The continuous solver standardizes the exposure by this variance, so an
+        // error here scales every correlation constraint it goes on to impose.
+        // Subtracting the offset from a column built as `offset + spread * z` is
+        // exact in binary floating point, both values being within a factor of
+        // two of each other, so the centered column holds precisely the
+        // deviations the stored column has and its two-pass variance is the
+        // variance being asked for.
+        let (x, w, offset) = offset_exposure();
+        let centered: Vec<f64> = x.iter().map(|&xi| xi - offset).collect();
+        let want = two_pass_variance(&centered, &w).sqrt();
+
+        let got = weighted_variance(&x, &w).sqrt();
+        let rel = (got - want).abs() / want;
+        assert!(
+            rel < 1e-12,
+            "exposure sd {got} against the two-pass reference {want}, relative error {rel}"
+        );
     }
 }

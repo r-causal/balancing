@@ -118,6 +118,7 @@ test_that("automatic_threads() returns two under R CMD check", {
 })
 
 test_that("automatic_threads() treats an unknown core count as one", {
+  local_core_count_reset()
   withr::local_envvar(
     `_R_CHECK_LIMIT_CORES_` = NA,
     OMP_THREAD_LIMIT = NA,
@@ -128,6 +129,58 @@ test_that("automatic_threads() treats an unknown core count as one", {
     .package = "parallel"
   )
   expect_identical(automatic_threads(), 1L)
+})
+
+test_that("physical_cores() asks the operating system once per session", {
+  local_core_count_reset()
+  calls <- 0L
+  testthat::local_mocked_bindings(
+    detectCores = function(...) {
+      calls <<- calls + 1L
+      6L
+    },
+    .package = "parallel"
+  )
+  expect_identical(physical_cores(), 6L)
+  expect_identical(physical_cores(), 6L)
+  expect_identical(calls, 1L)
+})
+
+test_that("resolve_threads() reads the cached core count", {
+  local_core_count_reset()
+  withr::local_envvar(
+    `_R_CHECK_LIMIT_CORES_` = NA,
+    OMP_THREAD_LIMIT = NA,
+    OMP_NUM_THREADS = NA
+  )
+  testthat::local_mocked_bindings(
+    detectCores = function(...) 6L,
+    .package = "parallel"
+  )
+  expect_identical(resolve_threads(), 6L)
+
+  # A second reading of the same session answers from the record rather than
+  # from the operating system, so a changed answer never reaches the fit.
+  testthat::local_mocked_bindings(
+    detectCores = function(...) 3L,
+    .package = "parallel"
+  )
+  expect_identical(resolve_threads(), 6L)
+})
+
+test_that("reset_physical_cores() clears the recorded count", {
+  local_core_count_reset()
+  testthat::local_mocked_bindings(
+    detectCores = function(...) 6L,
+    .package = "parallel"
+  )
+  expect_identical(physical_cores(), 6L)
+  reset_physical_cores()
+  testthat::local_mocked_bindings(
+    detectCores = function(...) 3L,
+    .package = "parallel"
+  )
+  expect_identical(physical_cores(), 3L)
 })
 
 test_that("env_thread_cap() parses a positive integer and rejects the rest", {

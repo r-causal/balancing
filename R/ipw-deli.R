@@ -7,6 +7,18 @@
 # already found, and the closure only re-evaluates the estimating functions
 # around that point.
 #
+# The one class of row that costs nothing to difference is not differenced. A
+# contrast row is a deterministic function of parameters the stack already
+# carries, so it is one constant repeated across the sample, and no row outside
+# the deterministic block reads a parameter that block estimates. Perturbing one
+# of those parameters therefore leaves every other row sum at the value the
+# fitted parameters produced, and those coordinates are answered from the
+# recorded sums rather than by assembling the stack again, which is what
+# `make_stacked_system()` below arranges. The deterministic rows do read one
+# another, so the whole block is recomputed at the perturbed vector. The numbers
+# are the ones the fully differenced system reports, to the bit; what changes is
+# how many times the outcome model is scored to reach them.
+#
 # The stack is ordered [theta_w | beta | means | contrasts]. The weight
 # parameters come first because everything downstream depends on them and
 # nothing upstream does. The outcome-model coefficients follow, coupled to the
@@ -258,7 +270,12 @@ ipw_deli_sandwich <- function(
     as.numeric(weight_parameters)
   )
 
-  stacked_equations <- function(theta) {
+  # The blocks of the stacked estimating function at one parameter vector,
+  # returned unstacked. Two consumers read them, and only one of them wants a
+  # matrix: the engine's meat is built from the S-by-n stack, while its bread
+  # reads nothing but the row sums. Returning the blocks lets each take what it
+  # needs, which is what `make_stacked_system()` below arranges.
+  stacked_blocks <- function(theta) {
     beta <- theta[p + seq_len(q)]
     mean_theta <- theta[p + q + seq_len(m)]
     contrast_theta <- theta[p + q + m + seq_len(k)]
@@ -292,43 +309,81 @@ ipw_deli_sandwich <- function(
     # rather than over every unit. A marginal model predicts one value per
     # exposure level, which makes the weighted row a constant multiple of the
     # unweighted one and leaves the sandwich exactly where it was.
-    mean_rows <- do.call(
-      rbind,
-      lapply(seq_len(m), function(j) tilt * (fixed[[j]] - mean_theta[[j]]))
+    #
+    # Each row is handed over on its own rather than stacked into a block
+    # first. The assembly writes each of them into the destination row it
+    # belongs in, so a block of them would be built only to be copied there.
+    mean_rows <- lapply(
+      seq_len(m),
+      function(j) tilt * (fixed[[j]] - mean_theta[[j]])
     )
 
     # The contrasts are deterministic functions of the means, so their rows are
     # the same value for every unit. They contribute nothing to the meat at the
     # solution, where that value is zero, and everything to the bread, which is
-    # what carries their standard errors without a delta method.
-    contrast_rows <- if (is.null(joint)) {
-      matrix(
-        ipw_contrast_values(mean_theta, continuous) - contrast_theta,
-        nrow = k,
-        ncol = n
-      )
-    } else {
-      ipw_joint_rows(joint, mean_theta, contrast_theta, continuous, n)
-    }
+    # what carries their standard errors without a delta method. The values
+    # those rows repeat are named on their own because the summed system below
+    # reads them without assembling a stack, and the two readings of a contrast
+    # row have to be one reading.
+    #
+    # The rows are handed over as those values rather than as a block repeating
+    # each of them across the sample. The assembly writes a row from the value
+    # it repeats, so the wide block would exist only to be read once.
+    contrast_rows <- constant_psi_rows(
+      ipw_contrast_row_values(joint, mean_theta, contrast_theta, continuous)
+    )
 
     by_rows <- ipw_by_rows(
       by_stack = by_stack,
       fixed = fixed,
       mean_theta = theta[p + q + m + k + seq_len(m_by)],
       contrast_theta = theta[p + q + m + k + m_by + seq_len(k_by)],
-      continuous = continuous,
-      n = n
+      continuous = continuous
     )
 
-    rbind(
-      hooks$psi,
-      score,
+    c(
+      list(hooks$psi, score),
       mean_rows,
       contrast_rows,
       by_rows$mean,
       by_rows$contrast
     )
   }
+
+  # The value each deterministic row repeats across the sample, in stacked
+  # order: the whole-sample contrast block, whichever surface it is written
+  # under, then every stratum and stratum-against-stratum block a `.by` request
+  # appends. These are the rows the bread does not have to assemble a stack to
+  # difference, and `deterministic` holds the coordinates they sit at, which are
+  # the coordinates of the parameters they carry.
+  deterministic_values <- function(theta) {
+    c(
+      ipw_contrast_row_values(
+        joint,
+        theta[p + q + seq_len(m)],
+        theta[p + q + m + seq_len(k)],
+        continuous
+      ),
+      ipw_by_contrast_row_values(
+        by_stack = by_stack,
+        mean_theta = theta[p + q + m + k + seq_len(m_by)],
+        contrast_theta = theta[p + q + m + k + m_by + seq_len(k_by)],
+        continuous = continuous,
+        n_levels = m
+      )
+    )
+  }
+  deterministic <- c(
+    p + q + m + seq_len(k),
+    p + q + m + k + m_by + seq_len(k_by)
+  )
+  stacked <- make_stacked_system(
+    stacked_blocks,
+    deterministic_values,
+    deterministic,
+    theta,
+    n
+  )
 
   validate_stacked_bread(
     container@jacobian,
@@ -340,10 +395,11 @@ ipw_deli_sandwich <- function(
   list(
     theta = theta,
     vcov = stacked_covariance(
-      stacked_equations,
+      stacked$psi,
       theta,
       n,
       container@jacobian,
+      summed = stacked$summed,
       call = call
     )
   )
@@ -435,7 +491,7 @@ ipw_deli_msm_sandwich <- function(
       weights = hooks$weights * sampling,
       offset = offset
     )
-    rbind(hooks$psi, score)
+    stack_psi_blocks(list(hooks$psi, score), n)
   }
 
   validate_stacked_bread(
@@ -445,6 +501,11 @@ ipw_deli_msm_sandwich <- function(
     call = call
   )
 
+  # The surface travels back with the variance system because naming the stacked
+  # parameters already required working it out. A caller reporting rows off this
+  # stack needs the same description, and deriving it a second time would let the
+  # names in `theta` and the rows read against them disagree about which columns
+  # carried the dose response.
   list(
     theta = theta,
     vcov = stacked_covariance(
@@ -453,7 +514,8 @@ ipw_deli_msm_sandwich <- function(
       n,
       container@jacobian,
       call = call
-    )
+    ),
+    surface = surface
   )
 }
 
@@ -511,6 +573,353 @@ make_hooks_cache <- function(container, rescale, parameters) {
   }
 }
 
+# The stacked estimating function, assembled from its blocks into the S-by-n
+# matrix the sandwich differentiates.
+#
+# `blocks` holds the stack in order. An entry is either a block that already
+# exists as a matrix, which is what the container's estimating functions and the
+# outcome model's score arrive as, or a single row: a vector carrying one value
+# per observation, or the one value a deterministic row repeats across the whole
+# sample. An entry may also be `NULL`, which is what a route carrying no block
+# of that kind passes, and a matrix entry may have no rows, which is what a
+# block the fit turned out to have nothing to put in comes back as. Both
+# contribute nothing, exactly as they contribute nothing to `rbind()`.
+#
+# What this returns is what `rbind()` returns for the same entries, to the bit,
+# values and dimnames alike, for any stack carrying at least one entry of the
+# full width; `rbind()` reads the width off its arguments, and every stack the
+# package builds opens with a block that gives it one. The only reason not to
+# write `rbind()` is cost. `rbind()` has to work the result's type, shape, and
+# row names out from the arguments it was handed before it can copy anything,
+# and it pays that per argument; a caller that already knows the shape can
+# allocate once and write each entry where it belongs.
+#
+# This runs once per sandwich, for the evaluation the meat is built from. The
+# `2(S - k)` evaluations the bread differences never reach here, because the
+# bread reads only row sums and `sum_psi_blocks()` below takes those from the
+# same blocks without assembling anything.
+#
+# The entries are written in place for the memory rather than for the time. A
+# caller that stacked its rows into a block of their own before handing that
+# block over paid for those values twice, once where the block was built and
+# once where it was copied into the destination, and a caller that hands its
+# rows over unstacked allocates neither the block nor the copy. That is what the
+# mean rows and the stratum mean rows do, and a deterministic block goes
+# further: its rows repeat one value each, so passing the value writes the row
+# without a destination-width vector existing anywhere. Measured while this ran
+# on every evaluation of the sandwich, writing the rows in place removed 8 to 11
+# percent of everything an `ipw()` call at n = 20000 allocated on the widest
+# surfaces. What it does for the time is inside the noise of the measurement,
+# and it is not free: every assignment materializes a column index the length of
+# the sample to stand in for the subscript it was not given, whether it writes
+# one row or many. Writing that subscript out as `seq_len(n)` does not remove
+# the index, and assigning through a single linear index computed by hand is far
+# worse on both counts.
+#
+# All but one of those evaluations has since moved to `sum_psi_blocks()`, which
+# reads the same unstacked entries and is where that reasoning now mostly pays.
+# Handing the rows over unstacked is what lets it read them at all.
+#
+# The buffer is filled with `NA_real_` rather than zero. The two measure the
+# same, since either way the allocation writes a value into every cell, so the
+# choice falls to what an unwritten row should look like: an unwritten `NA` row
+# reaches deli, which refuses a non-finite psi return with
+# `deli_psi_return_error` before it forms either half of the sandwich, where a
+# zero row would read as a coordinate the system does not depend on and quietly
+# return a wrong variance.
+stack_psi_blocks <- function(blocks, n) {
+  here <- rlang::current_env()
+  blocks <- blocks[!vapply(blocks, is.null, logical(1))]
+  rows <- vapply(
+    seq_along(blocks),
+    function(i) psi_block_rows(blocks[[i]], i, n, call = here),
+    integer(1)
+  )
+  starts <- cumsum(rows) - rows
+  stacked <- matrix(NA_real_, nrow = sum(rows), ncol = n)
+
+  for (i in seq_along(blocks)) {
+    if (rows[[i]] > 0L) {
+      stacked[starts[[i]] + seq_len(rows[[i]]), ] <- blocks[[i]]
+    }
+  }
+
+  # `rbind()` leaves the result unnamed when no block that contributed a row
+  # carried a name, and otherwise names every row, padding the blocks that
+  # carried none with the empty string. A zero-row block never forces names,
+  # since it contributes no row to name, but it does still offer its column
+  # names, and the first block offering any is the one they come from. An entry
+  # that is a single row offers neither, which is `rbind()`'s reading of it too:
+  # a row is placed by position and named by nothing.
+  named <- vapply(
+    blocks,
+    function(block) !is.null(rownames(block)),
+    logical(1)
+  )
+  if (any(named & rows > 0L)) {
+    row_names <- character(sum(rows))
+    for (i in which(named & rows > 0L)) {
+      row_names[starts[[i]] + seq_len(rows[[i]])] <- rownames(blocks[[i]])
+    }
+    rownames(stacked) <- row_names
+  }
+  for (block in blocks) {
+    if (!is.null(colnames(block))) {
+      colnames(stacked) <- colnames(block)
+      break
+    }
+  }
+
+  stacked
+}
+
+# The row sums of the stack the same entries assemble to, taken block by block
+# so that the stack itself is never built.
+#
+# The bread reads nothing but these sums. The engine derives them from the
+# estimating functions by summing the matrix it was handed, which means every
+# differenced coordinate allocates an S-by-n destination whose only use is to be
+# reduced to S numbers and dropped. Supplying the reduction instead removes that
+# destination from all but the one evaluation the meat keeps, which is 2(S - k)
+# of the 2(S - k) + 1 assemblies a sandwich performs.
+#
+# The earlier attempt at the same saving refilled one destination across
+# evaluations rather than removing it, and saved nothing: the matrix reaches the
+# engine as an argument, so it arrives at the next evaluation already shared and
+# the first row written to it duplicates it. Reducing here is what makes that
+# moot, because on this path the matrix never exists to be shared.
+#
+# What this is worth is allocation. Measured over three rounds of ten `ipw()`
+# calls at n = 20000, the `.by` shape falls from 403.2 MB to 283.5 MB and the
+# declared-crossing shape from 487.7 MB to 358.0 MB, the same figure to the byte
+# in every round, and the collections a caller waits through fall by about a
+# third. The destinations are more than their own size, because an assignment
+# into a row of one also materializes a column index the length of the sample,
+# and nothing here writes into a matrix. What it is worth for the time is not
+# established: over those rounds neither shape's median separates from the
+# assembling build's by more than the rounds differ among themselves.
+#
+# Each block's sum is taken by the same accumulation `rowSums()` would apply to
+# the rows that block fills: `rowSums()` on a matrix entry, `sum()` on a row
+# given as one value per observation, and `constant_row_sums()` on the rows a
+# deterministic block repeats, all of which accumulate the same values in the
+# same order in the same extended precision. So the reduction is the row sums of
+# the assembled stack to the bit, which is the only footing on which the bread
+# may take this route while the meat takes the other.
+#
+# The deterministic rows are summed together rather than one at a time because
+# `constant_row_sums()` builds a matrix to accumulate over and one of those is
+# cheaper than one per row. They need not be contiguous in the stack for that:
+# the block they are gathered from is built here and read back by position.
+sum_psi_blocks <- function(blocks, n) {
+  here <- rlang::current_env()
+  blocks <- blocks[!vapply(blocks, is.null, logical(1))]
+  rows <- vapply(
+    seq_along(blocks),
+    function(i) psi_block_rows(blocks[[i]], i, n, call = here),
+    integer(1)
+  )
+  starts <- cumsum(rows) - rows
+  sums <- numeric(sum(rows))
+
+  constant <- vapply(
+    blocks,
+    function(block) !is.matrix(block) && length(block) == 1L,
+    logical(1)
+  )
+  for (i in which(!constant & rows > 0L)) {
+    block <- blocks[[i]]
+    sums[starts[[i]] + seq_len(rows[[i]])] <- if (is.matrix(block)) {
+      rowSums(block)
+    } else {
+      sum(block)
+    }
+  }
+  if (any(constant)) {
+    sums[starts[constant] + 1L] <- constant_row_sums(
+      unlist(blocks[constant], use.names = FALSE),
+      n
+    )
+  }
+
+  sums
+}
+
+# The number of rows an entry of the stack contributes, and the point at which
+# that count is committed, so it is also where the entry's width is checked
+# rather than trusted. The destination is allocated at the width the caller
+# declares, and assigning into its rows recycles anything narrower instead of
+# refusing it, so an entry of the wrong width would be spread over the rows it
+# was meant to fill and the stack would carry values belonging to no unit.
+# `rbind()` recycles the same way, so this is a guard the assembly adds rather
+# than one it inherits.
+#
+# A matrix contributes its rows and has to be exactly `n` wide. Anything else is
+# a single row, which is either one value per observation or the one value a
+# deterministic row repeats. Those are the only two widths a row may have: a row
+# of any other length is the mistake this refuses, and a row of length one is
+# recycled deliberately.
+#
+# The refusal is worded from what the entry is. Only a matrix entry has columns;
+# an entry given as a bare vector is one row, and what it carries is values, so
+# saying it carries the wrong number of columns would send a reader looking for
+# a dimension it does not have.
+#
+# The storage is checked here for the same reason the width is. The assembly and
+# the reduction have to agree to the bit, and they only do while every entry
+# holds doubles: `rowSums()` on the assembled stack returns a double whatever
+# the block was, while the reduction takes a per-observation row with `sum()`,
+# which returns an integer for an integer row and can overflow it to `NA`. No
+# route builds a block of any other storage today, so this is an invariant of
+# the assembly rather than a conversion it performs.
+#
+# `call` is the assembly the entries were handed to, passed in rather than read
+# off the stack. These counts are taken inside a `vapply()` closure, so a
+# refusal left to find its own caller would report that closure, which is not a
+# call anyone wrote and not the one holding the block that is wrong.
+psi_block_rows <- function(block, index, n, call = rlang::caller_env()) {
+  if (!is.double(block)) {
+    abort(
+      c(
+        "Every block of the stacked estimating function must hold doubles.",
+        x = "Block {index} holds {.cls {typeof(block)}} values."
+      ),
+      error_class = "balancing_internal_error",
+      call = call
+    )
+  }
+
+  if (is.matrix(block)) {
+    width <- ncol(block)
+    if (width == n) {
+      return(nrow(block))
+    }
+    carries <- "carries {width} column{?s}"
+  } else {
+    width <- length(block)
+    if (width == n || width == 1L) {
+      return(1L)
+    }
+    carries <- "holds {width} value{?s}"
+  }
+
+  abort(
+    c(
+      "Every block of the stacked estimating function must cover every observation.",
+      x = paste0("Block {index} ", carries, " for a sample of {n}.")
+    ),
+    error_class = "balancing_internal_error",
+    call = call
+  )
+}
+
+# The rows of a deterministic block, one entry per row holding the value that
+# row repeats across the sample. The values arrive named, since they are read
+# off the named parameter vector, and the names are dropped here: the assembly
+# writes a row by position, and the block these rows replace carried no names
+# either.
+constant_psi_rows <- function(values) {
+  as.list(unname(values))
+}
+
+# The stacked estimating functions and the summed system its bread is
+# differentiated from, built as a pair so the second never pays for what the
+# first already knows.
+#
+# `deli::compute_sandwich()` builds the meat from one evaluation of the
+# estimating functions and the bread from the row sums of the same system at two
+# perturbed parameter vectors per coordinate. Left to itself it derives those
+# row sums by evaluating the estimating functions again, and that is the only
+# reason a deterministic row costs anything. Such a row is one constant repeated
+# across the sample, and no row outside the deterministic block reads a
+# parameter that block estimates, so perturbing one of those parameters leaves
+# every non-deterministic row sum at the value the fitted parameters produced.
+# What the perturbation does move is the deterministic block itself, whose rows
+# read each other, so the whole of it is recomputed from the perturbed vector.
+#
+# So the summed system is supplied rather than derived. A perturbation that
+# moves any parameter the rest of the stack reads is answered by building the
+# blocks at that vector and reducing them where they are built, which is the
+# same arithmetic on the same values the engine would have summed and therefore
+# the same numbers to the last bit. A perturbation that moves only a
+# deterministic parameter is answered from the recorded sums and
+# `constant_row_sums()`, without building any block at all. The saving is two
+# evaluations of the whole system per deterministic row, and each of those
+# evaluations scores the outcome model and predicts every fixed-exposure design
+# over the sample.
+#
+# Supplying it also decides which of the two systems allocates the S-by-n
+# matrix. Only `psi_at()` assembles one, for the single evaluation the meat is
+# built from and keeps; the bread's evaluations come through `summed_at()`,
+# which returns S numbers and lets the blocks they were reduced from go. That
+# takes 2(S - k) destinations out of every call, and it is the reason the
+# estimating functions are built as a list of blocks rather than as a matrix.
+#
+# `index` names the deterministic rows, which are also the coordinates of the
+# parameters they carry. No row outside that block reads one of those
+# parameters, which is what lets the recorded sums of the rest of the system
+# stand through a deterministic perturbation. Inside the block the rows do read
+# each other: a stratum-against-stratum row differences two stratum contrast
+# parameters (`ipw_by_contrast_row_values()`), and the interaction rows of a
+# declared crossing difference two simple-effect parameters
+# (`ipw_joint_interaction_values()`). `summed_at()` therefore recomputes every
+# deterministic row from the perturbed vector rather than only the row whose
+# parameter moved, and narrowing it to that row would zero the bread entries the
+# others carry.
+make_stacked_system <- function(
+  stacked_blocks,
+  deterministic_values,
+  index,
+  parameters,
+  n
+) {
+  moving <- setdiff(seq_along(parameters), index)
+  anchor <- as.numeric(parameters)[moving]
+  anchor_sums <- NULL
+
+  psi_at <- function(theta) {
+    psi <- stack_psi_blocks(stacked_blocks(theta), n)
+    if (is.null(anchor_sums) && identical(as.numeric(theta)[moving], anchor)) {
+      anchor_sums <<- unname(rowSums(psi))
+    }
+    psi
+  }
+
+  summed_at <- function(theta) {
+    at_anchor <- identical(as.numeric(theta)[moving], anchor)
+    if (!is.null(anchor_sums) && at_anchor) {
+      sums <- anchor_sums
+      sums[index] <- constant_row_sums(deterministic_values(theta), n)
+      return(sums)
+    }
+
+    sums <- sum_psi_blocks(stacked_blocks(theta), n)
+    if (at_anchor) {
+      anchor_sums <<- sums
+    }
+    sums
+  }
+
+  list(psi = psi_at, summed = summed_at)
+}
+
+# The row sums of a block whose every row is one value repeated across the
+# sample.
+#
+# `rowSums()` accumulates each row over the columns on its own, so a constant
+# row's sum is a function of that value and the sample size and of nothing else
+# in the matrix it was read from. Building the block here therefore reaches the
+# same double the assembled stack would have, which is what lets the bread take
+# this route for the rows that need it and the estimating functions for the rest
+# without the two disagreeing.
+#
+# The sum is not the value times the sample size. Adding n copies of a double
+# rounds at every step, and on the values these rows carry the two answers part
+# company well above the last bit, by up to 7e-7 on the package's own fixtures.
+constant_row_sums <- function(values, n) {
+  rowSums(matrix(values, nrow = length(values), ncol = n))
+}
+
 # The empirical sandwich covariance of a stacked system at its root, named by
 # stacked block.
 #
@@ -546,11 +955,26 @@ make_hooks_cache <- function(container, rescale, parameters) {
 # condition, which would otherwise surface much later as a complaint about
 # dimnames applied to a non-array. Name the real cause here instead, at the point
 # where it is still legible.
+
+# A stack that is not finite at the fitted parameters is refused by the engine
+# before it differences anything, under a class of its own. Nothing about that
+# refusal is the caller's to read: it is written about `stacked_equations`, an
+# argument they never passed, in a frame they never wrote. So it is translated
+# too, into the same class and the same shape as the bread refusal, with deli's
+# condition chained underneath. The aliased-coefficient preflight closes the one
+# route known to reach it; the translation is what covers the rest.
+#
+# `summed` is the same system reduced over the observations, which the engine
+# differentiates in place of deriving the reduction from the estimating
+# functions. A route carrying deterministic rows supplies one so those rows are
+# never assembled; a route carrying none passes nothing and the engine derives
+# the reduction as it always did.
 stacked_covariance <- function(
   stacked_equations,
   theta,
   n,
   jacobian,
+  summed = NULL,
   call = rlang::caller_env()
 ) {
   covariance <- rlang::try_fetch(
@@ -559,7 +983,8 @@ stacked_covariance <- function(
       theta,
       deriv_method = "capprox",
       dx = 1e-6,
-      allow_pinv = FALSE
+      allow_pinv = FALSE,
+      summed_equations = summed
     ) /
       n,
     deli_bread_not_invertible = function(cnd) {
@@ -586,6 +1011,19 @@ stacked_covariance <- function(
         error_class = "balancing_ipw_unsupported_error",
         call = call,
         .envir = environment()
+      )
+    },
+    deli_psi_return_error = function(cnd) {
+      abort(
+        c(
+          "The stacked variance could not be computed for this outcome model.",
+          x = "The stacked estimating functions are not finite at the fitted parameters.",
+          i = "The stack carries the balancing fit's estimating equations alongside the outcome model's score, so a non-finite weight, or an outcome the model cannot score at those weights, reaches it as one of these values.",
+          i = "See the inference vignette for a bootstrap workflow."
+        ),
+        error_class = "balancing_ipw_unsupported_error",
+        call = call,
+        parent = cnd
       )
     }
   )
@@ -709,7 +1147,10 @@ msm_effect_name <- function(
 # produces and far above the rounding a deficient one leaves. Both readers of a
 # deficiency, the check made before the stack is differenced and the refusal
 # raised when the engine cannot invert it, measure it here so the two never
-# disagree about whether a given fit is deficient.
+# disagree about whether a given fit is deficient. A separate rank tolerance
+# lives in `aliased_columns()` (R/constraints.R), a column-norm-relative cutoff
+# on the constraint matrix, and the two values are set independently on purpose
+# because they read different matrices.
 measure_jacobian_rank <- function(jacobian) {
   decomposition <- svd(jacobian)
   deficient <- decomposition$d <= decomposition$d[[1]] * 1e-8
@@ -729,9 +1170,11 @@ measure_jacobian_rank <- function(jacobian) {
 # Jacobian is. The converse needs the stack's other diagonal blocks to be
 # nonsingular, which holds for a converged glm with estimable coefficients and,
 # on the discrete path, for the mean and contrast blocks, whose diagonals are
-# minus the standardization total and minus one.
-# Asking the finite difference to report that is asking too much of
-# it. A deficiency that is a second-order cancellation comes back as a pivot of
+# minus the standardization total and minus one. With those blocks nonsingular a
+# singular stack means a singular weight block and nothing else, so the
+# deficiency this check has to detect is exactly the one the fit's own Jacobian
+# carries. Asking the finite difference to report that is asking too much of it.
+# A deficiency that is a second-order cancellation comes back as a pivot of
 # rounding size rather than as a zero, and `solve()` accepts it, so
 # `allow_pinv = FALSE` refuses only the deficiencies that survive to the last bit
 # and answers the rest with standard errors resting on rounding error. The check
@@ -841,6 +1284,27 @@ ipw_contrast_values <- function(means, continuous, collapsible_only = FALSE) {
   unlist(values, use.names = FALSE)
 }
 
+# The value each whole-sample contrast row repeats across the sample, which is
+# the contrast the mean parameters imply less the parameter the row estimates.
+# A declared crossing writes the same block over the same means in the two
+# treatments, so which surface is in play decides the arithmetic and nothing
+# else about the row.
+#
+# The stacked psi matrix and the summed system both read a contrast row from
+# here, so a row and its reduction are one expression rather than two that have
+# to agree.
+ipw_contrast_row_values <- function(
+  joint,
+  mean_theta,
+  contrast_theta,
+  continuous
+) {
+  if (is.null(joint)) {
+    return(ipw_contrast_values(mean_theta, continuous) - contrast_theta)
+  }
+  ipw_joint_row_values(joint, mean_theta, contrast_theta, continuous)
+}
+
 ipw_contrast_names <- function(
   continuous,
   levels = NULL,
@@ -926,7 +1390,10 @@ ipw_by_stack <- function(by, pieces, tilt, continuous, levels, categorical) {
   )
 }
 
-# The stratum blocks of one evaluation of the stacked estimating functions.
+# The stratum rows of one evaluation of the stacked estimating functions, in the
+# two groups the stack carries them as: the mean rows one vector each, and the
+# contrast rows the single value each of them repeats. The assembly writes both
+# straight into the stack, so neither group is built as a block of its own here.
 #
 # The mean rows are the whole-sample mean rows restricted to a stratum: the root
 # of the row weighted by that stratum's tilt is the tilt-weighted mean of the
@@ -945,24 +1412,54 @@ ipw_by_rows <- function(
   fixed,
   mean_theta,
   contrast_theta,
-  continuous,
-  n
+  continuous
 ) {
   if (is.null(by_stack)) {
     return(list(mean = NULL, contrast = NULL))
   }
 
   n_levels <- length(fixed)
-  per_stratum <- by_stack$per_stratum
-  mean_rows <- do.call(
-    rbind,
-    lapply(seq_along(mean_theta), function(row) {
-      stratum <- (row - 1L) %/% n_levels + 1L
-      level <- (row - 1L) %% n_levels + 1L
-      by_stack$tilts[[stratum]] * (fixed[[level]] - mean_theta[[row]])
-    })
-  )
+  mean_rows <- lapply(seq_along(mean_theta), function(row) {
+    stratum <- (row - 1L) %/% n_levels + 1L
+    level <- (row - 1L) %% n_levels + 1L
+    by_stack$tilts[[stratum]] * (fixed[[level]] - mean_theta[[row]])
+  })
 
+  list(
+    mean = mean_rows,
+    contrast = constant_psi_rows(
+      ipw_by_contrast_row_values(
+        by_stack = by_stack,
+        mean_theta = mean_theta,
+        contrast_theta = contrast_theta,
+        continuous = continuous,
+        n_levels = n_levels
+      )
+    )
+  )
+}
+
+# The value each stratum contrast row repeats across the sample: a stratum's own
+# contrasts less the parameters estimating them, then the stratum-against-
+# stratum rows, which difference two stratum contrast parameters rather than
+# recomputing anything from the means and so carry an exact derivative.
+#
+# `NULL` when no `.by` request was made, which is what the two callers pass on
+# as a block that contributes nothing. Both the stacked psi matrix and the
+# summed system read these rows from here, on the same footing as the
+# whole-sample block.
+ipw_by_contrast_row_values <- function(
+  by_stack,
+  mean_theta,
+  contrast_theta,
+  continuous,
+  n_levels
+) {
+  if (is.null(by_stack)) {
+    return(NULL)
+  }
+
+  per_stratum <- by_stack$per_stratum
   stratum_values <- unlist(
     lapply(seq_len(by_stack$strata), function(s) {
       ipw_contrast_values(
@@ -981,14 +1478,7 @@ ipw_by_rows <- function(
     use.names = FALSE
   )
 
-  list(
-    mean = mean_rows,
-    contrast = matrix(
-      c(stratum_values, em_values) - contrast_theta,
-      nrow = length(contrast_theta),
-      ncol = n
-    )
-  )
+  c(stratum_values, em_values) - contrast_theta
 }
 
 # The names of the marginal-mean block. A categorical exposure names each mean

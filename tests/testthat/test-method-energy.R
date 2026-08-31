@@ -103,8 +103,22 @@ test_that("bw_energy() carries its documented defaults", {
   expect_identical(spec@min_weight, 1e-8)
   expect_null(spec@distribution_moments)
   expect_true(spec@dimension_adjustment)
-  expect_null(spec@convergence_tolerance)
+  expect_identical(spec@convergence_tolerance, 1e-6)
   expect_null(spec@max_iterations)
+})
+
+test_that("the loosened solver tolerance is energy's alone", {
+  # Energy is the one quadratic program whose objective matrix is indefinite by
+  # construction, and the negative curvature it carries grows as the sample
+  # shrinks, so below a certain size the alternating-direction iteration stops
+  # contracting: its residuals bottom out well above 1e-8 and then grow. The
+  # method therefore names its own tolerance rather than taking the core default,
+  # and the two positive-semidefinite quadratic programs still take it. The
+  # contrast is pinned here so a later change to the shared default cannot move
+  # energy with it, and so a change to energy's cannot leak into the others.
+  expect_identical(bw_energy()@convergence_tolerance, 1e-6)
+  expect_null(bw_sbw()@convergence_tolerance)
+  expect_null(bw_cfd()@convergence_tolerance)
 })
 
 test_that("bw_energy() stores supplied tuning parameters", {
@@ -181,7 +195,7 @@ test_that("bw_energy() rejects missing or multi-element distribution moments", {
 })
 
 test_that("bw_energy() rejects a non-positive convergence tolerance", {
-  expect_null(bw_energy()@convergence_tolerance)
+  expect_identical(bw_energy()@convergence_tolerance, 1e-6)
   expect_error(bw_energy(convergence_tolerance = -1e-8))
 })
 
@@ -253,8 +267,8 @@ test_that("energy balancing reduces the binary ate energy distance", {
     estimand = "ate"
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
-  expect_true(all(w >= 1e-8))
+  expect_all(w, function(value) value >= 0)
+  expect_all(w, function(value) value >= 1e-8)
 
   # Energy balancing drives balance through its objective rather than exact
   # moment constraints, so the achieved first-moment imbalance is verified
@@ -297,7 +311,7 @@ test_that("a binary att targets the treated total in both groups", {
   n_treated <- sum(treated)
   expect_equal(sum(w[treated]), n_treated, tolerance = 1e-4)
   expect_equal(sum(w[!treated]), n_treated, tolerance = 1e-4)
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   expect_balanced(fit, data, tolerance = 0.1)
 })
 
@@ -311,8 +325,8 @@ test_that("a binary atc fit produces non-negative weights", {
     estimand = "atc"
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
-  expect_true(all(w >= 1e-8))
+  expect_all(w, function(value) value >= 0)
+  expect_all(w, function(value) value >= 1e-8)
   expect_balanced(fit, data, tolerance = 0.1)
 })
 
@@ -360,12 +374,12 @@ test_that("energy balancing balances a factor covariate", {
     expect_true(fit@converged)
     expect_equal(sum(w[treated]), sum(treated), tolerance = 1e-4)
     expect_equal(sum(w[!treated]), control_target, tolerance = 1e-4)
-    expect_true(all(w >= 1e-8))
+    expect_all(w, function(value) value >= 1e-8)
 
     # Every level's gap closes by at least a factor of four and lands inside a
     # ceiling no unweighted level clears.
     weighted <- level_gaps(w)
-    expect_true(all(weighted < unweighted / 4))
+    expect_all(weighted, function(value) value < unweighted / 4)
     expect_lt(max(weighted), 0.01)
     expect_balanced(fit, data, tolerance = 0.1)
   }
@@ -432,7 +446,7 @@ test_that("the per-group effective sample size rises with the weight penalty", {
   curve <- lapply(penalties, ess_at)
 
   for (step in seq_len(length(curve) - 1L)) {
-    expect_true(all(curve[[step + 1L]] > curve[[step]]))
+    expect_all(curve[[step + 1L]], function(value) value > curve[[step]])
   }
 })
 
@@ -473,7 +487,7 @@ test_that("categorical ate energy balancing produces valid weights", {
     estimand = "ate"
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   for (level in levels(data$exposure)) {
     idx <- data$exposure == level
     expect_equal(sum(w[idx]), sum(idx), tolerance = 1e-4)
@@ -489,10 +503,10 @@ test_that("categorical att energy balancing produces valid weights", {
     c(x1, x2),
     method = bw_energy(),
     estimand = "att",
-    focal_level = "b"
+    .focal_level = "b"
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   expect_balanced(fit, data, tolerance = 0.1)
 })
 
@@ -756,7 +770,7 @@ test_that("continuous energy balancing reduces the distance covariance", {
     estimand = "ate"
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
 
   covariates <- as.matrix(data[c("x1", "x2")])
   weighted <- weighted_distance_covariance(data$exposure, covariates, w)
@@ -821,7 +835,7 @@ test_that("a continuous fit preserves an indicator covariate's marginal", {
   )
   # The stratum keeps its share of the total weight rather than being annihilated.
   expect_equal(sum(w[data$g == 1]), sum(data$g == 1), tolerance = 1e-4)
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
 })
 
 test_that("a continuous fit holds the base-measure marginals under sampling weights", {
@@ -1002,6 +1016,424 @@ test_that("dimension_adjustment toggles the continuous solution", {
   )))
 })
 
+# ---- Continuous correlation constraints -----------------------------------
+
+# The weighted exposure-covariate Pearson correlation the balance table reports,
+# computed here so the specs below judge the fit on the statistic a reader sees
+# rather than on the solver's own row.
+weighted_correlation <- function(exposure, column, weights) {
+  abs(stats::cov.wt(cbind(exposure, column), wt = weights, cor = TRUE)$cor[
+    1,
+    2
+  ])
+}
+
+test_that("moments requests exposure-covariate correlation constraints", {
+  # For a continuous exposure `balance_terms(moments = k)` asks for the weighted
+  # correlation of the exposure with each covariate power up to k to be held at
+  # zero, the meaning `moments` carries for a discrete exposure and the meaning
+  # WeightIt gives its own `moments` argument. The energy objective alone leaves
+  # a residual correlation of a tenth or more at these sample sizes, so a fit
+  # that meets this really did add the rows.
+  data <- sim_continuous(n = 350)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(),
+    estimand = "ate",
+    constraints = balance_terms(moments = 1L)
+  )
+  w <- as.numeric(stats::weights(fit))
+  for (column in c("x1", "x2")) {
+    expect_lt(weighted_correlation(data$exposure, data[[column]], w), 1e-6)
+  }
+
+  default <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(),
+    estimand = "ate"
+  )
+  w_default <- as.numeric(stats::weights(default))
+  expect_gt(weighted_correlation(data$exposure, data$x1, w_default), 0.05)
+})
+
+test_that("a second moment constrains the correlation with the covariate squares", {
+  # Each power of a covariate is its own constraint column, so the second moment
+  # adds the correlation of the exposure with the squares alongside the first.
+  data <- sim_continuous(n = 350)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(),
+    estimand = "ate",
+    constraints = balance_terms(moments = 2L)
+  )
+  w <- as.numeric(stats::weights(fit))
+  for (column in c("x1", "x2")) {
+    values <- data[[column]]
+    expect_lt(weighted_correlation(data$exposure, values, w), 1e-6)
+    expect_lt(
+      weighted_correlation(data$exposure, (values - mean(values))^2, w),
+      1e-6
+    )
+  }
+})
+
+test_that("interactions constrain the correlation with the product column", {
+  # `interactions = TRUE` adds the product of two covariates as a constraint
+  # column, which on the continuous path is one more correlation row.
+  data <- sim_continuous(n = 350)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(),
+    estimand = "ate",
+    constraints = balance_terms(interactions = TRUE)
+  )
+  w <- as.numeric(stats::weights(fit))
+  expect_lt(
+    weighted_correlation(data$exposure, data$x1 * data$x2, w),
+    1e-6
+  )
+})
+
+test_that("the balance table reports the correlation rows the fit constrained", {
+  # The rows a continuous fit constrains are the rows the table reports, so a
+  # second-moment request shows four correlation rows, each met within its
+  # tolerance.
+  data <- sim_continuous(n = 350)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(),
+    estimand = "ate",
+    constraints = balance_terms(moments = 2L)
+  )
+  table <- as.data.frame(fit@balance_table)
+  expect_identical(table$term, c("x1", "x1^2", "x2", "x2^2"))
+  expect_true(all(table$statistic == "correlation"))
+  expect_lt(max(table$weighted), 1e-6)
+  expect_true(all(table$within_tolerance))
+})
+
+# A continuous fit's achieved weighted exposure-covariate correlations, the
+# statistic the correlation rows are judged on and the one the balance table
+# reports.
+achieved_correlations <- function(fit, data, covariates) {
+  w <- as.numeric(stats::weights(fit))
+  vapply(
+    covariates,
+    function(covariate) {
+      weighted_correlation(data$exposure, data[[covariate]], w)
+    },
+    numeric(1)
+  )
+}
+
+test_that("a continuous tolerance is honored as a band rather than held exactly", {
+  # The correlation rows are relaxable. The quadratic program bounds a
+  # linearized correlation whose exposure and covariate scales are fixed at the
+  # sample, so a single solve at the requested band overshoots it; the fit
+  # tightens the bound it hands the program over a few passes until the reported
+  # correlation sits inside the band. What that has to show is both halves: no
+  # correlation above the band, and at least one well inside it rather than at
+  # the zero exact rows would produce, so the band is used rather than ignored.
+  data <- sim_continuous(n = 350)
+  fit <- expect_no_warning(balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(),
+    estimand = "ate",
+    constraints = balance_terms(moments = 1L, tolerance = 0.05)
+  ))
+  achieved <- achieved_correlations(fit, data, c("x1", "x2"))
+
+  expect_all(achieved, function(r) r <= 0.05 + balance_margin(0.05))
+  expect_gt(max(achieved), 0.5 * 0.05)
+})
+
+test_that("a continuous tolerance of zero still holds the rows exactly", {
+  # Exact balance is the tolerance the refinement has nothing to tighten, so it
+  # reaches the same solution it always did, in a single solve.
+  data <- sim_continuous(n = 350)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(),
+    estimand = "ate",
+    constraints = balance_terms(moments = 1L)
+  )
+  achieved <- achieved_correlations(fit, data, c("x1", "x2"))
+
+  expect_all(achieved, function(r) r < 1e-6)
+})
+
+test_that("the refinement takes several passes and sums their iterations", {
+  # The pass count is what separates an honored band from a single overshooting
+  # solve, so it is counted at the solver rather than inferred from the weights,
+  # and the reported iterations have to account for every pass rather than for
+  # the last one alone. Exact balance is the control: it has nothing to tighten
+  # and takes one solve.
+  data <- sim_continuous(n = 350)
+  solves <- 0L
+  per_solve <- integer()
+  original <- solve_energy_cont
+  testthat::local_mocked_bindings(
+    solve_energy_cont = function(...) {
+      result <- original(...)
+      solves <<- solves + 1L
+      per_solve <<- c(per_solve, as.integer(result$iterations))
+      result
+    }
+  )
+
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(),
+    estimand = "ate",
+    constraints = balance_terms(moments = 1L, tolerance = 0.05)
+  )
+  expect_gt(solves, 1L)
+  expect_identical(fit@iterations, sum(per_solve))
+
+  solves <- 0L
+  balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(),
+    estimand = "ate",
+    constraints = balance_terms(moments = 1L)
+  )
+  expect_identical(solves, 1L)
+})
+
+test_that("a tightened pass that stops at the iteration cap keeps the last converged iterate", {
+  # A tightened bound is harder than the one before it, so a pass can spend the
+  # iteration cap on a band an earlier pass met comfortably. What the fit reports
+  # then is the last iterate that converged rather than the unsettled one the
+  # tightened pass left behind: the weights are the earlier pass's, the fit
+  # reports itself converged, and the correlations that iterate actually achieved
+  # sit above the requested band, so the ordinary balance warning judges them
+  # instead of a convergence warning claiming the solve failed. The reported
+  # iterations still account for every pass, the failed one included, because
+  # each pass cost a whole solve.
+  data <- sim_continuous(n = 350)
+  solves <- 0L
+  per_solve <- integer()
+  first_weights <- NULL
+  original <- solve_energy_cont
+  testthat::local_mocked_bindings(
+    solve_energy_cont = function(...) {
+      result <- original(...)
+      solves <<- solves + 1L
+      per_solve <<- c(per_solve, as.integer(result$iterations))
+      if (solves == 1L) {
+        first_weights <<- as.numeric(result$weights)
+      } else {
+        result$converged <- FALSE
+        result$status <- "max_iter"
+      }
+      result
+    }
+  )
+
+  # Every warning is collected rather than one being matched, so a convergence
+  # warning raised alongside the balance warning fails here instead of passing
+  # under an expectation that looked only for the one it wanted.
+  seen <- character()
+  fit <- withCallingHandlers(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      # Pinned at the tolerance the problem is taken to reach, so the mocked
+      # failure cannot draw in the re-solve fallback and the two solves counted
+      # here are the two refinement passes.
+      method = bw_energy(convergence_tolerance = 1e-6),
+      estimand = "ate",
+      constraints = balance_terms(moments = 1L, tolerance = 0.05)
+    ),
+    warning = function(cnd) {
+      seen <<- c(seen, class(cnd)[[1]])
+      invokeRestart("muffleWarning")
+    }
+  )
+
+  expect_identical(seen, "balancing_balance_warning")
+  expect_identical(solves, 2L)
+  expect_true(fit@converged)
+  expect_identical(fit@iterations, sum(per_solve))
+
+  # The reported weights renormalize the solver's, so the restored iterate shows
+  # as proportionality to the first pass's raw weights rather than as equality.
+  w <- as.numeric(stats::weights(fit))
+  expect_equal(
+    w / sum(w),
+    first_weights / sum(first_weights),
+    tolerance = 1e-10
+  )
+
+  table <- as.data.frame(fit@balance_table)
+  expect_all(table$weighted, function(r) r > 0.05 + balance_margin(0.05))
+  expect_column_all(table, "within_tolerance", function(value) !value)
+})
+
+test_that("a tightened pass certified infeasible raises rather than restoring", {
+  # The other half of the same guard. An infeasibility certificate is a claim
+  # about the constraint set, not about the iteration cap, so restoring the
+  # looser iterate would answer a band the solver said cannot be met with
+  # weights that do not meet it. The certificate surfaces as the infeasible
+  # condition instead.
+  data <- sim_continuous(n = 350)
+  solves <- 0L
+  original <- solve_energy_cont
+  testthat::local_mocked_bindings(
+    solve_energy_cont = function(...) {
+      result <- original(...)
+      solves <<- solves + 1L
+      if (solves > 1L) {
+        result$converged <- FALSE
+        result$status <- "primal_infeasible"
+      }
+      result
+    }
+  )
+
+  expect_error(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_energy(),
+      estimand = "ate",
+      constraints = balance_terms(moments = 1L, tolerance = 0.05)
+    ),
+    class = "balancing_infeasible_error"
+  )
+  expect_identical(solves, 2L)
+})
+
+test_that("moments no longer sets the marginal distribution moments", {
+  # `distribution_moments` is the only route to the marginal rows. A
+  # second-moment constraint request therefore leaves the weighted exposure
+  # variance where the objective puts it, while `distribution_moments = 2` pins
+  # it at the sample value.
+  data <- sim_continuous(n = 350)
+  sample_variance <- sum((data$exposure - mean(data$exposure))^2) / nrow(data)
+  weighted_variance <- function(w) {
+    center <- stats::weighted.mean(data$exposure, w)
+    sum(w * (data$exposure - center)^2) / sum(w)
+  }
+  fit_terms <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(),
+    estimand = "ate",
+    constraints = balance_terms(moments = 2L)
+  )
+  fit_distribution <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(distribution_moments = 2L),
+    estimand = "ate"
+  )
+  w_terms <- as.numeric(stats::weights(fit_terms))
+  w_distribution <- as.numeric(stats::weights(fit_distribution))
+  expect_gt(abs(weighted_variance(w_terms) - sample_variance), 1e-3)
+  expect_equal(
+    weighted_variance(w_distribution),
+    sample_variance,
+    tolerance = 1e-3
+  )
+})
+
+test_that("a covariate left out of the constraint set keeps its marginal rows", {
+  # The marginal rows belong to the covariates, not to the constraint set, so
+  # `moments` must not reach them from either side. Excluding x1 from the
+  # constraint set drops x1's correlation row and nothing else: its weighted mean
+  # and variance stay at the sample values `distribution_moments` pins, exactly
+  # as x2's and the exposure's do. Reading the marginal columns off the
+  # constraint recipe dropped x1's marginal rows along with its correlation row,
+  # and its weighted variance then floated to wherever the objective put it.
+  data <- sim_continuous(n = 350)
+  central_moment <- function(values, weights, order) {
+    center <- stats::weighted.mean(values, weights)
+    sum(weights * (values - center)^order) / sum(weights)
+  }
+  uniform <- rep(1, nrow(data))
+
+  # The constraint sets differ in what they ask of the correlation rows and
+  # agree in what they leave to the marginals, so the marginals must come out
+  # the same under all three. The middle one is the case that failed: x1 has no
+  # constraint record to read a marginal off. The last one is its mirror, where
+  # x1's record reaches past the distribution moments.
+  constraint_sets <- list(
+    balance_terms(moments = 1L),
+    balance_terms(moments = c(x1 = 0L, x2 = 1L)),
+    balance_terms(moments = 3L)
+  )
+
+  for (constraints in constraint_sets) {
+    fit <- balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_energy(distribution_moments = 2L),
+      estimand = "ate",
+      constraints = constraints
+    )
+    w <- as.numeric(stats::weights(fit))
+    for (column in c("exposure", "x1", "x2")) {
+      values <- data[[column]]
+      expect_equal(
+        stats::weighted.mean(values, w),
+        mean(values),
+        tolerance = 1e-8
+      )
+      expect_equal(
+        central_moment(values, w, 2),
+        central_moment(values, uniform, 2),
+        tolerance = 1e-8
+      )
+    }
+  }
+})
+
+test_that("the default continuous fit keeps the objective-driven solution", {
+  # The correlation rows are added only when the constraint set asks for them,
+  # so the default fit solves the same program it solved before: the weights
+  # average one, the correlation improves on the unweighted sample, and the
+  # residual the energy objective leaves behind is still there.
+  data <- sim_continuous(n = 350)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(),
+    estimand = "ate"
+  )
+  w <- as.numeric(stats::weights(fit))
+  expect_equal(mean(w), 1, tolerance = 1e-8)
+  expect_gt(weighted_correlation(data$exposure, data$x1, w), 0.05)
+  expect_lt(
+    weighted_correlation(data$exposure, data$x1, w),
+    abs(stats::cor(data$exposure, data$x1))
+  )
+})
+
 # ---- Unsupported estimands ------------------------------------------------
 
 # The overlap estimand is legal only for the covariate balancing propensity
@@ -1069,6 +1501,49 @@ test_that("a continuous tolerance warns and is ignored", {
   )
 })
 
+test_that("the balance table reports the tolerance a continuous fit enforced", {
+  # The correlation rows are held inside the band the specification asked for,
+  # so that band is what the table reports and what its verdict is judged
+  # against.
+  data <- sim_continuous(n = 350)
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_energy(),
+    estimand = "ate",
+    constraints = balance_terms(moments = 1L, tolerance = 0.05)
+  )
+  table <- as.data.frame(fit@balance_table)
+  expect_column_all(table, "tolerance", function(value) value == 0.05)
+  expect_column_all(table, "within_tolerance", function(value) value)
+})
+
+test_that("a fit that added no constraint rows reports the tolerance it enforced", {
+  # A tolerance with no constraint rows to relax reaches no row of the program,
+  # so the table must not report it as the fit's tolerance: the fit enforced
+  # nothing, which is a tolerance of zero. Both exposure types answer the same
+  # way, the rows being absent for the same reason in each.
+  for (data in list(sim_binary(n = 200), sim_continuous(n = 200))) {
+    expect_warning(
+      fit <- balance(
+        data,
+        exposure,
+        c(x1, x2),
+        method = bw_energy(),
+        estimand = "ate",
+        constraints = balance_terms(tolerance = 0.1)
+      ),
+      class = "balancing_ignored_argument_warning"
+    )
+    expect_column_all(
+      as.data.frame(fit@balance_table),
+      "tolerance",
+      function(value) value == 0
+    )
+  }
+})
+
 # ---- Infeasible constraint set --------------------------------------------
 
 test_that("an infeasible constraint set raises balancing_infeasible_error", {
@@ -1093,6 +1568,196 @@ test_that("an infeasible constraint set raises balancing_infeasible_error", {
       constraints = balance_terms(moments = 1L)
     )
   )
+})
+
+# ---- Small-sample convergence ---------------------------------------------
+
+# A frame with the shape the discrete energy objective destabilizes on: a
+# three-level character covariate, a coarse numeric near 8e4 whose spread is small
+# beside its mean, a numeric near 80, and a binary exposure with roughly a third
+# of the sample treated, at n = 354. The energy quadratic form is the negated
+# distance matrix, conditionally positive semidefinite, so it is indefinite and
+# its negative curvature scales as 1/n. At this size the alternating-direction
+# iteration is no longer a contraction: its residuals reach a floor above 1e-8,
+# and a tolerance below that floor keeps the run going past the optimum until the
+# iterate it carries is renormalized back to uniform weights, which balance
+# nothing. The seed belongs to the fixture because whether a draw destabilizes
+# before it clears its tolerance depends on the draw.
+make_energy_frame <- function(seed, n = 354) {
+  withr::with_seed(seed, {
+    season <- sample(
+      c("peak", "regular", "value"),
+      n,
+      TRUE,
+      prob = c(0.22, 0.55, 0.23)
+    )
+    shift <- c(peak = 1.4, regular = 0, value = -1.1)[season]
+    close <- sample(
+      c(59400, 64800, 72000, 75600, 79200, 82800, 86400, 90000),
+      n,
+      TRUE,
+      prob = c(0.02, 0.03, 0.16, 0.16, 0.2, 0.2, 0.15, 0.08)
+    )
+    close <- pmin(pmax(close + 3600 * round(shift), 59400), 90000)
+    temp <- 82 + 4 * shift + stats::rnorm(n, 0, 8)
+    lp <- -0.9 +
+      0.55 * (season == "peak") -
+      0.35 * (season == "value") +
+      0.9 * scale(close)[, 1] -
+      0.5 * scale(temp)[, 1]
+    data.frame(
+      z = stats::rbinom(n, 1, stats::plogis(lp)),
+      season = season,
+      close = close,
+      temp = temp
+    )
+  })
+}
+
+test_that("the default tolerance fits a small indefinite energy problem", {
+  # The default has to be a tolerance the objective can actually reach on an
+  # ordinary sample of this size, so the fit converges without warning and moves
+  # every covariate a long way toward balance. Under a tolerance below the
+  # solver's residual floor the same fit spends its whole iteration cap instead.
+  data <- make_energy_frame(9)
+  fit <- expect_no_warning(
+    balance(data, z, c(season, close, temp), method = bw_energy()),
+    class = "balancing_convergence_warning"
+  )
+  expect_true(fit@converged)
+  table <- as.data.frame(fit@balance_table)
+  expect_gt(max(abs(table$unweighted)), 0.5)
+  expect_lt(max(abs(table$weighted)), 0.1)
+})
+
+test_that("a tolerance below the residual floor spends the iteration cap", {
+  # The counterpart of the spec above. The tolerance the default used to carry on
+  # this frame was 1e-8, which sits so close to the solver's residual floor here
+  # that scaling one covariate column by 1 + 5e-16 flips the verdict; a platform
+  # whose compiler contracts a multiply-add differently would disagree with this
+  # machine. The spec therefore asks for 1e-14, far below any residual floor the
+  # iteration reaches, so every platform spends the cap for the same reason. The
+  # cap is set well above the count a reachable tolerance converges in on this
+  # frame, so what the run fails on is the tolerance rather than the budget; the
+  # default cap of 200000 reaches the same verdict and costs two orders of
+  # magnitude more time.
+  data <- make_energy_frame(9)
+  expect_warning(
+    fit <- balance(
+      data,
+      z,
+      c(season, close, temp),
+      method = bw_energy(convergence_tolerance = 1e-14, max_iterations = 1000L)
+    ),
+    class = "balancing_convergence_warning"
+  )
+  expect_false(fit@converged)
+})
+
+test_that("a fit that cannot reach its tolerance returns usable weights", {
+  # A run whose iterate walked away from the optimum must not hand that iterate
+  # back: the stable balancing weights continuous path keeps the last iterate that
+  # met its criterion rather than the failed one, and energy owes the same. The
+  # promises are the ones a caller can check on the returned object. The weights
+  # are finite, sit at or above the documented floor, and carry each group at its
+  # estimand target total. Their effective sample size is strictly inside the
+  # range a real fit occupies, below the group size that uniform weights sit at
+  # exactly and above the collapse a few dominating weights would leave. And the
+  # balance the fit reports improves on the unweighted sample rather than
+  # reproducing it. The tolerance is the 1e-14 of the spec above, and for the
+  # same reason: at the 1e-8 the default used to carry, whether this frame
+  # reaches its tolerance turns on the last bits of the draw.
+  data <- make_energy_frame(9)
+  expect_warning(
+    fit <- balance(
+      data,
+      z,
+      c(season, close, temp),
+      method = bw_energy(convergence_tolerance = 1e-14, max_iterations = 1000L)
+    ),
+    class = "balancing_convergence_warning"
+  )
+
+  w <- as.numeric(weights(fit))
+  expect_all(w, is.finite)
+  expect_all(w, function(value) value >= bw_energy()@min_weight)
+  groups <- split(seq_len(nrow(data)), as.character(data$z))
+  for (idx in groups) {
+    expect_equal(sum(w[idx]), length(idx))
+    group_ess <- kish_ess(w[idx])
+    expect_lt(group_ess, 0.95 * length(idx))
+    expect_gt(group_ess, 0.25 * length(idx))
+  }
+
+  table <- as.data.frame(fit@balance_table)
+  expect_lt(max(abs(table$weighted)), 0.5 * max(abs(table$unweighted)))
+})
+
+test_that("a continuous fit that spends its cap reports the re-solve", {
+  # The re-solve at a reachable tolerance is not a discrete-path device: the
+  # continuous solve routes through the same fallback, and a run that ends at
+  # the iteration cap with a tolerance below the reachable 1e-6 is retried
+  # there. The fit still calls itself unconverged, because the tolerance asked
+  # for was not met, and its reported iterations are the two solves added
+  # together, so they exceed the cap the caller set.
+  #
+  # A small cap is what reaches this. The benchmark sweep that measured the
+  # continuous path against WeightIt never reached it at realistic settings:
+  # not one of eighty cells, up to a thousand observations at tolerances from
+  # 1e-5 to 1e-8, spent its cap. Driving it with the cap is legitimate all the
+  # same, since the fallback keys on the terminal status and the tolerance
+  # rather than on how the cap was reached.
+  data <- sim_continuous(n = 200)
+  cap <- 100L
+  expect_warning(
+    fit <- balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_energy(
+        convergence_tolerance = 1e-14,
+        max_iterations = cap
+      ),
+      estimand = "ate"
+    ),
+    class = "balancing_convergence_warning"
+  )
+  expect_false(fit@converged)
+  expect_gt(fit@iterations, cap)
+
+  # The iterate the fit reports is the re-solve's, which is a real answer: the
+  # weights are finite, sit at or above the documented floor, carry the sample
+  # at its target total, and improve on the unweighted correlation.
+  w <- as.numeric(stats::weights(fit))
+  expect_all(w, is.finite)
+  expect_all(w, function(value) value >= bw_energy()@min_weight)
+  expect_equal(mean(w), 1, tolerance = 1e-6)
+  table <- as.data.frame(fit@balance_table)
+  expect_lt(max(abs(table$weighted)), 0.5 * max(abs(table$unweighted)))
+})
+
+test_that("a continuous cap too small for the re-solve keeps the first iterate", {
+  # The retry is given the same cap, so a cap below what the reachable
+  # tolerance needs leaves it unconverged too, and the fit reports the original
+  # solve rather than a second failed one. The iteration count is then the cap
+  # itself rather than the sum.
+  data <- sim_continuous(n = 200)
+  cap <- 25L
+  expect_warning(
+    fit <- balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_energy(
+        convergence_tolerance = 1e-14,
+        max_iterations = cap
+      ),
+      estimand = "ate"
+    ),
+    class = "balancing_convergence_warning"
+  )
+  expect_false(fit@converged)
+  expect_identical(fit@iterations, cap)
 })
 
 # ---- Live consistency against WeightIt ------------------------------------

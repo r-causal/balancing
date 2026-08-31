@@ -248,8 +248,8 @@ test_that("a binary ate fit meets the tolerance and floors the weights", {
     constraints = balance_terms(tolerance = 0.05)
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
-  expect_true(all(w >= 1e-8))
+  expect_all(w, function(value) value >= 0)
+  expect_all(w, function(value) value >= 1e-8)
   expect_balanced(fit, data, tolerance = 0.05)
 })
 
@@ -284,7 +284,7 @@ test_that("a binary att targets the treated total in both groups", {
   n_treated <- sum(treated)
   expect_equal(sum(w[treated]), n_treated, tolerance = 1e-4)
   expect_equal(sum(w[!treated]), n_treated, tolerance = 1e-4)
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   expect_balanced(fit, data, tolerance = 0.05)
 })
 
@@ -299,8 +299,8 @@ test_that("a binary atc fit produces non-negative floored weights", {
     constraints = balance_terms(tolerance = 0.05)
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
-  expect_true(all(w >= 1e-8))
+  expect_all(w, function(value) value >= 0)
+  expect_all(w, function(value) value >= 1e-8)
   expect_balanced(fit, data, tolerance = 0.05)
 })
 
@@ -348,7 +348,7 @@ test_that("the minimum-weight floor holds on the reported scale", {
     constraints = balance_terms(tolerance = 0.05)
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 1e-3))
+  expect_all(w, function(value) value >= 1e-3)
 })
 
 # ---- Sampling weights -----------------------------------------------------
@@ -416,7 +416,7 @@ test_that("a continuous ate meets the correlation tolerance under sampling weigh
     sampling_weights = sw
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   expect_equal(sum(w), sum(sw), tolerance = 1e-3)
   expect_balanced(fit, data, tolerance = 0.05)
 })
@@ -459,7 +459,7 @@ test_that("categorical ate stable balancing produces valid weights", {
     constraints = balance_terms(tolerance = 0.05)
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   for (level in levels(data$exposure)) {
     idx <- data$exposure == level
     expect_equal(sum(w[idx]), sum(idx), tolerance = 1e-4)
@@ -475,11 +475,11 @@ test_that("categorical att stable balancing produces valid weights", {
     c(x1, x2),
     method = bw_sbw(),
     estimand = "att",
-    focal_level = "b",
+    .focal_level = "b",
     constraints = balance_terms(tolerance = 0.05)
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   expect_balanced(fit, data, tolerance = 0.05)
 })
 
@@ -496,9 +496,144 @@ test_that("continuous ate stable balancing meets the correlation tolerance", {
     constraints = balance_terms(tolerance = 0.05)
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
-  expect_true(all(w >= 1e-8))
+  expect_all(w, function(value) value >= 0)
+  expect_all(w, function(value) value >= 1e-8)
   expect_balanced(fit, data, tolerance = 0.05)
+})
+
+test_that("the continuous refinement takes several passes and sums their iterations", {
+  # The pass count is what separates an honored band from a single overshooting
+  # solve, so it is counted at the solver rather than inferred from the weights,
+  # and the reported iterations have to account for every pass rather than for
+  # the last one alone. This is the guarantee energy balancing already makes for
+  # the same loop.
+  data <- sim_continuous(n = 350)
+  solves <- 0L
+  per_solve <- integer()
+  original <- solve_sbw_cont
+  testthat::local_mocked_bindings(
+    solve_sbw_cont = function(...) {
+      result <- original(...)
+      solves <<- solves + 1L
+      per_solve <<- c(per_solve, as.integer(result$iterations))
+      result
+    }
+  )
+
+  fit <- balance(
+    data,
+    exposure,
+    c(x1, x2),
+    method = bw_sbw(),
+    estimand = "ate",
+    constraints = balance_terms(tolerance = 0.05)
+  )
+
+  expect_gt(solves, 1L)
+  expect_identical(fit@iterations, sum(per_solve))
+})
+
+test_that("a tightened continuous pass that stops at the iteration cap keeps the last converged iterate", {
+  # Stable balancing runs the correlation refinement energy balancing runs,
+  # against the same statistic, so it owes the same guarantee. A tightened bound
+  # is harder than the one before it, and a pass that spends the iteration cap on
+  # it leaves weights at the floor. The fit reports the last iterate that
+  # converged instead: it reports itself converged, its weights are the earlier
+  # pass's, and the correlations that iterate achieved sit above the requested
+  # band, so the ordinary balance warning judges them rather than a convergence
+  # warning claiming the solve failed. The reported iterations still account for
+  # every pass, the failed one included, because each pass cost a whole solve.
+  data <- sim_continuous(n = 350)
+  solves <- 0L
+  per_solve <- integer()
+  first_weights <- NULL
+  original <- solve_sbw_cont
+  testthat::local_mocked_bindings(
+    solve_sbw_cont = function(...) {
+      result <- original(...)
+      solves <<- solves + 1L
+      per_solve <<- c(per_solve, as.integer(result$iterations))
+      if (solves == 1L) {
+        first_weights <<- as.numeric(result$weights)
+      } else {
+        result$converged <- FALSE
+        result$status <- "max_iter"
+      }
+      result
+    }
+  )
+
+  # Every warning is collected rather than one being matched, so a convergence
+  # warning raised alongside the balance warning fails here instead of passing
+  # under an expectation that looked only for the one it wanted.
+  seen <- character()
+  fit <- withCallingHandlers(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_sbw(),
+      estimand = "ate",
+      constraints = balance_terms(tolerance = 0.05)
+    ),
+    warning = function(cnd) {
+      seen <<- c(seen, class(cnd)[[1]])
+      invokeRestart("muffleWarning")
+    }
+  )
+
+  expect_identical(seen, "balancing_balance_warning")
+  expect_identical(solves, 2L)
+  expect_true(fit@converged)
+  expect_identical(fit@iterations, sum(per_solve))
+
+  # The reported weights renormalize the solver's, so the restored iterate shows
+  # as proportionality to the first pass's raw weights rather than as equality.
+  w <- as.numeric(stats::weights(fit))
+  expect_equal(
+    w / sum(w),
+    first_weights / sum(first_weights),
+    tolerance = 1e-10
+  )
+
+  table <- as.data.frame(fit@balance_table)
+  expect_all(table$weighted, function(r) r > 0.05 + balance_margin(0.05))
+  expect_column_all(table, "within_tolerance", function(value) !value)
+})
+
+test_that("a tightened continuous pass certified infeasible raises rather than restoring", {
+  # The other half of the same guard. An infeasibility certificate is a claim
+  # about the constraint set, not about the iteration cap, so restoring the
+  # looser iterate would answer a band the solver said cannot be met with weights
+  # that do not meet it. The certificate surfaces as the infeasible condition
+  # instead.
+  data <- sim_continuous(n = 350)
+  solves <- 0L
+  original <- solve_sbw_cont
+  testthat::local_mocked_bindings(
+    solve_sbw_cont = function(...) {
+      result <- original(...)
+      solves <<- solves + 1L
+      if (solves > 1L) {
+        result$converged <- FALSE
+        result$status <- "primal_infeasible"
+      }
+      result
+    }
+  )
+
+  expect_error(
+    balance(
+      data,
+      exposure,
+      c(x1, x2),
+      method = bw_sbw(),
+      estimand = "ate",
+      constraints = balance_terms(tolerance = 0.05)
+    ),
+    class = "balancing_infeasible_error"
+  )
+  expect_identical(solves, 2L)
 })
 
 # ---- Tolerance semantics --------------------------------------------------
@@ -558,8 +693,8 @@ test_that("an l1 binary ate meets the tolerance and normalizes each group", {
     constraints = balance_terms(tolerance = 0.05)
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
-  expect_true(all(w >= 1e-8))
+  expect_all(w, function(value) value >= 0)
+  expect_all(w, function(value) value >= 1e-8)
   treated <- data$exposure == 1
   expect_equal(sum(w[treated]), sum(treated), tolerance = 1e-3)
   expect_equal(sum(w[!treated]), sum(!treated), tolerance = 1e-3)
@@ -577,7 +712,7 @@ test_that("an l1 binary att targets the treated total and meets the tolerance", 
     constraints = balance_terms(tolerance = 0.05)
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   treated <- data$exposure == 1
   n_treated <- sum(treated)
   expect_equal(sum(w[treated]), n_treated, tolerance = 1e-3)
@@ -596,8 +731,8 @@ test_that("a linf binary ate meets the tolerance and normalizes each group", {
     constraints = balance_terms(tolerance = 0.05)
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
-  expect_true(all(w >= 1e-8))
+  expect_all(w, function(value) value >= 0)
+  expect_all(w, function(value) value >= 1e-8)
   treated <- data$exposure == 1
   expect_equal(sum(w[treated]), sum(treated), tolerance = 1e-3)
   expect_equal(sum(w[!treated]), sum(!treated), tolerance = 1e-3)
@@ -615,7 +750,7 @@ test_that("a linf binary att meets the tolerance", {
     constraints = balance_terms(tolerance = 0.05)
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   expect_balanced(fit, data, tolerance = 0.05)
 })
 
@@ -630,7 +765,7 @@ test_that("an l1 categorical ate produces valid balanced weights", {
     constraints = balance_terms(tolerance = 0.05)
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   for (level in levels(data$exposure)) {
     idx <- data$exposure == level
     expect_equal(sum(w[idx]), sum(idx), tolerance = 1e-3)
@@ -649,7 +784,7 @@ test_that("a linf categorical ate produces valid balanced weights", {
     constraints = balance_terms(tolerance = 0.05)
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   expect_balanced(fit, data, tolerance = 0.05)
 })
 
@@ -664,8 +799,8 @@ test_that("an l1 continuous ate meets the correlation tolerance", {
     constraints = balance_terms(tolerance = 0.05)
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
-  expect_true(all(w >= 1e-8))
+  expect_all(w, function(value) value >= 0)
+  expect_all(w, function(value) value >= 1e-8)
   expect_balanced(fit, data, tolerance = 0.05)
 })
 
@@ -680,7 +815,7 @@ test_that("a linf continuous ate meets the correlation tolerance", {
     constraints = balance_terms(tolerance = 0.05)
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   expect_balanced(fit, data, tolerance = 0.05)
 })
 
@@ -720,7 +855,7 @@ test_that("a linf fit balances under non-uniform sampling weights", {
     sampling_weights = sw
   )
   w <- as.numeric(stats::weights(fit))
-  expect_true(all(w >= 0))
+  expect_all(w, function(value) value >= 0)
   treated <- data$exposure == 1
   expect_equal(sum(w[treated]), sum(sw[treated]), tolerance = 1e-3)
   expect_equal(sum(w[!treated]), sum(sw[!treated]), tolerance = 1e-3)
@@ -862,7 +997,7 @@ test_that("the weighted correlations read a constant column as zero", {
   # from resolving to a missing value.
   exposure <- c(-1, 0, 1, 2, 0.5, -0.5)
   z <- cbind(varying = exposure, constant = rep(0, 6))
-  achieved <- sbw_weighted_correlations(exposure, z, rep(1, 6))
+  achieved <- weighted_exposure_correlations(exposure, z, rep(1, 6))
 
   expect_equal(achieved, c(1, 0))
 })
@@ -880,7 +1015,7 @@ test_that("a constant covariate leaves a continuous stable-balancing fit intact"
   )
 
   expect_false("fixed" %in% fit@balance_table$term)
-  expect_true(all(is.finite(as.numeric(stats::weights(fit)))))
+  expect_all(as.numeric(stats::weights(fit)), is.finite)
   expect_balanced(fit, data, tolerance = 0.05)
 })
 
@@ -897,8 +1032,53 @@ test_that("a single-level factor leaves a continuous stable-balancing fit intact
   )
 
   expect_false("f_a" %in% fit@balance_table$term)
-  expect_true(all(is.finite(as.numeric(stats::weights(fit)))))
+  expect_all(as.numeric(stats::weights(fit)), is.finite)
   expect_balanced(fit, data, tolerance = 0.05)
+})
+
+# The moment-constraint band a stable-balancing fit hands the solver is built by
+# `solver_box()` (R/method-entropy.R), which the assembly calls directly at
+# R/method-sbw.R with the prepared matrix, the requested tolerances, and the
+# sampling weights. A tolerance is written on the standardized scale, so the box
+# converts it by the column's standard deviation, and a column holding one value
+# repeated has no spread to convert against: its box is the tolerance itself.
+#
+# It does not arrive that way on its own. The weighted center divides a sum of
+# products by a sum of weights and need not return the repeated value exactly,
+# so the centered column carries a rounding residual and the computed scale
+# reports that residual as the column's spread. Left alone, the constant 0.98
+# column below shrinks its own band by roughly fifteen orders of magnitude and
+# the fit is constrained against rounding. This pins the guard on the call the
+# stable-balancing path makes rather than only on the entropy one.
+sbw_solver_box_fixture <- function() {
+  withr::with_seed(808, {
+    n <- 300L
+    z <- cbind(
+      stats::rnorm(n),
+      stats::runif(n, -2, 3),
+      rep(0.98, n),
+      as.numeric(stats::rbinom(n, 1L, 0.4))
+    )
+    list(z = z, sampling_weights = stats::runif(n, 0.3, 2.5))
+  })
+}
+
+test_that("the stable-balancing tolerance box leaves a constant column raw", {
+  fixture <- sbw_solver_box_fixture()
+  z <- fixture$z
+  w <- fixture$sampling_weights
+  tolerances <- seq_len(ncol(z)) / 100
+  constant <- 3L
+
+  expect_all(z[, constant], function(value) value == 0.98)
+  expect_identical(
+    solver_box(z, tolerances, w)[[constant]],
+    tolerances[[constant]]
+  )
+  expect_identical(
+    solver_box(z, tolerances)[[constant]],
+    tolerances[[constant]]
+  )
 })
 
 # ---- Infeasible constraint set --------------------------------------------
@@ -1003,8 +1183,8 @@ test_that("the default routing falls back to clarabel on an osqp infeasibility c
   expect_true(auto$fell_back)
   expect_identical(auto$solver_status, "clarabel")
   weights <- as.numeric(auto$weights)
-  expect_true(all(is.finite(weights)))
-  expect_true(all(weights >= 0))
+  expect_all(weights, is.finite)
+  expect_all(weights, function(value) value >= 0)
 
   # The rescue matches a direct clarabel solve: the same strictly convex program,
   # solved to the same objective, so the fallback adds no accuracy cost.
