@@ -41,12 +41,19 @@ bw_sbw(
 
 - convergence_tolerance:
 
-  The quadratic-program solver tolerance, or `NULL` for the core
-  default.
+  The quadratic-program solver tolerance, or `NULL` for the resolved
+  default of `1e-8`, which the solver applies as both its absolute and
+  its relative tolerance. Under the default backend, a tolerance below
+  what the problem can reach spends the full iteration cap and then
+  warns.
 
 - max_iterations:
 
-  The maximum solver iterations, or `NULL` for the core default.
+  The maximum solver iterations, or `NULL` for the resolved default
+  of 200000. A continuous fit with a positive tolerance refines the
+  bound it hands the solver over several passes, each a solve given this
+  same cap, and the reported `@iterations` sums them, so such a fit can
+  report more iterations than this.
 
 ## Value
 
@@ -138,5 +145,5 @@ fit
 #> Observations: 200
 #> Solver: converged in 75 iterations
 #> Constraints: 2 terms (tolerance 0.05)
-#> Largest imbalance: 0.1000 (standardized mean difference)
+#> Largest imbalance: 0.1 (standardized mean difference)
 ```

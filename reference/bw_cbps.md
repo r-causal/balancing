@@ -53,11 +53,13 @@ bw_cbps(
 
 - convergence_tolerance:
 
-  The solver convergence tolerance.
+  The solver convergence tolerance. `1e-10` is both this argument's
+  default and the value the solver resolves for `NULL`.
 
 - max_iterations:
 
-  The maximum solver iterations, or `NULL` for the core default.
+  The maximum solver iterations, or `NULL` for the resolved default of
+  1000.
 
 ## Value
 
@@ -149,5 +151,5 @@ fit
 #> Observations: 200
 #> Solver: converged in 3 iterations
 #> Constraints: 2 terms (tolerance 0)
-#> Largest imbalance: 0.0000 (standardized mean difference)
+#> Largest imbalance: 6.98e-15 (standardized mean difference)
 ```

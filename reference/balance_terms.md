@@ -24,6 +24,8 @@ balance_terms(
 
   The highest covariate power to balance. A single whole number or a
   named integer vector; `NULL` (the default) resolves to first moments.
+  For a continuous exposure each power is held at zero weighted
+  correlation with the exposure instead.
 
 - interactions:
 
@@ -82,6 +84,20 @@ The constraint set is built from four ingredients:
   requests exact balance. A positive value selects the inexact problem
   for entropy balancing and is the central tuning parameter for stable
   balancing weights.
+
+For a continuous exposure there are no groups to equate, so a constraint
+column is instead held within `tolerance` of zero weighted correlation
+with the exposure. On the continuous energy path this is what `moments`
+and `interactions` request, and there the correlation is held exactly
+whatever `tolerance` says, for the reason
+[`bw_energy()`](https://r-causal.github.io/balancing/reference/bw_energy.md)
+records. The marginal distribution of the exposure and of the covariates
+is a separate matter, held by `distribution_moments` in
+[`bw_energy()`](https://r-causal.github.io/balancing/reference/bw_energy.md)
+and
+[`bw_entropy()`](https://r-causal.github.io/balancing/reference/bw_entropy.md);
+asking for correlation constraints does not add marginal rows, and
+raising `distribution_moments` adds no correlation constraint.
 
 A factor covariate contributes one indicator per level rather than the
 reference coding a model formula would use. Those indicators sum to the

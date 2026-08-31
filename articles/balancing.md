@@ -85,7 +85,7 @@ fit
 #> Observations: 800
 #> Solver: converged in 4 iterations
 #> Constraints: 2 terms (tolerance 0)
-#> Largest imbalance: 0.0000 (standardized mean difference)
+#> Largest imbalance: 6.66e-15 (standardized mean difference)
 ```
 
 The print method summarizes the fit. It reports the method and the

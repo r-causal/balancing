@@ -167,9 +167,14 @@ yours to honor.
 
 A categorical exposure works the same way, with one marginal mean per
 level. The stacked system carries all of them, and the table reports
-each of those means and then the contrasts of each non-reference level
-against the reference level, which is the first of the exposure’s own
-levels. The outcome model enters the exposure as a factor.
+each of those means and then, for a plain categorical exposure, the
+contrasts of each non-reference level against the reference level, which
+is the first of the exposure’s own levels. A crossing of two treatments
+declared with
+[`causalgenerics::joint_exposure()`](https://r-causal.github.io/causalgenerics/reference/joint_exposure.html)
+is reported in the treatments rather than in the cells, and the section
+on joint exposures below describes those rows. The outcome model enters
+the exposure as a factor.
 
 ``` r
 
@@ -262,17 +267,286 @@ model may adjust for covariates, the marginal means standardize over the
 estimand’s target population, and the standard errors account for having
 estimated the weights.
 
-A categorical exposure that
+### Effect modification with `.by`
+
+`.by` names a modifier, and the result reports the rows it would report
+without one, then the marginal means and effects within each level of
+the modifier, then each non-reference subgroup against the reference
+one. The table gains a `group` column naming the subgroup a row was
+estimated in, placed after `contrast`, since a subgroup qualifies a
+whole comparison rather than one side of it.
+
+The data below carry a treatment whose effect is larger among men than
+among women by construction.
+
+``` r
+
+set.seed(7)
+m <- 500
+severity <- rnorm(m)
+comorbidity <- rnorm(m)
+sex <- factor(
+  sample(c("female", "male"), m, replace = TRUE),
+  levels = c("female", "male")
+)
+treated <- rbinom(m, 1, plogis(0.5 * severity - 0.4 * comorbidity))
+recovery <- rbinom(
+  m,
+  1,
+  plogis(
+    -0.4 +
+      0.45 * treated +
+      0.9 * treated * (sex == "male") +
+      0.4 * severity -
+      0.3 * comorbidity
+  )
+)
+
+trial <- data.frame(treated, severity, comorbidity, sex, recovery)
+```
+
+The weights are fit once, over the whole sample, and the outcome model
+interacts the exposure with the modifier so that the fitted response is
+free to differ between the two groups.
+
+``` r
+
+trial_fit <- balance(
+  trial,
+  treated,
+  c(severity, comorbidity),
+  method = bw_entropy(),
+  estimand = "ate"
+)
+trial$trial_w <- weights(trial_fit)
+
+trial_mod <- glm(
+  recovery ~ treated * sex,
+  data = trial,
+  family = quasibinomial(),
+  weights = trial_w
+)
+
+ipw(trial_fit, trial_mod, .by = sex)
+#> Inverse Probability Weight Estimator
+#> Estimand: ATE 
+#> Effects: marginal (population-averaged) 
+#> 
+#> Weight Estimator:
+#>   Call: balance(.data = trial, .exposure = treated, .covariates = c(severity, 
+#>     comorbidity), method = bw_entropy(), estimand = "ate") 
+#> 
+#> Outcome Model:
+#>   Call: glm(formula = recovery ~ treated * sex, family = quasibinomial(), 
+#>     data = trial, weights = trial_w) 
+#> 
+#> Marginal estimates:
+#>                                           estimate  std.err       z ci.lower
+#> mean 0 overall                            0.317188 0.029794 10.6460 0.258793
+#> mean 1 overall                            0.607507 0.032381 18.7611 0.544041
+#> rd 1 vs 0 overall                         0.290319 0.044181  6.5711 0.203725
+#> log(rr) 1 vs 0 overall                    0.649869 0.108379  5.9963 0.437449
+#> log(or) 1 vs 0 overall                    1.203569 0.194093  6.2010 0.823154
+#> mean 0 sex = female                       0.349733 0.042586  8.2125 0.266267
+#> mean 1 sex = female                       0.509935 0.046754 10.9068 0.418299
+#> mean 0 sex = male                         0.283042 0.042281  6.6944 0.200173
+#> mean 1 sex = male                         0.709877 0.045528 15.5921 0.620644
+#> rd 1 vs 0 sex = female                    0.160201 0.063241  2.5332 0.036251
+#> log(rr) 1 vs 0 sex = female               0.377111 0.152424  2.4741 0.078365
+#> rd 1 vs 0 sex = male                      0.426836 0.062132  6.8698 0.305058
+#> log(rr) 1 vs 0 sex = male                 0.919497 0.162565  5.6562 0.600875
+#> rd 1 vs 0 sex = male vs sex = female      0.266634 0.089849  2.9676 0.090534
+#> log(rr) 1 vs 0 sex = male vs sex = female 0.542386 0.225250  2.4079 0.100904
+#>                                           ci.upper conf.level   p.value    
+#> mean 0 overall                             0.37558       0.95 < 2.2e-16 ***
+#> mean 1 overall                             0.67097       0.95 < 2.2e-16 ***
+#> rd 1 vs 0 overall                          0.37691       0.95 4.995e-11 ***
+#> log(rr) 1 vs 0 overall                     0.86229       0.95 2.019e-09 ***
+#> log(or) 1 vs 0 overall                     1.58398       0.95 5.611e-10 ***
+#> mean 0 sex = female                        0.43320       0.95 < 2.2e-16 ***
+#> mean 1 sex = female                        0.60157       0.95 < 2.2e-16 ***
+#> mean 0 sex = male                          0.36591       0.95 2.166e-11 ***
+#> mean 1 sex = male                          0.79911       0.95 < 2.2e-16 ***
+#> rd 1 vs 0 sex = female                     0.28415       0.95  0.011303 *  
+#> log(rr) 1 vs 0 sex = female                0.67586       0.95  0.013358 *  
+#> rd 1 vs 0 sex = male                       0.54861       0.95 6.431e-12 ***
+#> log(rr) 1 vs 0 sex = male                  1.23812       0.95 1.548e-08 ***
+#> rd 1 vs 0 sex = male vs sex = female       0.44273       0.95  0.003001 ** 
+#> log(rr) 1 vs 0 sex = male vs sex = female  0.98387       0.95  0.016043 *  
+#> ---
+#> Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+```
+
+The `overall` block is the result an ungrouped call reports, and the
+blocks after it are the effect within each level of `sex`. A subgroup’s
+marginal means are the g-computation means over that subgroup’s units
+alone, and its risk difference is the contrast of those two means.
+Nothing is refit inside a subgroup: the weights are the ones the single
+fit produced, and no subgroup gets balance conditions of its own. The
+last two rows compare the subgroups, and since every row here is a
+parameter of the same stacked system, that comparison is a parameter as
+well rather than a difference taken between two separately fitted
+effects. Its standard error therefore carries the covariance between the
+two subgroups, which share the weight parameters and the outcome model’s
+coefficients; adding two independently estimated variances would miss
+that covariance, in a direction the design decides.
+
+The log odds ratio stays among the whole-sample rows. It is
+noncollapsible, so the odds ratio over a sample is not an average of the
+odds ratios within its subgroups, and a difference of two of them moves
+with each subgroup’s baseline risk whether or not the effect is modified
+at all. The collapsible measures, `rd` and `log(rr)`, are the ones
+reported for the subgroups and for their contrast.
+
+The subgroup contrast is not what the interaction term in
+`recovery ~ treated * sex` reports. That coefficient belongs to the
+outcome model’s conditional surface: it is the change in the model’s log
+odds ratio between the two levels of `sex`, on the link scale the model
+was fitted with. The `.by` rows are an estimand instead, the marginal
+effect of treating standardized over each subgroup’s own covariate
+distribution, and their contrast is the difference between two such
+effects on each collapsible scale. The two are different quantities and
+generally different numbers, so a term in the model is not a reading of
+the request and the request is not a reading of the term. What `.by`
+does need from the model is room for the effect to differ. The subgroup
+rows are g-computation on the model as it was specified, so a model
+carrying no term that reads both the exposure and the modifier is warned
+about rather than refused: the modification may reach it through a
+column derived from the modifier instead.
+
+### Joint exposures
+
+Intervening on two treatments at once is a third question again, and it
+is not the one `.by` answers.
 [`causalgenerics::joint_exposure()`](https://r-causal.github.io/causalgenerics/reference/joint_exposure.html)
-declares as a crossing of two treatments is reported in those treatments
-instead of cell against cell: the cell means, each treatment’s simple
-effects within the levels of the other, and their interaction. See
-[`?ipw.balancing`](https://r-causal.github.io/balancing/reference/ipw.balancing.md)
-for that surface.
+crosses two discrete treatments into one categorical exposure and
+records the crossing on the column.
+[`balance()`](https://r-causal.github.io/balancing/reference/balance.md)
+weights that column as it weights any factor over the same cells, so
+what the declaration changes is which effects are reported rather than
+which population is balanced.
+
+``` r
+
+set.seed(21)
+k <- 500
+frailty <- rnorm(k)
+drug <- rbinom(k, 1, plogis(0.4 * frailty))
+diet <- rbinom(k, 1, plogis(-0.2 + 0.5 * frailty + 0.6 * drug))
+remission <- rbinom(
+  k,
+  1,
+  plogis(-1.4 + 0.3 * drug + 0.3 * diet + 1.6 * drug * diet + 0.5 * frailty)
+)
+
+regimens <- data.frame(
+  frailty = frailty,
+  remission = remission,
+  drug = factor(drug),
+  diet = factor(diet)
+)
+# Built after the frame so the crossing reads the same two columns the frame
+# carries.
+regimens$regimen <- causalgenerics::joint_exposure(
+  drug = regimens$drug,
+  diet = regimens$diet
+)
+```
+
+``` r
+
+regimen_fit <- balance(
+  regimens,
+  regimen,
+  c(frailty),
+  method = bw_ipt(),
+  estimand = "ate"
+)
+regimens$regimen_w <- weights(regimen_fit)
+
+regimen_mod <- glm(
+  remission ~ regimen + frailty,
+  data = regimens,
+  family = quasibinomial(),
+  weights = regimen_w
+)
+
+ipw(regimen_fit, regimen_mod)
+#> Inverse Probability Weight Estimator
+#> Estimand: ATE 
+#> Effects: marginal (population-averaged) 
+#> 
+#> Weight Estimator:
+#>   Call: balance(.data = regimens, .exposure = regimen, .covariates = c(frailty), 
+#>     method = bw_ipt(), estimand = "ate") 
+#> 
+#> Outcome Model:
+#>   Call: glm(formula = remission ~ regimen + frailty, family = quasibinomial(), 
+#>     data = regimens, weights = regimen_w) 
+#> 
+#> Marginal estimates:
+#>                                           estimate  std.err       z   ci.lower
+#> mean drug = 0, diet = 0 overall           0.183250 0.036263  5.0534  0.1121765
+#> mean drug = 1, diet = 0 overall           0.297125 0.043441  6.8397  0.2119823
+#> mean drug = 0, diet = 1 overall           0.236567 0.037595  6.2926  0.1628826
+#> mean drug = 1, diet = 1 overall           0.643617 0.037633 17.1023  0.5698571
+#> rd drug: 1 vs 0 diet = 0                  0.113875 0.056162  2.0276  0.0037984
+#> log(rr) drug: 1 vs 0 diet = 0             0.483300 0.244244  1.9788  0.0045901
+#> rd drug: 1 vs 0 diet = 1                  0.407050 0.052230  7.7934  0.3046814
+#> log(rr) drug: 1 vs 0 diet = 1             1.000873 0.167350  5.9807  0.6728723
+#> rd diet: 1 vs 0 drug = 0                  0.053317 0.051672  1.0318 -0.0479579
+#> log(rr) diet: 1 vs 0 drug = 0             0.255378 0.251131  1.0169 -0.2368303
+#> rd diet: 1 vs 0 drug = 1                  0.346492 0.056676  6.1135  0.2354089
+#> log(rr) diet: 1 vs 0 drug = 1             0.772951 0.155941  4.9567  0.4673111
+#> rd drug: 1 vs 0 diet = 1 vs diet = 0      0.293176 0.076862  3.8143  0.1425290
+#> log(rr) drug: 1 vs 0 diet = 1 vs diet = 0 0.517573 0.296887  1.7433 -0.0643152
+#>                                           ci.upper conf.level   p.value    
+#> mean drug = 0, diet = 0 overall            0.25432       0.95 4.340e-07 ***
+#> mean drug = 1, diet = 0 overall            0.38227       0.95 7.934e-12 ***
+#> mean drug = 0, diet = 1 overall            0.31025       0.95 3.123e-10 ***
+#> mean drug = 1, diet = 1 overall            0.71738       0.95 < 2.2e-16 ***
+#> rd drug: 1 vs 0 diet = 0                   0.22395       0.95 0.0426015 *  
+#> log(rr) drug: 1 vs 0 diet = 0              0.96201       0.95 0.0478434 *  
+#> rd drug: 1 vs 0 diet = 1                   0.50942       0.95 6.522e-15 ***
+#> log(rr) drug: 1 vs 0 diet = 1              1.32887       0.95 2.222e-09 ***
+#> rd diet: 1 vs 0 drug = 0                   0.15459       0.95 0.3021495    
+#> log(rr) diet: 1 vs 0 drug = 0              0.74759       0.95 0.3091965    
+#> rd diet: 1 vs 0 drug = 1                   0.45758       0.95 9.744e-10 ***
+#> log(rr) diet: 1 vs 0 drug = 1              1.07859       0.95 7.171e-07 ***
+#> rd drug: 1 vs 0 diet = 1 vs diet = 0       0.44382       0.95 0.0001366 ***
+#> log(rr) drug: 1 vs 0 diet = 1 vs diet = 0  1.09946       0.95 0.0812756 .  
+#> ---
+#> Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+```
+
+The table leads with the counterfactual mean of each cell, one per
+combination of the two treatments, each standardized over the whole
+sample. The simple effects follow: each treatment against its own
+reference level, within a level of the other that the `group` column
+names. The last pair of rows is the interaction, the difference between
+the drug’s effect at `diet = 1` and its effect at `diet = 0`, which is
+large here because each treatment does much less on its own than the two
+do together. Reported as a plain categorical exposure, these four cells
+would give each cell against the reference cell, under contrasts like
+`"drug = 1, diet = 0 vs drug = 0, diet = 0"`; the declaration replaces
+those rows rather than adding to them, so no row here is named that way.
+The interaction appears once, under the first treatment’s framing,
+because it is symmetric in the two: the change in the drug’s effect
+across the levels of the diet is the change in the diet’s effect across
+the levels of the drug, and reporting it twice would put one quantity in
+the table under two names. No contrast row carries a log odds ratio, for
+the reason no subgroup row does.
+
+The declaration is read off the exposure column of the frame
 [`ipw()`](https://r-causal.github.io/causalgenerics/reference/ipw.html)
-also takes a `.by` argument, which reports the effects again within the
-levels of a modifier and contrasts the subgroups, documented on the same
-page.
+resolves, which is the outcome model’s own frame here, so dropping it
+with [`factor()`](https://rdrr.io/r/base/factor.html) returns the
+cell-against-cell rows. A declared crossing is reported for the ATE
+alone, and `.by` on one is refused: effect modification of a joint
+intervention is a three-way question, and this surface reports neither
+it nor a projection of it.
+[`?ipw.balancing`](https://r-causal.github.io/balancing/reference/ipw.balancing.md)
+gives the full row set and both restrictions.
 
 ### Continuous exposures
 
@@ -313,8 +587,8 @@ ipw(dose_fit, dose_mod)
 #>   Call: lm(formula = response ~ dose, data = study, weights = dose_w) 
 #> 
 #> Marginal estimates:
-#>       estimate  std.err      z ci.lower ci.upper conf.level   p.value    
-#> slope 0.421318 0.038053 11.072  0.34674   0.4959       0.95 < 2.2e-16 ***
+#>       estimate std.err      z ci.lower ci.upper conf.level   p.value    
+#> slope  0.39271 0.03888 10.101  0.31651  0.46892       0.95 < 2.2e-16 ***
 #> ---
 #> Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 ```
@@ -348,10 +622,10 @@ ipw(dose_fit, curve_mod)
 #> 
 #> Conditional estimates (outcome model):
 #>                       Estimate Std. Error z value  Pr(>|z|)    
-#> (Intercept)           -0.10938    0.97476 -0.1122  0.910657    
-#> splines::ns(dose, 3)1  1.49752    0.48211  3.1062  0.001895 ** 
-#> splines::ns(dose, 3)2  3.07443    2.09429  1.4680  0.142102    
-#> splines::ns(dose, 3)3  3.53318    0.86708  4.0748 4.605e-05 ***
+#> (Intercept)           -0.86446    0.84010 -1.0290  0.303480    
+#> splines::ns(dose, 3)1  1.99573    0.37897  5.2662 1.393e-07 ***
+#> splines::ns(dose, 3)2  4.24376    1.84443  2.3009  0.021400 *  
+#> splines::ns(dose, 3)3  2.79960    0.89688  3.1215  0.001799 ** 
 #> ---
 #> Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 ```

@@ -106,7 +106,8 @@ covariates even though its objective reads every selected one.</p></dd>
 
 <dt id="arg-focal-level">focal_level<a class="anchor" aria-label="anchor" href="#arg-focal-level"></a></dt>
 <dd><p>The focal exposure level for <code>"att"</code> and <code>"atc"</code>, or
-<code>NULL</code>.</p></dd>
+<code>NULL</code>. This is the fitted object's property, set from the <code>.focal_level</code>
+argument of <code><a href="balance.html">balance()</a></code>.</p></dd>
 
 
 <dt id="arg-n">n<a class="anchor" aria-label="anchor" href="#arg-n"></a></dt>
@@ -138,7 +139,15 @@ covariates even though its objective reads every selected one.</p></dd>
 
 
 <dt id="arg-iterations">iterations<a class="anchor" aria-label="anchor" href="#arg-iterations"></a></dt>
-<dd><p>The solver iteration count.</p></dd>
+<dd><p>The solver iteration count. An energy fit that could not
+reach its tolerance re-solves at a reachable one, and when that re-solve
+converges this sums the original and the fallback solve, so it can exceed
+the requested <code>max_iterations</code>. When the re-solve does not converge the
+fit reports the original solve alone, so the count stays within the cap.
+A continuous energy or stable balancing fit with a positive tolerance
+refines the bound it hands the solver over several passes, each a solve of
+its own, and this sums every one of them. See <code><a href="bw_energy.html">bw_energy()</a></code> and <code><a href="bw_sbw.html">bw_sbw()</a></code>
+for the fuller account.</p></dd>
 
 
 <dt id="arg-objective">objective<a class="anchor" aria-label="anchor" href="#arg-objective"></a></dt>

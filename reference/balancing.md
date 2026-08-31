@@ -58,7 +58,9 @@ is needed to rebuild the constraint matrix.
 
 - focal_level:
 
-  The focal exposure level for `"att"` and `"atc"`, or `NULL`.
+  The focal exposure level for `"att"` and `"atc"`, or `NULL`. This is
+  the fitted object's property, set from the `.focal_level` argument of
+  [`balance()`](https://r-causal.github.io/balancing/reference/balance.md).
 
 - n:
 
@@ -92,7 +94,18 @@ is needed to rebuild the constraint matrix.
 
 - iterations:
 
-  The solver iteration count.
+  The solver iteration count. An energy fit that could not reach its
+  tolerance re-solves at a reachable one, and when that re-solve
+  converges this sums the original and the fallback solve, so it can
+  exceed the requested `max_iterations`. When the re-solve does not
+  converge the fit reports the original solve alone, so the count stays
+  within the cap. A continuous energy or stable balancing fit with a
+  positive tolerance refines the bound it hands the solver over several
+  passes, each a solve of its own, and this sums every one of them. See
+  [`bw_energy()`](https://r-causal.github.io/balancing/reference/bw_energy.md)
+  and
+  [`bw_sbw()`](https://r-causal.github.io/balancing/reference/bw_sbw.md)
+  for the fuller account.
 
 - objective:
 

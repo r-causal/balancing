@@ -140,13 +140,18 @@ quadratic program.</p></dd>
 
 
 <dt id="arg-convergence-tolerance">convergence_tolerance<a class="anchor" aria-label="anchor" href="#arg-convergence-tolerance"></a></dt>
-<dd><p>The quadratic-program solver tolerance, or <code>NULL</code>
-for the core default.</p></dd>
+<dd><p>The quadratic-program solver tolerance, or
+<code>NULL</code> for the resolved default of <code>1e-8</code>, which the solver applies as both
+its absolute and its relative tolerance. Under the alternating-direction
+backend, which the other kernels take by default and which the <code>"energy"</code>
+kernel always takes because its quadratic form is indefinite, a tolerance
+below what the problem can reach spends the full iteration cap and then
+warns.</p></dd>
 
 
 <dt id="arg-max-iterations">max_iterations<a class="anchor" aria-label="anchor" href="#arg-max-iterations"></a></dt>
-<dd><p>The maximum solver iterations, or <code>NULL</code> for the core
-default.</p></dd>
+<dd><p>The maximum solver iterations, or <code>NULL</code> for the
+resolved default of 200000.</p></dd>
 
 </dl></div>
     <div class="section level2">

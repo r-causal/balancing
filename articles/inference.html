@@ -212,9 +212,13 @@ honor.</p>
 </h3>
 <p>A categorical exposure works the same way, with one marginal mean per
 level. The stacked system carries all of them, and the table reports
-each of those means and then the contrasts of each non-reference level
-against the reference level, which is the first of the exposure’s own
-levels. The outcome model enters the exposure as a factor.</p>
+each of those means and then, for a plain categorical exposure, the
+contrasts of each non-reference level against the reference level, which
+is the first of the exposure’s own levels. A crossing of two treatments
+declared with <code><a href="https://r-causal.github.io/causalgenerics/reference/joint_exposure.html" class="external-link">causalgenerics::joint_exposure()</a></code> is reported
+in the treatments rather than in the cells, and the section on joint
+exposures below describes those rows. The outcome model enters the
+exposure as a factor.</p>
 <div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">odds_medium</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/Log.html" class="external-link">exp</a></span><span class="op">(</span><span class="fl">0.6</span> <span class="op">*</span> <span class="va">age</span> <span class="op">-</span> <span class="fl">0.3</span> <span class="op">*</span> <span class="va">score</span><span class="op">)</span></span>
 <span><span class="va">odds_high</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/Log.html" class="external-link">exp</a></span><span class="op">(</span><span class="op">-</span><span class="fl">0.4</span> <span class="op">*</span> <span class="va">age</span> <span class="op">+</span> <span class="fl">0.7</span> <span class="op">*</span> <span class="va">score</span><span class="op">)</span></span>
@@ -302,14 +306,271 @@ named as a contrast of them. Everything else carries over unchanged: the
 outcome model may adjust for covariates, the marginal means standardize
 over the estimand’s target population, and the standard errors account
 for having estimated the weights.</p>
-<p>A categorical exposure that
-<code><a href="https://r-causal.github.io/causalgenerics/reference/joint_exposure.html" class="external-link">causalgenerics::joint_exposure()</a></code> declares as a crossing of
-two treatments is reported in those treatments instead of cell against
-cell: the cell means, each treatment’s simple effects within the levels
-of the other, and their interaction. See <code><a href="../reference/ipw.balancing.html">?ipw.balancing</a></code> for
-that surface. <code><a href="https://r-causal.github.io/causalgenerics/reference/ipw.html" class="external-link">ipw()</a></code> also takes a <code>.by</code> argument,
-which reports the effects again within the levels of a modifier and
-contrasts the subgroups, documented on the same page.</p>
+</div>
+<div class="section level3">
+<h3 id="effect-modification-with--by">Effect modification with <code>.by</code><a class="anchor" aria-label="anchor" href="#effect-modification-with--by"></a>
+</h3>
+<p><code>.by</code> names a modifier, and the result reports the rows it
+would report without one, then the marginal means and effects within
+each level of the modifier, then each non-reference subgroup against the
+reference one. The table gains a <code>group</code> column naming the
+subgroup a row was estimated in, placed after <code>contrast</code>,
+since a subgroup qualifies a whole comparison rather than one side of
+it.</p>
+<p>The data below carry a treatment whose effect is larger among men
+than among women by construction.</p>
+<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed</a></span><span class="op">(</span><span class="fl">7</span><span class="op">)</span></span>
+<span><span class="va">m</span> <span class="op">&lt;-</span> <span class="fl">500</span></span>
+<span><span class="va">severity</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">m</span><span class="op">)</span></span>
+<span><span class="va">comorbidity</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">m</span><span class="op">)</span></span>
+<span><span class="va">sex</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/factor.html" class="external-link">factor</a></span><span class="op">(</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/sample.html" class="external-link">sample</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"female"</span>, <span class="st">"male"</span><span class="op">)</span>, <span class="va">m</span>, replace <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span>,</span>
+<span>  levels <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"female"</span>, <span class="st">"male"</span><span class="op">)</span></span>
+<span><span class="op">)</span></span>
+<span><span class="va">treated</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/Binomial.html" class="external-link">rbinom</a></span><span class="op">(</span><span class="va">m</span>, <span class="fl">1</span>, <span class="fu"><a href="https://rdrr.io/r/stats/Logistic.html" class="external-link">plogis</a></span><span class="op">(</span><span class="fl">0.5</span> <span class="op">*</span> <span class="va">severity</span> <span class="op">-</span> <span class="fl">0.4</span> <span class="op">*</span> <span class="va">comorbidity</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="va">recovery</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/Binomial.html" class="external-link">rbinom</a></span><span class="op">(</span></span>
+<span>  <span class="va">m</span>,</span>
+<span>  <span class="fl">1</span>,</span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/stats/Logistic.html" class="external-link">plogis</a></span><span class="op">(</span></span>
+<span>    <span class="op">-</span><span class="fl">0.4</span> <span class="op">+</span></span>
+<span>      <span class="fl">0.45</span> <span class="op">*</span> <span class="va">treated</span> <span class="op">+</span></span>
+<span>      <span class="fl">0.9</span> <span class="op">*</span> <span class="va">treated</span> <span class="op">*</span> <span class="op">(</span><span class="va">sex</span> <span class="op">==</span> <span class="st">"male"</span><span class="op">)</span> <span class="op">+</span></span>
+<span>      <span class="fl">0.4</span> <span class="op">*</span> <span class="va">severity</span> <span class="op">-</span></span>
+<span>      <span class="fl">0.3</span> <span class="op">*</span> <span class="va">comorbidity</span></span>
+<span>  <span class="op">)</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">trial</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span><span class="va">treated</span>, <span class="va">severity</span>, <span class="va">comorbidity</span>, <span class="va">sex</span>, <span class="va">recovery</span><span class="op">)</span></span></code></pre></div>
+<p>The weights are fit once, over the whole sample, and the outcome
+model interacts the exposure with the modifier so that the fitted
+response is free to differ between the two groups.</p>
+<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">trial_fit</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/balance.html">balance</a></span><span class="op">(</span></span>
+<span>  <span class="va">trial</span>,</span>
+<span>  <span class="va">treated</span>,</span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="va">severity</span>, <span class="va">comorbidity</span><span class="op">)</span>,</span>
+<span>  method <span class="op">=</span> <span class="fu"><a href="../reference/bw_entropy.html">bw_entropy</a></span><span class="op">(</span><span class="op">)</span>,</span>
+<span>  estimand <span class="op">=</span> <span class="st">"ate"</span></span>
+<span><span class="op">)</span></span>
+<span><span class="va">trial</span><span class="op">$</span><span class="va">trial_w</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/weights.html" class="external-link">weights</a></span><span class="op">(</span><span class="va">trial_fit</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">trial_mod</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/glm.html" class="external-link">glm</a></span><span class="op">(</span></span>
+<span>  <span class="va">recovery</span> <span class="op">~</span> <span class="va">treated</span> <span class="op">*</span> <span class="va">sex</span>,</span>
+<span>  data <span class="op">=</span> <span class="va">trial</span>,</span>
+<span>  family <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/stats/family.html" class="external-link">quasibinomial</a></span><span class="op">(</span><span class="op">)</span>,</span>
+<span>  weights <span class="op">=</span> <span class="va">trial_w</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="fu"><a href="https://r-causal.github.io/causalgenerics/reference/ipw.html" class="external-link">ipw</a></span><span class="op">(</span><span class="va">trial_fit</span>, <span class="va">trial_mod</span>, .by <span class="op">=</span> <span class="va">sex</span><span class="op">)</span></span>
+<span><span class="co">#&gt; Inverse Probability Weight Estimator</span></span>
+<span><span class="co">#&gt; Estimand: ATE </span></span>
+<span><span class="co">#&gt; Effects: marginal (population-averaged) </span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; Weight Estimator:</span></span>
+<span><span class="co">#&gt;   Call: balance(.data = trial, .exposure = treated, .covariates = c(severity, </span></span>
+<span><span class="co">#&gt;     comorbidity), method = bw_entropy(), estimand = "ate") </span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; Outcome Model:</span></span>
+<span><span class="co">#&gt;   Call: glm(formula = recovery ~ treated * sex, family = quasibinomial(), </span></span>
+<span><span class="co">#&gt;     data = trial, weights = trial_w) </span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; Marginal estimates:</span></span>
+<span><span class="co">#&gt;                                           estimate  std.err       z ci.lower</span></span>
+<span><span class="co">#&gt; mean 0 overall                            0.317188 0.029794 10.6460 0.258793</span></span>
+<span><span class="co">#&gt; mean 1 overall                            0.607507 0.032381 18.7611 0.544041</span></span>
+<span><span class="co">#&gt; rd 1 vs 0 overall                         0.290319 0.044181  6.5711 0.203725</span></span>
+<span><span class="co">#&gt; log(rr) 1 vs 0 overall                    0.649869 0.108379  5.9963 0.437449</span></span>
+<span><span class="co">#&gt; log(or) 1 vs 0 overall                    1.203569 0.194093  6.2010 0.823154</span></span>
+<span><span class="co">#&gt; mean 0 sex = female                       0.349733 0.042586  8.2125 0.266267</span></span>
+<span><span class="co">#&gt; mean 1 sex = female                       0.509935 0.046754 10.9068 0.418299</span></span>
+<span><span class="co">#&gt; mean 0 sex = male                         0.283042 0.042281  6.6944 0.200173</span></span>
+<span><span class="co">#&gt; mean 1 sex = male                         0.709877 0.045528 15.5921 0.620644</span></span>
+<span><span class="co">#&gt; rd 1 vs 0 sex = female                    0.160201 0.063241  2.5332 0.036251</span></span>
+<span><span class="co">#&gt; log(rr) 1 vs 0 sex = female               0.377111 0.152424  2.4741 0.078365</span></span>
+<span><span class="co">#&gt; rd 1 vs 0 sex = male                      0.426836 0.062132  6.8698 0.305058</span></span>
+<span><span class="co">#&gt; log(rr) 1 vs 0 sex = male                 0.919497 0.162565  5.6562 0.600875</span></span>
+<span><span class="co">#&gt; rd 1 vs 0 sex = male vs sex = female      0.266634 0.089849  2.9676 0.090534</span></span>
+<span><span class="co">#&gt; log(rr) 1 vs 0 sex = male vs sex = female 0.542386 0.225250  2.4079 0.100904</span></span>
+<span><span class="co">#&gt;                                           ci.upper conf.level   p.value    </span></span>
+<span><span class="co">#&gt; mean 0 overall                             0.37558       0.95 &lt; 2.2e-16 ***</span></span>
+<span><span class="co">#&gt; mean 1 overall                             0.67097       0.95 &lt; 2.2e-16 ***</span></span>
+<span><span class="co">#&gt; rd 1 vs 0 overall                          0.37691       0.95 4.995e-11 ***</span></span>
+<span><span class="co">#&gt; log(rr) 1 vs 0 overall                     0.86229       0.95 2.019e-09 ***</span></span>
+<span><span class="co">#&gt; log(or) 1 vs 0 overall                     1.58398       0.95 5.611e-10 ***</span></span>
+<span><span class="co">#&gt; mean 0 sex = female                        0.43320       0.95 &lt; 2.2e-16 ***</span></span>
+<span><span class="co">#&gt; mean 1 sex = female                        0.60157       0.95 &lt; 2.2e-16 ***</span></span>
+<span><span class="co">#&gt; mean 0 sex = male                          0.36591       0.95 2.166e-11 ***</span></span>
+<span><span class="co">#&gt; mean 1 sex = male                          0.79911       0.95 &lt; 2.2e-16 ***</span></span>
+<span><span class="co">#&gt; rd 1 vs 0 sex = female                     0.28415       0.95  0.011303 *  </span></span>
+<span><span class="co">#&gt; log(rr) 1 vs 0 sex = female                0.67586       0.95  0.013358 *  </span></span>
+<span><span class="co">#&gt; rd 1 vs 0 sex = male                       0.54861       0.95 6.431e-12 ***</span></span>
+<span><span class="co">#&gt; log(rr) 1 vs 0 sex = male                  1.23812       0.95 1.548e-08 ***</span></span>
+<span><span class="co">#&gt; rd 1 vs 0 sex = male vs sex = female       0.44273       0.95  0.003001 ** </span></span>
+<span><span class="co">#&gt; log(rr) 1 vs 0 sex = male vs sex = female  0.98387       0.95  0.016043 *  </span></span>
+<span><span class="co">#&gt; ---</span></span>
+<span><span class="co">#&gt; Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1</span></span></code></pre></div>
+<p>The <code>overall</code> block is the result an ungrouped call
+reports, and the blocks after it are the effect within each level of
+<code>sex</code>. A subgroup’s marginal means are the g-computation
+means over that subgroup’s units alone, and its risk difference is the
+contrast of those two means. Nothing is refit inside a subgroup: the
+weights are the ones the single fit produced, and no subgroup gets
+balance conditions of its own. The last two rows compare the subgroups,
+and since every row here is a parameter of the same stacked system, that
+comparison is a parameter as well rather than a difference taken between
+two separately fitted effects. Its standard error therefore carries the
+covariance between the two subgroups, which share the weight parameters
+and the outcome model’s coefficients; adding two independently estimated
+variances would miss that covariance, in a direction the design
+decides.</p>
+<p>The log odds ratio stays among the whole-sample rows. It is
+noncollapsible, so the odds ratio over a sample is not an average of the
+odds ratios within its subgroups, and a difference of two of them moves
+with each subgroup’s baseline risk whether or not the effect is modified
+at all. The collapsible measures, <code>rd</code> and
+<code>log(rr)</code>, are the ones reported for the subgroups and for
+their contrast.</p>
+<p>The subgroup contrast is not what the interaction term in
+<code>recovery ~ treated * sex</code> reports. That coefficient belongs
+to the outcome model’s conditional surface: it is the change in the
+model’s log odds ratio between the two levels of <code>sex</code>, on
+the link scale the model was fitted with. The <code>.by</code> rows are
+an estimand instead, the marginal effect of treating standardized over
+each subgroup’s own covariate distribution, and their contrast is the
+difference between two such effects on each collapsible scale. The two
+are different quantities and generally different numbers, so a term in
+the model is not a reading of the request and the request is not a
+reading of the term. What <code>.by</code> does need from the model is
+room for the effect to differ. The subgroup rows are g-computation on
+the model as it was specified, so a model carrying no term that reads
+both the exposure and the modifier is warned about rather than refused:
+the modification may reach it through a column derived from the modifier
+instead.</p>
+</div>
+<div class="section level3">
+<h3 id="joint-exposures">Joint exposures<a class="anchor" aria-label="anchor" href="#joint-exposures"></a>
+</h3>
+<p>Intervening on two treatments at once is a third question again, and
+it is not the one <code>.by</code> answers.
+<code><a href="https://r-causal.github.io/causalgenerics/reference/joint_exposure.html" class="external-link">causalgenerics::joint_exposure()</a></code> crosses two discrete
+treatments into one categorical exposure and records the crossing on the
+column. <code><a href="../reference/balance.html">balance()</a></code> weights that column as it weights any
+factor over the same cells, so what the declaration changes is which
+effects are reported rather than which population is balanced.</p>
+<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed</a></span><span class="op">(</span><span class="fl">21</span><span class="op">)</span></span>
+<span><span class="va">k</span> <span class="op">&lt;-</span> <span class="fl">500</span></span>
+<span><span class="va">frailty</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">k</span><span class="op">)</span></span>
+<span><span class="va">drug</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/Binomial.html" class="external-link">rbinom</a></span><span class="op">(</span><span class="va">k</span>, <span class="fl">1</span>, <span class="fu"><a href="https://rdrr.io/r/stats/Logistic.html" class="external-link">plogis</a></span><span class="op">(</span><span class="fl">0.4</span> <span class="op">*</span> <span class="va">frailty</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="va">diet</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/Binomial.html" class="external-link">rbinom</a></span><span class="op">(</span><span class="va">k</span>, <span class="fl">1</span>, <span class="fu"><a href="https://rdrr.io/r/stats/Logistic.html" class="external-link">plogis</a></span><span class="op">(</span><span class="op">-</span><span class="fl">0.2</span> <span class="op">+</span> <span class="fl">0.5</span> <span class="op">*</span> <span class="va">frailty</span> <span class="op">+</span> <span class="fl">0.6</span> <span class="op">*</span> <span class="va">drug</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="va">remission</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/Binomial.html" class="external-link">rbinom</a></span><span class="op">(</span></span>
+<span>  <span class="va">k</span>,</span>
+<span>  <span class="fl">1</span>,</span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/stats/Logistic.html" class="external-link">plogis</a></span><span class="op">(</span><span class="op">-</span><span class="fl">1.4</span> <span class="op">+</span> <span class="fl">0.3</span> <span class="op">*</span> <span class="va">drug</span> <span class="op">+</span> <span class="fl">0.3</span> <span class="op">*</span> <span class="va">diet</span> <span class="op">+</span> <span class="fl">1.6</span> <span class="op">*</span> <span class="va">drug</span> <span class="op">*</span> <span class="va">diet</span> <span class="op">+</span> <span class="fl">0.5</span> <span class="op">*</span> <span class="va">frailty</span><span class="op">)</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">regimens</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span></span>
+<span>  frailty <span class="op">=</span> <span class="va">frailty</span>,</span>
+<span>  remission <span class="op">=</span> <span class="va">remission</span>,</span>
+<span>  drug <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/factor.html" class="external-link">factor</a></span><span class="op">(</span><span class="va">drug</span><span class="op">)</span>,</span>
+<span>  diet <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/factor.html" class="external-link">factor</a></span><span class="op">(</span><span class="va">diet</span><span class="op">)</span></span>
+<span><span class="op">)</span></span>
+<span><span class="co"># Built after the frame so the crossing reads the same two columns the frame</span></span>
+<span><span class="co"># carries.</span></span>
+<span><span class="va">regimens</span><span class="op">$</span><span class="va">regimen</span> <span class="op">&lt;-</span> <span class="fu">causalgenerics</span><span class="fu">::</span><span class="fu"><a href="https://r-causal.github.io/causalgenerics/reference/joint_exposure.html" class="external-link">joint_exposure</a></span><span class="op">(</span></span>
+<span>  drug <span class="op">=</span> <span class="va">regimens</span><span class="op">$</span><span class="va">drug</span>,</span>
+<span>  diet <span class="op">=</span> <span class="va">regimens</span><span class="op">$</span><span class="va">diet</span></span>
+<span><span class="op">)</span></span></code></pre></div>
+<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">regimen_fit</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/balance.html">balance</a></span><span class="op">(</span></span>
+<span>  <span class="va">regimens</span>,</span>
+<span>  <span class="va">regimen</span>,</span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="va">frailty</span><span class="op">)</span>,</span>
+<span>  method <span class="op">=</span> <span class="fu"><a href="../reference/bw_ipt.html">bw_ipt</a></span><span class="op">(</span><span class="op">)</span>,</span>
+<span>  estimand <span class="op">=</span> <span class="st">"ate"</span></span>
+<span><span class="op">)</span></span>
+<span><span class="va">regimens</span><span class="op">$</span><span class="va">regimen_w</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/weights.html" class="external-link">weights</a></span><span class="op">(</span><span class="va">regimen_fit</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">regimen_mod</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/glm.html" class="external-link">glm</a></span><span class="op">(</span></span>
+<span>  <span class="va">remission</span> <span class="op">~</span> <span class="va">regimen</span> <span class="op">+</span> <span class="va">frailty</span>,</span>
+<span>  data <span class="op">=</span> <span class="va">regimens</span>,</span>
+<span>  family <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/stats/family.html" class="external-link">quasibinomial</a></span><span class="op">(</span><span class="op">)</span>,</span>
+<span>  weights <span class="op">=</span> <span class="va">regimen_w</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="fu"><a href="https://r-causal.github.io/causalgenerics/reference/ipw.html" class="external-link">ipw</a></span><span class="op">(</span><span class="va">regimen_fit</span>, <span class="va">regimen_mod</span><span class="op">)</span></span>
+<span><span class="co">#&gt; Inverse Probability Weight Estimator</span></span>
+<span><span class="co">#&gt; Estimand: ATE </span></span>
+<span><span class="co">#&gt; Effects: marginal (population-averaged) </span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; Weight Estimator:</span></span>
+<span><span class="co">#&gt;   Call: balance(.data = regimens, .exposure = regimen, .covariates = c(frailty), </span></span>
+<span><span class="co">#&gt;     method = bw_ipt(), estimand = "ate") </span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; Outcome Model:</span></span>
+<span><span class="co">#&gt;   Call: glm(formula = remission ~ regimen + frailty, family = quasibinomial(), </span></span>
+<span><span class="co">#&gt;     data = regimens, weights = regimen_w) </span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; Marginal estimates:</span></span>
+<span><span class="co">#&gt;                                           estimate  std.err       z   ci.lower</span></span>
+<span><span class="co">#&gt; mean drug = 0, diet = 0 overall           0.183250 0.036263  5.0534  0.1121765</span></span>
+<span><span class="co">#&gt; mean drug = 1, diet = 0 overall           0.297125 0.043441  6.8397  0.2119823</span></span>
+<span><span class="co">#&gt; mean drug = 0, diet = 1 overall           0.236567 0.037595  6.2926  0.1628826</span></span>
+<span><span class="co">#&gt; mean drug = 1, diet = 1 overall           0.643617 0.037633 17.1023  0.5698571</span></span>
+<span><span class="co">#&gt; rd drug: 1 vs 0 diet = 0                  0.113875 0.056162  2.0276  0.0037984</span></span>
+<span><span class="co">#&gt; log(rr) drug: 1 vs 0 diet = 0             0.483300 0.244244  1.9788  0.0045901</span></span>
+<span><span class="co">#&gt; rd drug: 1 vs 0 diet = 1                  0.407050 0.052230  7.7934  0.3046814</span></span>
+<span><span class="co">#&gt; log(rr) drug: 1 vs 0 diet = 1             1.000873 0.167350  5.9807  0.6728723</span></span>
+<span><span class="co">#&gt; rd diet: 1 vs 0 drug = 0                  0.053317 0.051672  1.0318 -0.0479579</span></span>
+<span><span class="co">#&gt; log(rr) diet: 1 vs 0 drug = 0             0.255378 0.251131  1.0169 -0.2368303</span></span>
+<span><span class="co">#&gt; rd diet: 1 vs 0 drug = 1                  0.346492 0.056676  6.1135  0.2354089</span></span>
+<span><span class="co">#&gt; log(rr) diet: 1 vs 0 drug = 1             0.772951 0.155941  4.9567  0.4673111</span></span>
+<span><span class="co">#&gt; rd drug: 1 vs 0 diet = 1 vs diet = 0      0.293176 0.076862  3.8143  0.1425290</span></span>
+<span><span class="co">#&gt; log(rr) drug: 1 vs 0 diet = 1 vs diet = 0 0.517573 0.296887  1.7433 -0.0643152</span></span>
+<span><span class="co">#&gt;                                           ci.upper conf.level   p.value    </span></span>
+<span><span class="co">#&gt; mean drug = 0, diet = 0 overall            0.25432       0.95 4.340e-07 ***</span></span>
+<span><span class="co">#&gt; mean drug = 1, diet = 0 overall            0.38227       0.95 7.934e-12 ***</span></span>
+<span><span class="co">#&gt; mean drug = 0, diet = 1 overall            0.31025       0.95 3.123e-10 ***</span></span>
+<span><span class="co">#&gt; mean drug = 1, diet = 1 overall            0.71738       0.95 &lt; 2.2e-16 ***</span></span>
+<span><span class="co">#&gt; rd drug: 1 vs 0 diet = 0                   0.22395       0.95 0.0426015 *  </span></span>
+<span><span class="co">#&gt; log(rr) drug: 1 vs 0 diet = 0              0.96201       0.95 0.0478434 *  </span></span>
+<span><span class="co">#&gt; rd drug: 1 vs 0 diet = 1                   0.50942       0.95 6.522e-15 ***</span></span>
+<span><span class="co">#&gt; log(rr) drug: 1 vs 0 diet = 1              1.32887       0.95 2.222e-09 ***</span></span>
+<span><span class="co">#&gt; rd diet: 1 vs 0 drug = 0                   0.15459       0.95 0.3021495    </span></span>
+<span><span class="co">#&gt; log(rr) diet: 1 vs 0 drug = 0              0.74759       0.95 0.3091965    </span></span>
+<span><span class="co">#&gt; rd diet: 1 vs 0 drug = 1                   0.45758       0.95 9.744e-10 ***</span></span>
+<span><span class="co">#&gt; log(rr) diet: 1 vs 0 drug = 1              1.07859       0.95 7.171e-07 ***</span></span>
+<span><span class="co">#&gt; rd drug: 1 vs 0 diet = 1 vs diet = 0       0.44382       0.95 0.0001366 ***</span></span>
+<span><span class="co">#&gt; log(rr) drug: 1 vs 0 diet = 1 vs diet = 0  1.09946       0.95 0.0812756 .  </span></span>
+<span><span class="co">#&gt; ---</span></span>
+<span><span class="co">#&gt; Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1</span></span></code></pre></div>
+<p>The table leads with the counterfactual mean of each cell, one per
+combination of the two treatments, each standardized over the whole
+sample. The simple effects follow: each treatment against its own
+reference level, within a level of the other that the <code>group</code>
+column names. The last pair of rows is the interaction, the difference
+between the drug’s effect at <code>diet = 1</code> and its effect at
+<code>diet = 0</code>, which is large here because each treatment does
+much less on its own than the two do together. Reported as a plain
+categorical exposure, these four cells would give each cell against the
+reference cell, under contrasts like
+<code>"drug = 1, diet = 0 vs drug = 0, diet = 0"</code>; the declaration
+replaces those rows rather than adding to them, so no row here is named
+that way. The interaction appears once, under the first treatment’s
+framing, because it is symmetric in the two: the change in the drug’s
+effect across the levels of the diet is the change in the diet’s effect
+across the levels of the drug, and reporting it twice would put one
+quantity in the table under two names. No contrast row carries a log
+odds ratio, for the reason no subgroup row does.</p>
+<p>The declaration is read off the exposure column of the frame
+<code><a href="https://r-causal.github.io/causalgenerics/reference/ipw.html" class="external-link">ipw()</a></code> resolves, which is the outcome model’s own frame
+here, so dropping it with <code><a href="https://rdrr.io/r/base/factor.html" class="external-link">factor()</a></code> returns the
+cell-against-cell rows. A declared crossing is reported for the ATE
+alone, and <code>.by</code> on one is refused: effect modification of a
+joint intervention is a three-way question, and this surface reports
+neither it nor a projection of it. <code><a href="../reference/ipw.balancing.html">?ipw.balancing</a></code> gives the
+full row set and both restrictions.</p>
 </div>
 <div class="section level3">
 <h3 id="continuous-exposures">Continuous exposures<a class="anchor" aria-label="anchor" href="#continuous-exposures"></a>
@@ -320,7 +581,7 @@ response of a weighted marginal structural model instead: entropy
 balancing removes the association between the exposure and the
 covariates, and every coefficient of the outcome model that reads the
 exposure is an effect on the model’s own link scale.</p>
-<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb12"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">study</span><span class="op">$</span><span class="va">dose</span> <span class="op">&lt;-</span> <span class="fl">0.8</span> <span class="op">*</span> <span class="va">age</span> <span class="op">-</span> <span class="fl">0.5</span> <span class="op">*</span> <span class="va">score</span> <span class="op">+</span> <span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">n</span><span class="op">)</span></span>
 <span><span class="va">study</span><span class="op">$</span><span class="va">response</span> <span class="op">&lt;-</span> <span class="fl">1</span> <span class="op">+</span> <span class="fl">0.4</span> <span class="op">*</span> <span class="va">study</span><span class="op">$</span><span class="va">dose</span> <span class="op">+</span> <span class="fl">0.5</span> <span class="op">*</span> <span class="va">age</span> <span class="op">-</span> <span class="fl">0.3</span> <span class="op">*</span> <span class="va">score</span> <span class="op">+</span> <span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">n</span><span class="op">)</span></span>
 <span></span>
@@ -348,8 +609,8 @@ exposure is an effect on the model’s own link scale.</p>
 <span><span class="co">#&gt;   Call: lm(formula = response ~ dose, data = study, weights = dose_w) </span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; Marginal estimates:</span></span>
-<span><span class="co">#&gt;       estimate  std.err      z ci.lower ci.upper conf.level   p.value    </span></span>
-<span><span class="co">#&gt; slope 0.421318 0.038053 11.072  0.34674   0.4959       0.95 &lt; 2.2e-16 ***</span></span>
+<span><span class="co">#&gt;       estimate std.err      z ci.lower ci.upper conf.level   p.value    </span></span>
+<span><span class="co">#&gt; slope  0.39271 0.03888 10.101  0.31651  0.46892       0.95 &lt; 2.2e-16 ***</span></span>
 <span><span class="co">#&gt; ---</span></span>
 <span><span class="co">#&gt; Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1</span></span></code></pre></div>
 <p>An exposure entering through one design column is the whole of the
@@ -362,7 +623,7 @@ has to keep is variable membership: every term reading the exposure must
 read the exposure alone, however many columns it expands to, so a curve
 written out term by term and one handed to a basis constructor are both
 reported.</p>
-<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb13"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">curve_mod</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/lm.html" class="external-link">lm</a></span><span class="op">(</span><span class="va">response</span> <span class="op">~</span> <span class="fu">splines</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/splines/ns.html" class="external-link">ns</a></span><span class="op">(</span><span class="va">dose</span>, <span class="fl">3</span><span class="op">)</span>, data <span class="op">=</span> <span class="va">study</span>, weights <span class="op">=</span> <span class="va">dose_w</span><span class="op">)</span></span>
 <span></span>
 <span><span class="fu"><a href="https://r-causal.github.io/causalgenerics/reference/ipw.html" class="external-link">ipw</a></span><span class="op">(</span><span class="va">dose_fit</span>, <span class="va">curve_mod</span><span class="op">)</span></span>
@@ -379,10 +640,10 @@ reported.</p>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; Conditional estimates (outcome model):</span></span>
 <span><span class="co">#&gt;                       Estimate Std. Error z value  Pr(&gt;|z|)    </span></span>
-<span><span class="co">#&gt; (Intercept)           -0.10938    0.97476 -0.1122  0.910657    </span></span>
-<span><span class="co">#&gt; splines::ns(dose, 3)1  1.49752    0.48211  3.1062  0.001895 ** </span></span>
-<span><span class="co">#&gt; splines::ns(dose, 3)2  3.07443    2.09429  1.4680  0.142102    </span></span>
-<span><span class="co">#&gt; splines::ns(dose, 3)3  3.53318    0.86708  4.0748 4.605e-05 ***</span></span>
+<span><span class="co">#&gt; (Intercept)           -0.86446    0.84010 -1.0290  0.303480    </span></span>
+<span><span class="co">#&gt; splines::ns(dose, 3)1  1.99573    0.37897  5.2662 1.393e-07 ***</span></span>
+<span><span class="co">#&gt; splines::ns(dose, 3)2  4.24376    1.84443  2.3009  0.021400 *  </span></span>
+<span><span class="co">#&gt; splines::ns(dose, 3)3  2.79960    0.89688  3.1215  0.001799 ** </span></span>
 <span><span class="co">#&gt; ---</span></span>
 <span><span class="co">#&gt; Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1</span></span></code></pre></div>
 <p>The table then holds one row per coefficient and gains a
@@ -415,7 +676,7 @@ hundred observations is too narrow. Bootstrap it at that size.</p>
 it may adjust for covariates alongside it, and may interact them with
 the exposure. Adjusting for the same covariates the weights balance is a
 common way to reduce residual confounding and tighten the estimate.</p>
-<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb14"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">adjusted_mod</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/glm.html" class="external-link">glm</a></span><span class="op">(</span></span>
 <span>  <span class="va">event</span> <span class="op">~</span> <span class="va">exposure</span> <span class="op">+</span> <span class="va">age</span> <span class="op">+</span> <span class="va">score</span>,</span>
 <span>  data <span class="op">=</span> <span class="va">study</span>,</span>
@@ -463,7 +724,7 @@ way it accounts for everything else, by carrying the adjusted model’s
 own score equations in the stack.</p>
 <p>A model that leaves the exposure out has nothing to contrast, so it
 is refused rather than reported as a null effect.</p>
-<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb15"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://r-causal.github.io/causalgenerics/reference/ipw.html" class="external-link">ipw</a></span><span class="op">(</span><span class="va">fit</span>, <span class="fu"><a href="https://rdrr.io/r/stats/glm.html" class="external-link">glm</a></span><span class="op">(</span><span class="va">event</span> <span class="op">~</span> <span class="va">age</span> <span class="op">+</span> <span class="va">score</span>, data <span class="op">=</span> <span class="va">study</span>, family <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/stats/family.html" class="external-link">quasibinomial</a></span><span class="op">(</span><span class="op">)</span>, weights <span class="op">=</span> <span class="va">w</span><span class="op">)</span><span class="op">)</span></span>
 <span><span class="co">#&gt; <span style="color: #BBBB00; font-weight: bold;">Error</span><span style="font-weight: bold;"> in `ipw()`:</span></span></span>
 <span><span class="co">#&gt; <span style="color: #BBBB00;">!</span> `outcome_mod` must include the exposure among its predictors.</span></span>
@@ -484,7 +745,7 @@ pointing here. Inverse probability tilting is the exception to the
 tolerance rule: it solves the same smooth estimating equations whatever
 tolerance is requested, so <code><a href="https://r-causal.github.io/causalgenerics/reference/ipw.html" class="external-link">ipw()</a></code> handles it at any
 tolerance.</p>
-<div class="sourceCode" id="cb12"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb16"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">sbw_fit</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/balance.html">balance</a></span><span class="op">(</span></span>
 <span>  <span class="va">study</span>,</span>
 <span>  <span class="va">exposure</span>,</span>
@@ -524,7 +785,7 @@ bootstrap in <a href="https://www.r-causal.org/appendices/a-bootstrap" class="ex
 in R</a>.</p>
 <p>We keep the example small so it runs quickly: a few hundred resamples
 on a modest sample.</p>
-<div class="sourceCode" id="cb13"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb17"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">boot_study</span> <span class="op">&lt;-</span> <span class="va">study</span><span class="op">[</span><span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq_len</a></span><span class="op">(</span><span class="fl">400</span><span class="op">)</span>, <span class="op">]</span></span>
 <span></span>
 <span><span class="va">fit_effect</span> <span class="op">&lt;-</span> <span class="kw">function</span><span class="op">(</span><span class="va">data</span><span class="op">)</span> <span class="op">{</span></span>
@@ -559,7 +820,7 @@ on a modest sample.</p>
 <p>The bootstrap standard error is the standard deviation of the
 resampled estimates, and a percentile interval comes from their
 quantiles.</p>
-<div class="sourceCode" id="cb14"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb18"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span></span>
 <span>  estimate <span class="op">=</span> <span class="va">point_estimate</span>,</span>
 <span>  std.err <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/stats/sd.html" class="external-link">sd</a></span><span class="op">(</span><span class="va">boot_estimates</span><span class="op">)</span>,</span>

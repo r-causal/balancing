@@ -32,11 +32,17 @@ quadratic_program_method(
 
 - convergence_tolerance:
 
-  The solver convergence tolerance, or `NULL` for the core default.
+  The solver convergence tolerance, or `NULL` to leave it to the solver.
+  The value resolved for `NULL` differs by family: `1e-10` on the
+  gradient for the estimating-equation methods, and `1e-8` as both the
+  absolute and the relative tolerance for the quadratic-program methods.
 
 - max_iterations:
 
-  The maximum solver iterations, or `NULL` for the core default.
+  The maximum solver iterations, or `NULL` to leave the cap to the
+  solver. The value resolved for `NULL` is 1000 for the
+  estimating-equation methods and 200000 for the quadratic-program
+  methods.
 
 - weight_penalty:
 

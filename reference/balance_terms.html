@@ -75,7 +75,9 @@ describes is applied at fit time.</p>
 
 <dl><dt id="arg-moments">moments<a class="anchor" aria-label="anchor" href="#arg-moments"></a></dt>
 <dd><p>The highest covariate power to balance. A single whole number
-or a named integer vector; <code>NULL</code> (the default) resolves to first moments.</p></dd>
+or a named integer vector; <code>NULL</code> (the default) resolves to first moments.
+For a continuous exposure each power is held at zero weighted correlation
+with the exposure instead.</p></dd>
 
 
 <dt id="arg-interactions">interactions<a class="anchor" aria-label="anchor" href="#arg-interactions"></a></dt>
@@ -128,7 +130,16 @@ vector sets tolerances per source covariate, and derived columns inherit
 their source covariate's tolerance. <code>0</code> requests exact balance. A positive
 value selects the inexact problem for entropy balancing and is the central
 tuning parameter for stable balancing weights.</p></li>
-</ul><p>A factor covariate contributes one indicator per level rather than the
+</ul><p>For a continuous exposure there are no groups to equate, so a constraint
+column is instead held within <code>tolerance</code> of zero weighted correlation with
+the exposure. On the continuous energy path this is what <code>moments</code> and
+<code>interactions</code> request, and there the correlation is held exactly whatever
+<code>tolerance</code> says, for the reason <code><a href="bw_energy.html">bw_energy()</a></code> records. The marginal
+distribution of the exposure and of the covariates is a separate matter,
+held by <code>distribution_moments</code> in <code><a href="bw_energy.html">bw_energy()</a></code> and <code><a href="bw_entropy.html">bw_entropy()</a></code>; asking
+for correlation constraints does not add marginal rows, and raising
+<code>distribution_moments</code> adds no correlation constraint.</p>
+<p>A factor covariate contributes one indicator per level rather than the
 reference coding a model formula would use. Those indicators sum to the
 constant every balancing method carries, so one of them is redundant and the
 expansion drops it, naming the term in an informational alert. The level

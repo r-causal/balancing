@@ -717,17 +717,31 @@ outcome_mod <- glm(
 ipw(fit, outcome_mod)
 #> Inverse Probability Weight Estimator
 #> Estimand: ATE 
+#> Effects: marginal (population-averaged) 
 #> 
-#> Propensity Score Model:
-#>   Call: NULL 
+#> Weight Estimator:
+#>   Call: balance(.data = df, .exposure = exposure, .covariates = x1, method = bw_entropy(), 
+#>     estimand = "ate") 
 #> 
 #> Outcome Model:
 #>   Call: glm(formula = y ~ exposure, family = quasibinomial(), data = df, 
 #>     weights = .wts) 
 #> 
-#> Estimates:
-#> Warning: non-unique value when setting 'row.names': ‘mean’
-#> Error in `.rowNamesDF<-`(x, value = value): duplicate 'row.names' are not allowed
+#> Marginal estimates:
+#>                estimate  std.err       z ci.lower ci.upper conf.level   p.value
+#> mean 0         0.347252 0.047037  7.3825  0.25506  0.43944       0.95 1.554e-13
+#> mean 1         0.628429 0.046933 13.3898  0.53644  0.72042       0.95 < 2.2e-16
+#> rd 1 vs 0      0.281177 0.066447  4.2316  0.15094  0.41141       0.95 2.320e-05
+#> log(rr) 1 vs 0 0.593173 0.154680  3.8348  0.29001  0.89634       0.95 0.0001256
+#> log(or) 1 vs 0 1.156625 0.288897  4.0036  0.59040  1.72285       0.95 6.239e-05
+#>                   
+#> mean 0         ***
+#> mean 1         ***
+#> rd 1 vs 0      ***
+#> log(rr) 1 vs 0 ***
+#> log(or) 1 vs 0 ***
+#> ---
+#> Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
 
 # The outcome model may also adjust for covariates, in which case the
 # marginal means are standardized over the estimand's target population.
@@ -741,17 +755,31 @@ adjusted_mod <- glm(
 ipw(fit, adjusted_mod)
 #> Inverse Probability Weight Estimator
 #> Estimand: ATE 
+#> Effects: marginal (population-averaged) 
 #> 
-#> Propensity Score Model:
-#>   Call: NULL 
+#> Weight Estimator:
+#>   Call: balance(.data = df, .exposure = exposure, .covariates = x1, method = bw_entropy(), 
+#>     estimand = "ate") 
 #> 
 #> Outcome Model:
 #>   Call: glm(formula = y ~ exposure + x1, family = quasibinomial(), data = df, 
 #>     weights = .wts) 
 #> 
-#> Estimates:
-#> Warning: non-unique value when setting 'row.names': ‘mean’
-#> Error in `.rowNamesDF<-`(x, value = value): duplicate 'row.names' are not allowed
+#> Marginal estimates:
+#>                estimate  std.err       z ci.lower ci.upper conf.level   p.value
+#> mean 0         0.347534 0.048089  7.2269  0.25328  0.44179       0.95 4.940e-13
+#> mean 1         0.627634 0.047740 13.1470  0.53407  0.72120       0.95 < 2.2e-16
+#> rd 1 vs 0      0.280100 0.066740  4.1969  0.14929  0.41091       0.95 2.706e-05
+#> log(rr) 1 vs 0 0.591094 0.155892  3.7917  0.28555  0.89664       0.95 0.0001496
+#> log(or) 1 vs 0 1.151975 0.290014  3.9721  0.58356  1.72039       0.95 7.123e-05
+#>                   
+#> mean 0         ***
+#> mean 1         ***
+#> rd 1 vs 0      ***
+#> log(rr) 1 vs 0 ***
+#> log(or) 1 vs 0 ***
+#> ---
+#> Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
 
 # `.by` reports the effects again within the levels of a modifier, then
 # contrasts each level against the first of them.
@@ -766,17 +794,51 @@ by_mod <- glm(
 ipw(fit, by_mod, .by = grp)
 #> Inverse Probability Weight Estimator
 #> Estimand: ATE 
+#> Effects: marginal (population-averaged) 
 #> 
-#> Propensity Score Model:
-#>   Call: NULL 
+#> Weight Estimator:
+#>   Call: balance(.data = df, .exposure = exposure, .covariates = x1, method = bw_entropy(), 
+#>     estimand = "ate") 
 #> 
 #> Outcome Model:
 #>   Call: glm(formula = y ~ exposure * grp, family = quasibinomial(), data = df, 
 #>     weights = .wts) 
 #> 
-#> Estimates:
-#> Warning: non-unique values when setting 'row.names': ‘log(rr)’, ‘mean’, ‘rd’
-#> Error in `.rowNamesDF<-`(x, value = value): duplicate 'row.names' are not allowed
+#> Marginal estimates:
+#>                                         estimate   std.err       z  ci.lower
+#> mean 0 overall                          0.346115  0.047914  7.2236  0.252204
+#> mean 1 overall                          0.629458  0.047093 13.3664  0.537158
+#> rd 1 vs 0 overall                       0.283343  0.067297  4.2103  0.151443
+#> log(rr) 1 vs 0 overall                  0.598088  0.157582  3.7954  0.289232
+#> log(or) 1 vs 0 overall                  1.166052  0.293052  3.9790  0.591681
+#> mean 0 grp = low                        0.241837  0.063073  3.8343  0.118216
+#> mean 1 grp = low                        0.562082  0.076627  7.3353  0.411895
+#> mean 0 grp = high                       0.431433  0.072016  5.9908  0.290285
+#> mean 1 grp = high                       0.684583  0.058463 11.7098  0.569999
+#> rd 1 vs 0 grp = low                     0.320245  0.099247  3.2268  0.125725
+#> log(rr) 1 vs 0 grp = low                0.843385  0.294288  2.8658  0.266590
+#> rd 1 vs 0 grp = high                    0.253150  0.092759  2.7291  0.071346
+#> log(rr) 1 vs 0 grp = high               0.461697  0.187500  2.4624  0.094205
+#> rd 1 vs 0 grp = high vs grp = low      -0.067095  0.136728 -0.4907 -0.335077
+#> log(rr) 1 vs 0 grp = high vs grp = low -0.381687  0.352006 -1.0843 -1.071607
+#>                                        ci.upper conf.level   p.value    
+#> mean 0 overall                          0.44003       0.95 5.063e-13 ***
+#> mean 1 overall                          0.72176       0.95 < 2.2e-16 ***
+#> rd 1 vs 0 overall                       0.41524       0.95 2.550e-05 ***
+#> log(rr) 1 vs 0 overall                  0.90694       0.95 0.0001474 ***
+#> log(or) 1 vs 0 overall                  1.74042       0.95 6.921e-05 ***
+#> mean 0 grp = low                        0.36546       0.95 0.0001259 ***
+#> mean 1 grp = low                        0.71227       0.95 2.213e-13 ***
+#> mean 0 grp = high                       0.57258       0.95 2.088e-09 ***
+#> mean 1 grp = high                       0.79917       0.95 < 2.2e-16 ***
+#> rd 1 vs 0 grp = low                     0.51477       0.95 0.0012520 ** 
+#> log(rr) 1 vs 0 grp = low                1.42018       0.95 0.0041590 ** 
+#> rd 1 vs 0 grp = high                    0.43495       0.95 0.0063503 ** 
+#> log(rr) 1 vs 0 grp = high               0.82919       0.95 0.0138014 *  
+#> rd 1 vs 0 grp = high vs grp = low       0.20089       0.95 0.6236250    
+#> log(rr) 1 vs 0 grp = high vs grp = low  0.30823       0.95 0.2782232    
+#> ---
+#> Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
 
 # A categorical exposure reports each level against the reference level, and
 # the estimates table names the contrast.
@@ -811,17 +873,39 @@ arm_mod <- glm(
 ipw(arm_fit, arm_mod)
 #> Inverse Probability Weight Estimator
 #> Estimand: ATE 
+#> Effects: marginal (population-averaged) 
 #> 
-#> Propensity Score Model:
-#>   Call: NULL 
+#> Weight Estimator:
+#>   Call: balance(.data = df, .exposure = arm, .covariates = x1, method = bw_ipt(), 
+#>     estimand = "ate") 
 #> 
 #> Outcome Model:
 #>   Call: glm(formula = relapse ~ arm, family = quasibinomial(), data = df, 
 #>     weights = .arm_wts) 
 #> 
-#> Estimates:
-#> Warning: non-unique values when setting 'row.names': ‘log(or)’, ‘log(rr)’, ‘mean’, ‘rd’
-#> Error in `.rowNamesDF<-`(x, value = value): duplicate 'row.names' are not allowed
+#> Marginal estimates:
+#>                estimate  std.err      z  ci.lower ci.upper conf.level   p.value
+#> mean a         0.444485 0.064588 6.8818  0.317894  0.57108       0.95 5.909e-12
+#> mean b         0.545150 0.066808 8.1599  0.414208  0.67609       0.95 3.353e-16
+#> mean c         0.610524 0.067628 9.0276  0.477975  0.74307       0.95 < 2.2e-16
+#> rd b vs a      0.100665 0.092655 1.0865 -0.080935  0.28227       0.95   0.27728
+#> log(rr) b vs a 0.204145 0.189544 1.0770 -0.167356  0.57564       0.95   0.28147
+#> log(or) b vs a 0.404072 0.374430 1.0792 -0.329797  1.13794       0.95   0.28051
+#> rd c vs a      0.166040 0.093420 1.7773 -0.017060  0.34914       0.95   0.07551
+#> log(rr) c vs a 0.317402 0.182535 1.7389 -0.040360  0.67516       0.95   0.08206
+#> log(or) c vs a 0.672497 0.386013 1.7422 -0.084074  1.42907       0.95   0.08148
+#>                   
+#> mean a         ***
+#> mean b         ***
+#> mean c         ***
+#> rd b vs a         
+#> log(rr) b vs a    
+#> log(or) b vs a    
+#> rd c vs a      .  
+#> log(rr) c vs a .  
+#> log(or) c vs a .  
+#> ---
+#> Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
 
 # A continuous exposure reports the dose response of a weighted marginal
 # structural model. An exposure entering through one design column is that
@@ -837,16 +921,18 @@ dose_mod <- lm(score ~ dose, data = df, weights = .dose_wts)
 ipw(dose_fit, dose_mod)
 #> Inverse Probability Weight Estimator
 #> Estimand: ATE 
+#> Effects: marginal (population-averaged) 
 #> 
-#> Propensity Score Model:
-#>   Call: NULL 
+#> Weight Estimator:
+#>   Call: balance(.data = df, .exposure = dose, .covariates = x1, method = bw_entropy(), 
+#>     estimand = "ate") 
 #> 
 #> Outcome Model:
 #>   Call: lm(formula = score ~ dose, data = df, weights = .dose_wts) 
 #> 
-#> Estimates:
-#>       estimate  std.err        z ci.lower ci.upper conf.level   p.value    
-#> slope  0.48987 0.076449 6.407895     0.34  0.63971       0.95 1.475e-10 ***
+#> Marginal estimates:
+#>       estimate  std.err      z ci.lower ci.upper conf.level   p.value    
+#> slope 0.489874 0.076449 6.4079  0.34004  0.63971       0.95 1.475e-10 ***
 #> ---
 #> Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
 
@@ -859,16 +945,22 @@ curve_mod <- lm(score ~ poly(dose, 2), data = df, weights = .dose_wts)
 ipw(dose_fit, curve_mod, effects = "conditional")
 #> Inverse Probability Weight Estimator
 #> Estimand: ATE 
+#> Effects: conditional (outcome model) 
 #> 
-#> Propensity Score Model:
-#>   Call: NULL 
+#> Weight Estimator:
+#>   Call: balance(.data = df, .exposure = dose, .covariates = x1, method = bw_entropy(), 
+#>     estimand = "ate") 
 #> 
 #> Outcome Model:
 #>   Call: lm(formula = score ~ poly(dose, 2), data = df, weights = .dose_wts) 
 #> 
-#> Estimates:
-#> Warning: non-unique value when setting 'row.names': ‘coef’
-#> Error in `.rowNamesDF<-`(x, value = value): duplicate 'row.names' are not allowed
+#> Conditional estimates (outcome model):
+#>                 Estimate Std. Error z value  Pr(>|z|)    
+#> (Intercept)     2.140209   0.081063 26.4019 < 2.2e-16 ***
+#> poly(dose, 2)1  8.992239   1.424595  6.3121 2.752e-10 ***
+#> poly(dose, 2)2 -2.589216   1.866039 -1.3875    0.1653    
+#> ---
+#> Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
 
 # With missing covariate data, analyze within each completed dataset and
 # pool the results afterward.

@@ -20,7 +20,7 @@ balance(
   ...,
   constraints = NULL,
   exposure_type = c("auto", "binary", "categorical", "continuous"),
-  focal_level = NULL,
+  .focal_level = NULL,
   sampling_weights = NULL
 )
 ```
@@ -67,7 +67,7 @@ balance(
   One of `"auto"` (the default), `"binary"`, `"categorical"`, or
   `"continuous"`.
 
-- focal_level:
+- .focal_level:
 
   The focal exposure level for `"att"` and `"atc"`. Inferred for a
   binary exposure; required for a categorical exposure.
@@ -90,7 +90,7 @@ informational message, which `options(balancing.quiet = TRUE)`
 suppresses. The estimand vocabulary matches propensity: `"atc"` is
 accepted as a synonym for the untreated target and stored as `"atu"`.
 `"att"` and `"atc"` reweight toward a focal exposure level, inferred for
-a binary exposure and required through `focal_level` for a categorical
+a binary exposure and required through `.focal_level` for a categorical
 exposure. Continuous exposures permit only `"ate"`.
 
 Constraints default to first-moment balance. Pass a
@@ -105,6 +105,24 @@ dropped, with an informational alert naming the term. The dropped level
 is the last one, and balancing the levels that remain balances it too.
 The factor stays in `@covariates`, and `@balance_table` reports the
 surviving levels rather than the full set.
+
+A fit can be interrupted between solver iterations, so a long solve
+stops at the next iteration rather than at the end of the fit. On Unix
+the poll reads R's interrupt flag directly and does not service R's
+event loop, so a
+[`setTimeLimit()`](https://rdrr.io/r/base/setTimeLimit.html) set around
+the call fires when the call returns rather than partway through the
+solve.
+
+A `difftime` covariate balances as the number it stores, in the unit its
+own column declares. Nothing rescales it and nothing reinterprets the
+unit, so its constraints, its recipe, and its balance table match those
+of the same durations supplied as bare numbers. A `Date` or `POSIXt`
+covariate balances the same way, as the number
+[`as.numeric()`](https://rdrr.io/r/base/numeric.html) gives it: days
+since 1970-01-01 for a date, seconds since then for a date-time. Both
+date-time representations are read that way, so a `POSIXlt` column
+balances exactly as the `POSIXct` column holding the same instants does.
 
 ## Examples
 
@@ -127,7 +145,7 @@ fit
 #> Observations: 200
 #> Solver: converged in 4 iterations
 #> Constraints: 2 terms (tolerance 0)
-#> Largest imbalance: 0.0000 (standardized mean difference)
+#> Largest imbalance: 6.68e-12 (standardized mean difference)
 weights(fit)
 #> <bw{estimand = ate}[200]>
 #>   [1] 1.4822934 0.7994941 0.5217720 1.1479092 0.4533513 0.7719240 1.4035649

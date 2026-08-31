@@ -13,7 +13,10 @@ runs without changing any function's signature.
 - `balancing.threads`: the number of worker threads the Rust core may
   use. When unset, the count is resolved automatically from the physical
   core count, capped by `OMP_THREAD_LIMIT` and `OMP_NUM_THREADS`, and
-  forced to two under `R CMD check`.
+  forced to two under `R CMD check`. The count is decided in R and
+  handed to the core, which sizes its worker pool from it:
+  `RAYON_NUM_THREADS` is never read, so setting that environment
+  variable changes nothing about how a fit runs.
 
 - `balancing.entropy_solver`: the solver for the exact entropy problem,
   one of `"newton"` (the default), `"lbfgs"`, or `"lbfgs_then_newton"`.
@@ -56,5 +59,5 @@ withr::with_options(list(balancing.quiet = TRUE), {
 #> Observations: 100
 #> Solver: converged in 4 iterations
 #> Constraints: 1 term (tolerance 0)
-#> Largest imbalance: 0.0000 (standardized mean difference)
+#> Largest imbalance: 1.05e-12 (standardized mean difference)
 ```

@@ -100,7 +100,7 @@ exact
 #> Observations: 600
 #> Solver: converged in 4 iterations
 #> Constraints: 2 terms (tolerance 0)
-#> Largest imbalance: 0.0000 (standardized mean difference)
+#> Largest imbalance: 2.12e-14 (standardized mean difference)
 ```
 
 Exact balance is not always achievable or desirable. When the groups
@@ -130,7 +130,7 @@ relaxed
 #> Observations: 600
 #> Solver: converged in 8 iterations
 #> Constraints: 2 terms (tolerance 0.05)
-#> Largest imbalance: 0.0500 (standardized mean difference)
+#> Largest imbalance: 0.05 (standardized mean difference)
 ```
 
 For
@@ -157,7 +157,7 @@ sbw_fit
 #> Observations: 600
 #> Solver: converged in 75 iterations
 #> Constraints: 2 terms (tolerance 0.02)
-#> Largest imbalance: 0.0400 (standardized mean difference)
+#> Largest imbalance: 0.04 (standardized mean difference)
 ```
 
 For
@@ -231,7 +231,7 @@ with_interactions
 #> Observations: 600
 #> Solver: converged in 5 iterations
 #> Constraints: 3 terms (tolerance 0)
-#> Largest imbalance: 0.0000 (standardized mean difference)
+#> Largest imbalance: 2.19e-11 (standardized mean difference)
 ```
 
 **Quantiles** add an indicator column at each requested probability, so
@@ -260,7 +260,7 @@ with_quantiles
 #> Observations: 600
 #> Solver: converged in 4 iterations
 #> Constraints: 8 terms (tolerance 0)
-#> Largest imbalance: 0.0000 (standardized mean difference)
+#> Largest imbalance: 1.37e-13 (standardized mean difference)
 ```
 
 **Tolerance** sets the per-constraint balance band, as described above.
@@ -316,12 +316,22 @@ dose_fit
 #> Observations: 600
 #> Solver: converged in 6 iterations
 #> Constraints: 2 terms (tolerance 0)
-#> Largest imbalance: 0.0000 (correlation)
+#> Largest imbalance: 1.21e-16 (correlation)
 ```
 
 For a continuous exposure the printed summary reports the largest
 weighted exposure-covariate correlation rather than a standardized mean
 difference.
+
+[`bw_energy()`](https://r-causal.github.io/balancing/reference/bw_energy.md)
+is the exception to that target. Its objective minimizes the weighted
+distance covariance, which asks for full distributional independence
+rather than for zero correlations, and it leaves a residual weighted
+correlation of roughly 0.1 to 0.3 at ordinary sample sizes. Pass
+`constraints = balance_terms(moments = 1)` to add the correlation
+constraints outright, which costs effective sample size;
+[`?bw_energy`](https://r-causal.github.io/balancing/reference/bw_energy.md)
+describes the trade and the part `weight_penalty` plays in it.
 
 For
 [`bw_entropy()`](https://r-causal.github.io/balancing/reference/bw_entropy.md)
@@ -336,8 +346,13 @@ sampling weights, times the `base_weights` of
 which
 [`bw_energy()`](https://r-causal.github.io/balancing/reference/bw_energy.md)
 does not carry. With neither in play the marginals are held equal to the
-unweighted sample. It is raised automatically to at least the moments
-the constraints require.
+unweighted sample. For
+[`bw_entropy()`](https://r-causal.github.io/balancing/reference/bw_entropy.md)
+it is raised automatically to at least the moments the constraints
+require; for
+[`bw_energy()`](https://r-causal.github.io/balancing/reference/bw_energy.md)
+it stands alone, since there `moments` asks for correlation constraints
+rather than marginal ones.
 
 ``` r
 
@@ -355,7 +370,7 @@ dose_moments
 #> Observations: 600
 #> Solver: converged in 5 iterations
 #> Constraints: 2 terms (tolerance 0)
-#> Largest imbalance: 0.0000 (correlation)
+#> Largest imbalance: 2.08e-09 (correlation)
 ```
 
 The marginal-moment conditions are enforced inside the solver rather

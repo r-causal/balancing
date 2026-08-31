@@ -104,12 +104,17 @@ and responds to this value across its range. A positive tolerance selects
 the inexact problem, solved by FISTA against the relative change in the
 loss; that criterion is the weaker of the two, so the value is tightened to
 at most <code>1e-14</code> to hold the achieved balance inside the requested box, and
-anything above <code>1e-14</code> is inert there.</p></dd>
+anything above <code>1e-14</code> is inert there. <code>1e-10</code> is both this argument's
+default and the value the solver resolves for <code>NULL</code>.</p></dd>
 
 
 <dt id="arg-max-iterations">max_iterations<a class="anchor" aria-label="anchor" href="#arg-max-iterations"></a></dt>
-<dd><p>The maximum solver iterations, or <code>NULL</code> for the core
-default.</p></dd>
+<dd><p>The maximum solver iterations, or <code>NULL</code> for the
+resolved default of 1000. When the L-BFGS then Newton hybrid runs, either
+as the automatic retry of a Newton solve that came back short or because
+<code>options(balancing.entropy_solver = "lbfgs_then_newton")</code> asked for it, the
+cap applies to each phase separately and the reported iteration count is
+the sum of the two, so such a fit can report more iterations than the cap.</p></dd>
 
 </dl></div>
     <div class="section level2">
@@ -169,7 +174,7 @@ reweighting method to produce balanced samples in observational studies.
 <span class="r-out co"><span class="r-pr">#&gt;</span> Observations: 200</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> Solver: converged in 4 iterations</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> Constraints: 2 terms (tolerance 0)</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> Largest imbalance: 0.0000 (standardized mean difference)</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> Largest imbalance: 4.38e-11 (standardized mean difference)</span>
 <span class="r-in"><span></span></span>
 </code></pre></div>
     </div>

@@ -92,13 +92,17 @@ abstract classes can be constructed directly.</p>
 
 
 <dl><dt id="arg-convergence-tolerance">convergence_tolerance<a class="anchor" aria-label="anchor" href="#arg-convergence-tolerance"></a></dt>
-<dd><p>The solver convergence tolerance, or <code>NULL</code> for
-the core default.</p></dd>
+<dd><p>The solver convergence tolerance, or <code>NULL</code> to
+leave it to the solver. The value resolved for <code>NULL</code> differs by family:
+<code>1e-10</code> on the gradient for the estimating-equation methods, and <code>1e-8</code> as
+both the absolute and the relative tolerance for the quadratic-program
+methods.</p></dd>
 
 
 <dt id="arg-max-iterations">max_iterations<a class="anchor" aria-label="anchor" href="#arg-max-iterations"></a></dt>
-<dd><p>The maximum solver iterations, or <code>NULL</code> for the core
-default.</p></dd>
+<dd><p>The maximum solver iterations, or <code>NULL</code> to leave the
+cap to the solver. The value resolved for <code>NULL</code> is 1000 for the
+estimating-equation methods and 200000 for the quadratic-program methods.</p></dd>
 
 
 <dt id="arg-weight-penalty">weight_penalty<a class="anchor" aria-label="anchor" href="#arg-weight-penalty"></a></dt>
