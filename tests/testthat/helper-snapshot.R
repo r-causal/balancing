@@ -118,7 +118,9 @@ scrub_platform_values <- function(lines) {
     lines,
     perl = TRUE
   )
-  collapse_balance_table_spacing(round_wide_decimals(lines))
+  round_variation_coefficient(collapse_balance_table_spacing(round_wide_decimals(
+    lines
+  )))
 }
 
 # The columns a printed balance table carries, which is what its header is
@@ -194,6 +196,26 @@ is_balance_table_header <- function(line) {
 # Rounding the parsed value rather than truncating the text is what makes two
 # platforms agree: 6.438292e-11 and 6.438290e-11 are different doubles that both
 # carry 6.44e-11.
+# The coefficient of variation in a summary's weights block prints three
+# decimals, and on a fit whose solve differs across floating-point paths (the
+# cfd fixture with weights on the floor) the third decimal moves between
+# platforms: 1.732 on macOS arm64 against 1.734 on Windows. Two decimals is
+# inside that drift, so the scrub rounds the line to two.
+round_variation_coefficient <- function(lines) {
+  marked <- grepl("Coefficient of variation: [0-9]+[.][0-9]+", lines)
+  lines[marked] <- vapply(
+    lines[marked],
+    function(line) {
+      found <- regmatches(line, regexpr("[0-9]+[.][0-9]+", line))
+      value <- formatC(as.numeric(found), format = "f", digits = 2)
+      sub("[0-9]+[.][0-9]+", value, line)
+    },
+    character(1),
+    USE.NAMES = FALSE
+  )
+  lines
+}
+
 round_wide_decimals <- function(lines) {
   found <- gregexpr("[0-9]*[.][0-9]+(e[-+][0-9]+)?", lines, perl = TRUE)
   regmatches(lines, found) <- lapply(

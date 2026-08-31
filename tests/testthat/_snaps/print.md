@@ -28,7 +28,7 @@
       
       Range: 0.220 to 3.122
       Mean: 1.000
-      Coefficient of variation: 0.398
+      Coefficient of variation: 0.40
       
       -- Balance --
       
@@ -121,7 +121,7 @@
       
       Range: 0.027 to 7.351
       Mean: 1.000
-      Coefficient of variation: 0.769
+      Coefficient of variation: 0.77
       Weights at the minimum-weight floor: <n> of 500
       
       -- Balance --
@@ -147,7 +147,7 @@
       
       Range: 0.000 to 1.957
       Mean: 1.000
-      Coefficient of variation: 0.305
+      Coefficient of variation: 0.30
       Weights at the minimum-weight floor: <n> of 500
       
       -- Balance --
@@ -173,7 +173,7 @@
       
       Range: 0.000 to 20.5
       Mean: 1.000
-      Coefficient of variation: 1.732
+      Coefficient of variation: 1.73
       Weights at the minimum-weight floor: <n> of 500
       
       -- Balance --

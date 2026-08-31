@@ -141,3 +141,20 @@ test_that("scrub_platform_values() collapses only the balance-table block", {
     )
   )
 })
+
+test_that("the scrub rounds the variation coefficient to two decimals", {
+  # 1.732 and 1.734 are the same fit on two floating-point paths; both must
+  # scrub to one line. A number elsewhere on a line keeps its digits.
+  expect_identical(
+    scrub_platform_values(c(
+      "Coefficient of variation: 1.732",
+      "Coefficient of variation: 1.734",
+      "Mean: 1.000"
+    )),
+    c(
+      "Coefficient of variation: 1.73",
+      "Coefficient of variation: 1.73",
+      "Mean: 1.000"
+    )
+  )
+})
