@@ -356,9 +356,10 @@ test_that("standardize_columns() flattens a constant column under sampling weigh
   w <- withr::with_seed(1, stats::runif(n, 0.5, 2))
   m <- matrix(0.98, nrow = n, ncol = 1L, dimnames = list(NULL, "constant"))
 
-  # The fixture is only worth having while the arithmetic still misses: the
-  # weighted center of this column is a rounding step away from its value.
-  expect_false(identical(sum(w * m[, 1L]) / sum(w), 0.98))
+  # Whether `sum(w * x) / sum(w)` misses 0.98 is platform arithmetic: it misses
+  # by an ulp where long double is double (macOS arm64) and can round exactly
+  # back where sum() accumulates in 80 bits (Linux x86_64). The rule under test
+  # must flatten the column either way, so nothing here asserts the miss.
 
   expect_identical(
     standardize_columns(m, sampling_weights = w),
