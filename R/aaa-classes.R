@@ -229,15 +229,12 @@ fit_method <- new_generic("fit_method", "method", function(method, prepared) {
 #' For a continuous exposure there are no groups to equate, so a constraint
 #' column is instead held within `tolerance` of zero weighted correlation with
 #' the exposure. On the continuous energy path this is what `moments` and
-#' `interactions` request, the constraint WeightIt's `moments` and `int`
-#' arguments add to its own continuous energy method, and there the correlation
-#' is held exactly whatever `tolerance` says, for the reason [bw_energy()]
-#' records. The marginal distribution of the exposure and of the covariates is a
-#' separate matter, held by `distribution_moments` in [bw_energy()] and
-#' [bw_entropy()], which is WeightIt's `d.moments`. WeightIt raises its own
-#' `d.moments` to its `moments`, so matching a WeightIt call with `moments = k`
-#' for `k` above one takes `distribution_moments = k` in [bw_energy()] alongside
-#' `moments = k` here.
+#' `interactions` request, and there the correlation is held exactly whatever
+#' `tolerance` says, for the reason [bw_energy()] records. The marginal
+#' distribution of the exposure and of the covariates is a separate matter,
+#' held by `distribution_moments` in [bw_energy()] and [bw_entropy()]; asking
+#' for correlation constraints does not add marginal rows, and raising
+#' `distribution_moments` adds no correlation constraint.
 #'
 #' A factor covariate contributes one indicator per level rather than the
 #' reference coding a model formula would use. Those indicators sum to the
@@ -250,8 +247,7 @@ fit_method <- new_generic("fit_method", "method", function(method, prepared) {
 #' @param moments The highest covariate power to balance. A single whole number
 #'   or a named integer vector; `NULL` (the default) resolves to first moments.
 #'   For a continuous exposure each power is held at zero weighted correlation
-#'   with the exposure instead, the same constraint WeightIt's `moments`
-#'   argument adds.
+#'   with the exposure instead.
 #' @param interactions Whether to add pairwise interactions of the base columns.
 #'   These expand the constraint set the weights must balance, adding the
 #'   pairwise products of the base columns to the covariate functions a fit

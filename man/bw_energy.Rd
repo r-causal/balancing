@@ -43,10 +43,9 @@ refuses the same floor as infeasible instead.}
 
 \item{distribution_moments}{For a continuous exposure, the number of exposure
 and covariate marginal moments held equal to the sample under the base
-measure, or \code{NULL} for the first moments. This is WeightIt's \code{d.moments},
-and it is the only route to those rows: the \code{moments} in \code{\link[=balance_terms]{balance_terms()}}
-asks for exposure-covariate correlation constraints instead and leaves the
-marginals here. Energy balancing carries no base weights, so the base
+measure, or \code{NULL} for the first moments. This is the only route to those
+rows: the \code{moments} in \code{\link[=balance_terms]{balance_terms()}} asks for exposure-covariate
+correlation constraints instead and leaves the marginals here. Energy balancing carries no base weights, so the base
 measure is the sampling weights, and without them the marginals are held
 equal to the unweighted sample.}
 
@@ -101,17 +100,12 @@ marginal moments are held equal to the sample under the base measure, and
 \code{dimension_adjustment} reweights the covariate energy distance by the
 covariate dimensionality.
 
-The two knobs a continuous fit carries are separate, and the WeightIt package
-names them the same way: \code{moments} in \code{\link[=balance_terms]{balance_terms()}} is WeightIt's
-\code{moments}, adding a constraint that holds the weighted correlation of the
-exposure with each covariate power within its tolerance, which defaults to
-zero, and \code{distribution_moments} here is
-WeightIt's \code{d.moments}, pinning the marginal moments of the exposure and of
-the covariates. Neither sets the other here. WeightIt does couple them in one
-direction: \code{weightit()} raises its own \code{d.moments} to its \code{moments}, so a fit
-matching a WeightIt call with \code{moments = k} for \code{k} above one sets
-\code{distribution_moments = k} here as well as \code{moments = k} in
-\code{\link[=balance_terms]{balance_terms()}}. The correlation rows are held within the tolerance
+The two knobs a continuous fit carries are separate. \code{moments} in
+\code{\link[=balance_terms]{balance_terms()}} adds a constraint that holds the weighted correlation of
+the exposure with each covariate power within its tolerance, which defaults
+to zero, and \code{distribution_moments} pins the marginal moments of the
+exposure and of the covariates. Neither sets the other: a fit that wants
+both asks for both. The correlation rows are held within the tolerance
 \code{\link[=balance_terms]{balance_terms()}} carries, and reaching that band takes more than one solve.
 The quadratic program bounds a linearized correlation whose exposure and
 covariate scales are fixed at the sample, and the spread of energy weights
@@ -129,8 +123,7 @@ Without those rows the continuous objective targets distributional
 independence between the exposure and the covariates rather than zero
 correlations, and it does not drive the correlations to zero. A residual
 weighted correlation of roughly 0.1 to 0.3 is ordinary at a few hundred to a
-few thousand observations, and WeightIt's continuous energy method leaves the
-same residual. What holds it up is \code{weight_penalty}, which trades that
+few thousand observations. What holds it up is \code{weight_penalty}, which trades that
 residual against effective sample size: at its default of \code{1e-4} the penalty
 term is about three quarters of the objective at 1000 observations, leaving a
 largest correlation near 0.22 to 0.25 at an effective sample size near 71

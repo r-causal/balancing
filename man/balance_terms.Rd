@@ -16,8 +16,7 @@ balance_terms(
 \item{moments}{The highest covariate power to balance. A single whole number
 or a named integer vector; \code{NULL} (the default) resolves to first moments.
 For a continuous exposure each power is held at zero weighted correlation
-with the exposure instead, the same constraint WeightIt's \code{moments}
-argument adds.}
+with the exposure instead.}
 
 \item{interactions}{Whether to add pairwise interactions of the base columns.
 These expand the constraint set the weights must balance, adding the
@@ -72,15 +71,12 @@ tuning parameter for stable balancing weights.
 For a continuous exposure there are no groups to equate, so a constraint
 column is instead held within \code{tolerance} of zero weighted correlation with
 the exposure. On the continuous energy path this is what \code{moments} and
-\code{interactions} request, the constraint WeightIt's \code{moments} and \code{int}
-arguments add to its own continuous energy method, and there the correlation
-is held exactly whatever \code{tolerance} says, for the reason \code{\link[=bw_energy]{bw_energy()}}
-records. The marginal distribution of the exposure and of the covariates is a
-separate matter, held by \code{distribution_moments} in \code{\link[=bw_energy]{bw_energy()}} and
-\code{\link[=bw_entropy]{bw_entropy()}}, which is WeightIt's \code{d.moments}. WeightIt raises its own
-\code{d.moments} to its \code{moments}, so matching a WeightIt call with \code{moments = k}
-for \code{k} above one takes \code{distribution_moments = k} in \code{\link[=bw_energy]{bw_energy()}} alongside
-\code{moments = k} here.
+\code{interactions} request, and there the correlation is held exactly whatever
+\code{tolerance} says, for the reason \code{\link[=bw_energy]{bw_energy()}} records. The marginal
+distribution of the exposure and of the covariates is a separate matter,
+held by \code{distribution_moments} in \code{\link[=bw_energy]{bw_energy()}} and \code{\link[=bw_entropy]{bw_entropy()}}; asking
+for correlation constraints does not add marginal rows, and raising
+\code{distribution_moments} adds no correlation constraint.
 
 A factor covariate contributes one indicator per level rather than the
 reference coding a model formula would use. Those indicators sum to the

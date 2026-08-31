@@ -35,17 +35,12 @@
 #' `dimension_adjustment` reweights the covariate energy distance by the
 #' covariate dimensionality.
 #'
-#' The two knobs a continuous fit carries are separate, and the WeightIt package
-#' names them the same way: `moments` in [balance_terms()] is WeightIt's
-#' `moments`, adding a constraint that holds the weighted correlation of the
-#' exposure with each covariate power within its tolerance, which defaults to
-#' zero, and `distribution_moments` here is
-#' WeightIt's `d.moments`, pinning the marginal moments of the exposure and of
-#' the covariates. Neither sets the other here. WeightIt does couple them in one
-#' direction: `weightit()` raises its own `d.moments` to its `moments`, so a fit
-#' matching a WeightIt call with `moments = k` for `k` above one sets
-#' `distribution_moments = k` here as well as `moments = k` in
-#' [balance_terms()]. The correlation rows are held within the tolerance
+#' The two knobs a continuous fit carries are separate. `moments` in
+#' [balance_terms()] adds a constraint that holds the weighted correlation of
+#' the exposure with each covariate power within its tolerance, which defaults
+#' to zero, and `distribution_moments` pins the marginal moments of the
+#' exposure and of the covariates. Neither sets the other: a fit that wants
+#' both asks for both. The correlation rows are held within the tolerance
 #' [balance_terms()] carries, and reaching that band takes more than one solve.
 #' The quadratic program bounds a linearized correlation whose exposure and
 #' covariate scales are fixed at the sample, and the spread of energy weights
@@ -63,8 +58,7 @@
 #' independence between the exposure and the covariates rather than zero
 #' correlations, and it does not drive the correlations to zero. A residual
 #' weighted correlation of roughly 0.1 to 0.3 is ordinary at a few hundred to a
-#' few thousand observations, and WeightIt's continuous energy method leaves the
-#' same residual. What holds it up is `weight_penalty`, which trades that
+#' few thousand observations. What holds it up is `weight_penalty`, which trades that
 #' residual against effective sample size: at its default of `1e-4` the penalty
 #' term is about three quarters of the objective at 1000 observations, leaving a
 #' largest correlation near 0.22 to 0.25 at an effective sample size near 71
@@ -99,10 +93,9 @@
 #'   refuses the same floor as infeasible instead.
 #' @param distribution_moments For a continuous exposure, the number of exposure
 #'   and covariate marginal moments held equal to the sample under the base
-#'   measure, or `NULL` for the first moments. This is WeightIt's `d.moments`,
-#'   and it is the only route to those rows: the `moments` in [balance_terms()]
-#'   asks for exposure-covariate correlation constraints instead and leaves the
-#'   marginals here. Energy balancing carries no base weights, so the base
+#'   measure, or `NULL` for the first moments. This is the only route to those
+#'   rows: the `moments` in [balance_terms()] asks for exposure-covariate
+#'   correlation constraints instead and leaves the marginals here. Energy balancing carries no base weights, so the base
 #'   measure is the sampling weights, and without them the marginals are held
 #'   equal to the unweighted sample.
 #' @param dimension_adjustment For a continuous exposure, whether to weight the
@@ -694,8 +687,7 @@ fit_energy_continuous <- function(method, prepared, enforce, backend) {
 
   # The correlation rows hold the weighted correlation of the exposure with each
   # constraint column inside that column's tolerance, which is what `moments` and
-  # `interactions` in balance_terms() ask for on a continuous exposure and what
-  # WeightIt's `moments` argument means for a continuous treatment. The core
+  # `interactions` in balance_terms() ask for on a continuous exposure. The core
   # standardizes the exposure on the base measure itself and the first
   # distribution row pins its weighted mean there, so a row driven to zero is a
   # weighted covariance of zero rather than one offset by the gap between the two
