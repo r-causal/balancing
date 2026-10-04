@@ -12,7 +12,8 @@
           x2), method = bw_entropy(), estimand = "ate") 
       
       Outcome Model:
-        Call: stats::glm(formula = formula, family = family, data = data, weights = .wts) 
+        Call: stats::glm(formula = y ~ exposure, family = family, data = data, 
+          weights = .wts) 
       
       Marginal estimates:
                      estimate  std.err      z   ci.lower ci.upper conf.level
