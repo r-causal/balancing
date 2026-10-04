@@ -701,6 +701,8 @@ test_that("an ipw() result prints for a balancing fit", {
   )
   w <- as.numeric(stats::weights(fit))
   outcome_mod <- fit_outcome(y ~ exposure, data, w, stats::binomial())
+  # R versions differ in whether glm() stores the formula symbol or its value.
+  outcome_mod$call$formula <- quote(y ~ exposure)
 
   result <- ipw(fit, outcome_mod)
 
