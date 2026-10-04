@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1.74in" height="2in" viewBox="0 0 1740 2000">
+<title>balancing package logo</title>
+<defs><clipPath id="hex"><polygon points="870,0 1740,500 1740,1500 870,2000 0,1500 0,500"/></clipPath></defs>
+<g clip-path="url(#hex)"><rect width="1740" height="2000" fill="#263c3e"/>
+<image x="0" y="-120" width="1740" height="2320" xlink:href="artwork.png"/>
+<rect x="0" y="1490" width="1740" height="510" fill="#f4e6c5"/><path d="M 0 1490 H 1740" stroke="#244347" stroke-width="9"/><text x="870" y="1690" text-anchor="middle" font-family="Baskerville" font-size="210" font-weight="400" fill="#244347">balancing</text><polygon id="sticker-border" points="870,0 1740,500 1740,1500 870,2000 0,1500 0,500" fill="none" stroke="#244347" stroke-width="44" stroke-linejoin="miter"/></g></svg>

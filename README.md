@@ -1,7 +1,7 @@
 
 <!-- README.md is generated from README.Rmd. Please edit that file -->
 
-# balancing
+# balancing <a href="https://r-causal.github.io/balancing/"><img src="man/figures/logo.png" align="right" height="138" alt="balancing website" /></a>
 
 <!-- badges: start -->
 
